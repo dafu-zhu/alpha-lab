@@ -16,22 +16,61 @@ class Fundamental:
     def get_facts(self, field: str, sleep=True) -> List[dict]:
         """
         Get historical facts of a company using SEC XBRL
-        
+
         :param cik: Company identifier
         :type cik: str
         :param field: Accounting data to fetch
         :type field: str
+        :raises requests.RequestException: If HTTP request fails
+        :raises KeyError: If field is not available for this company
+        :raises ValueError: If data format is unexpected
         """
         cik_padded = str(self.cik).zfill(10)
         url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik_padded}.json"
-        res = requests.get(url=url, headers=HEADER).json()
+
+        try:
+            response = requests.get(url=url, headers=HEADER)
+            response.raise_for_status()
+            res = response.json()
+        except requests.RequestException as error:
+            raise requests.RequestException(f"Failed to fetch data for CIK {cik_padded}: {error}")
+        except json.JSONDecodeError as error:
+            raise ValueError(f"Invalid JSON response for CIK {cik_padded}: {error}")
 
         # Avoid reaching api rate limit (10/s)
         if sleep:
             time.sleep(0.1)
+
+        # Check if facts and us-gaap exist
+        if 'facts' not in res:
+            raise KeyError(f"No 'facts' data found for CIK {cik_padded}")
+
+        if 'us-gaap' not in res['facts']:
+            raise KeyError(f"No 'us-gaap' data found for CIK {cik_padded}")
+
         gaap = res['facts']['us-gaap']
+
+        # Check if field exists
+        if field not in gaap:
+            available_fields = list(gaap.keys())
+            raise KeyError(
+                f"Field '{field}' not available for CIK {cik_padded}. "
+                f"Available fields: {len(available_fields)} total"
+            )
+
+        # Check if USD units exist for this field
+        if 'units' not in gaap[field]:
+            raise KeyError(f"No 'units' data found for field '{field}' in CIK {cik_padded}")
+
+        if 'USD' not in gaap[field]['units']:
+            available_units = list(gaap[field]['units'].keys())
+            raise KeyError(
+                f"USD units not available for field '{field}' in CIK {cik_padded}. "
+                f"Available units: {available_units}"
+            )
+
         usd_result = gaap[field]['units']['USD']
-        
+
         return usd_result
 
     def get_dps(self, field: str) -> List[FndDataPoint]:
@@ -145,8 +184,8 @@ class Fundamental:
 
 # Example usage
 if __name__ == "__main__":
-    cik = '320193'  # Apple Inc.
-    symbol = 'AAPL'
+    cik = '1819994'  # Apple Inc.
+    symbol = 'RKLB'
     field = 'CostOfGoodsAndServicesSold'
     year = 2024
 
