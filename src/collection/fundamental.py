@@ -1,17 +1,21 @@
 import requests
-import json
 import time
 from collection.models import FndDataPoint
 import datetime as dt
-from typing import List, Dict
+from typing import List, Optional
 from pathlib import Path
 from collections import defaultdict
+import polars as pl
+import json
 
 HEADER = {'User-Agent': 'name@example.com'}
 
 class Fundamental:
-    def __init__(self, cik: str) -> None:
+    def __init__(self, cik: str, symbol: Optional[str] = None) -> None:
         self.cik = cik
+        self.symbol = symbol
+        self.log_dir = Path("data/logs/fundamental")
+        self.log_dir.mkdir(parents=True, exist_ok=True)
 
     def get_facts(self, field: str, sleep=True) -> List[dict]:
         """
@@ -102,6 +106,41 @@ class Fundamental:
 
         return dps
 
+    def _log_error(self, field: str, error_type: str, error_message: str) -> None:
+        """
+        Log field fetching errors to JSON file.
+
+        :param field: XBRL field name that failed
+        :param error_type: Type of error (e.g., 'FieldNotAvailable', 'RequestException')
+        :param error_message: Detailed error message
+        """
+        log_entry = {
+            'timestamp': dt.datetime.now().isoformat(),
+            'cik': self.cik,
+            'symbol': self.symbol or 'UNKNOWN',
+            'field': field,
+            'error_type': error_type,
+            'error_message': error_message
+        }
+
+        # Create log file path with current date
+        log_date = dt.datetime.now().strftime('%Y-%m-%d')
+        log_file = self.log_dir / f"errors_{log_date}.json"
+
+        # Read existing logs or create new list
+        if log_file.exists():
+            with open(log_file, 'r') as f:
+                logs = json.load(f)
+        else:
+            logs = []
+
+        # Append new log entry
+        logs.append(log_entry)
+
+        # Write back to file
+        with open(log_file, 'w') as f:
+            json.dump(logs, f, indent=2)
+
     def _deduplicate_dps(self, dps: List[FndDataPoint]) -> List[FndDataPoint]:
         """
         Deduplicate datapoints by keeping the most recent filing per fiscal period.
@@ -130,53 +169,119 @@ class Fundamental:
 
         return deduplicated
 
-    def generate_year_data(self, year: int, field: str, symbol: str) -> None:
+    def _generate_field_daily_values(self, year: int, field: str) -> Optional[List]:
         """
-        Generate daily values for a given year and field, save to JSON.
+        Generate daily values for a single field for a given year.
 
         For every calendar day in the year, assigns the most recent filed value
         as of that date (forward-fill logic).
 
         :param year: Year to generate data for (e.g., 2024)
         :param field: XBRL field name (e.g., 'CashAndCashEquivalentsAtCarryingValue')
+        :return: List of daily values (one per day of the year), or None if field unavailable
+        """
+        try:
+            # Get and deduplicate datapoints
+            raw_dps = self.get_dps(field)
+            dps = self._deduplicate_dps(raw_dps)
+
+            # Generate daily values for the year
+            start_date = dt.date(year, 1, 1)
+            end_date = dt.date(year, 12, 31)
+
+            values = []
+            current_value = None
+            current_day = start_date
+            dp_index = 0
+
+            while current_day <= end_date:
+                # Update current_value if a new filing was released on or before this day
+                while dp_index < len(dps) and dps[dp_index].timestamp <= current_day:
+                    current_value = dps[dp_index].value
+                    dp_index += 1
+
+                # Assign value for this day (None if no filing has been released yet)
+                values.append(current_value)
+                current_day += dt.timedelta(days=1)
+
+            return values
+
+        except KeyError as e:
+            # Field not available for this company
+            self._log_error(field, 'FieldNotAvailable', str(e))
+            print(f"  ⚠ Field '{field}' not available (logged)")
+            return None
+
+        except requests.RequestException as e:
+            # Network or API error
+            self._log_error(field, 'RequestException', str(e))
+            print(f"  ⚠ Request failed for '{field}' (logged)")
+            return None
+
+        except Exception as e:
+            # Unexpected error
+            self._log_error(field, 'UnexpectedException', str(e))
+            print(f"  ⚠ Unexpected error for '{field}': {e} (logged)")
+            return None
+
+    def generate_year_data(self, year: int, fields: List[str], symbol: str) -> None:
+        """
+        Generate daily values for a given year and multiple fields, save to Parquet.
+
+        For every calendar day in the year, assigns the most recent filed value
+        as of that date (forward-fill logic) for each field.
+
+        :param year: Year to generate data for (e.g., 2024)
+        :param fields: List of XBRL field names (e.g., ['CashAndCashEquivalentsAtCarryingValue', 'Assets'])
         :param symbol: Stock symbol (e.g., 'AAPL')
         """
-        # Get and deduplicate datapoints
-        raw_dps = self.get_dps(field)
-        dps = self._deduplicate_dps(raw_dps)
+        # Update symbol if not set during initialization
+        if not self.symbol:
+            self.symbol = symbol
 
-        # Generate daily values for the year
+        # Generate date range for the year
         start_date = dt.date(year, 1, 1)
         end_date = dt.date(year, 12, 31)
 
-        daily_data = {}
-        current_value = None
-
-        # Iterate through each day of the year
+        dates = []
         current_day = start_date
-        dp_index = 0
-
         while current_day <= end_date:
-            # Update current_value if a new filing was released on or before this day
-            while dp_index < len(dps) and dps[dp_index].timestamp <= current_day:
-                current_value = dps[dp_index].value
-                dp_index += 1
-
-            # Assign value for this day (None if no filing has been released yet)
-            daily_data[current_day.isoformat()] = current_value
-
+            dates.append(current_day.isoformat())
             current_day += dt.timedelta(days=1)
 
-        # Save to JSON
+        # Create DataFrame starting with date column
+        data = {'date': dates}
+        successful_fields = 0
+        failed_fields = 0
+
+        # Process each field
+        for field in fields:
+            print(f"Processing field: {field}")
+            values = self._generate_field_daily_values(year, field)
+
+            if values is not None:
+                data[field] = values
+                successful_fields += 1
+            else:
+                # Add None values for this field if it fails
+                data[field] = [None] * len(dates)
+                failed_fields += 1
+
+        # Create Polars DataFrame
+        df = pl.DataFrame(data)
+
+        # Save to Parquet
         output_dir = Path(f"data/fundamental/{symbol}/{year}")
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        output_file = output_dir / f"{field}.json"
+        output_file = output_dir / "fundamental.parquet"
+        df.write_parquet(output_file, compression='zstd')
 
-        with open(output_file, 'w') as file:
-            json.dump(daily_data, file, indent=2)
-
-        print(f"Saved {field} data for {symbol} ({year}) to {output_file}")
+        print(f"\n✓ Saved fundamental data for {symbol} ({year})")
+        print(f"  Successfully processed: {successful_fields}/{len(fields)} fields")
+        if failed_fields > 0:
+            print(f"  Failed fields: {failed_fields} (see logs in {self.log_dir})")
+        print(f"  Output: {output_file}")
 
 
 
@@ -184,22 +289,22 @@ class Fundamental:
 
 # Example usage
 if __name__ == "__main__":
-    cik = '1819994'  # Apple Inc.
+    cik = '1819994'  # Rocket Lab USA Inc.
     symbol = 'RKLB'
-    field = 'CostOfGoodsAndServicesSold'
+    fields = [
+        'CostOfGoodsAndServicesSold',  # May not be available for all companies
+        'Assets',
+        'Liabilities',
+        'StockholdersEquity',
+        'Revenues',  # Alternative field names to test
+        'CashAndCashEquivalentsAtCarryingValue'
+    ]
     year = 2024
 
-    # Create Fundamentals instance
-    fund = Fundamental(cik)
+    # Create Fundamentals instance with symbol for better logging
+    fund = Fundamental(cik, symbol=symbol)
 
-    # Test deduplication
-    print("Testing deduplication...")
-    raw_dps = fund.get_dps(field)
-    print(f"Raw datapoints: {len(raw_dps)}")
-
-    deduplicated_dps = fund._deduplicate_dps(raw_dps)
-    print(f"Deduplicated datapoints: {len(deduplicated_dps)}")
-
-    # Generate and save year data
-    print(f"\nGenerating daily data for {symbol} {year}...")
-    fund.generate_year_data(year=year, field=field, symbol=symbol)
+    # Generate and save year data for all fields
+    print(f"Generating daily data for {symbol} {year} with {len(fields)} fields...")
+    print("=" * 60)
+    fund.generate_year_data(year=year, fields=fields, symbol=symbol)
