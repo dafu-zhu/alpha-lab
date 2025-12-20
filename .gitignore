@@ -223,3 +223,6 @@ __marimo__/
 
 # MCP
 .playwright-mcp/
+
+# Temporary script
+tmp.py
