@@ -1,5 +1,4 @@
 import os
-import json
 import requests
 import time
 import zoneinfo
@@ -7,6 +6,8 @@ import datetime as dt
 from typing import Tuple, List
 from dataclasses import asdict
 from dotenv import load_dotenv
+import polars as pl
+from pathlib import Path
 
 from collection.models import TickField, TickDataPoint
 
@@ -120,7 +121,7 @@ class Ticks:
     def parse_ticks(self, ticks: List[dict]) -> List[TickDataPoint]:
         """
         Parse raw tick data from Alpaca API into TickDataPoint objects.
-        Converts timestamps from UTC to Eastern Time.
+        Converts timestamps from UTC to Eastern Time (timezone-naive).
 
         :param ticks: List of dictionaries with OHLCV data
         :return: List of TickDataPoint objects
@@ -133,10 +134,11 @@ class Ticks:
             timestamp_utc = dt.datetime.fromisoformat(
                 tick[TickField.TIMESTAMP.value].replace('Z', '+00:00')
             )
-            timestamp_et = timestamp_utc.astimezone(eastern).isoformat().replace('-05:00', '')
+            # Convert to Eastern Time and remove timezone info for storage
+            timestamp_et = timestamp_utc.astimezone(eastern).replace(tzinfo=None)
 
             dp = TickDataPoint(
-                timestamp=timestamp_et,
+                timestamp=timestamp_et.isoformat(),
                 open=tick[TickField.OPEN.value],
                 high=tick[TickField.HIGH.value],
                 low=tick[TickField.LOW.value],
@@ -150,11 +152,11 @@ class Ticks:
 
     def store_ticks(self, dps: List[TickDataPoint], storage_type: str = "minute"):
         """
-        Store tick datapoints to JSON file.
+        Store tick datapoints to Parquet file.
 
         Storage formats:
-        - minute: data/ticks/minute/{symbol}/{YYYY}/{MM}/{DD}/ticks.json
-        - daily: data/ticks/daily/{symbol}/{YYYY}/ticks.json
+        - minute: data/ticks/minute/{symbol}/{YYYY}/{MM}/{DD}/ticks.parquet (timestamp as Datetime)
+        - daily: data/ticks/daily/{symbol}/{YYYY}/ticks.parquet (timestamp as Date)
 
         :param dps: List of TickDataPoint objects
         :param storage_type: "minute" or "daily"
@@ -164,7 +166,7 @@ class Ticks:
 
         # Extract date from first timestamp (format: "2025-01-03T09:30:00")
         first_timestamp = dps[0].timestamp
-        date_obj = dt.datetime.fromisoformat(first_timestamp.replace('Z', '+00:00'))
+        date_obj = dt.datetime.fromisoformat(first_timestamp)
 
         # Build directory path based on storage type
         year = date_obj.strftime('%Y')
@@ -172,21 +174,45 @@ class Ticks:
         if storage_type == "minute":
             month = date_obj.strftime('%m')
             day = date_obj.strftime('%d')
-            dir_path = os.path.join('data', 'ticks', 'minute', self.symbol, year, month, day)
+            dir_path = Path(f"data/ticks/minute/{self.symbol}/{year}/{month}/{day}")
         elif storage_type == "daily":
-            dir_path = os.path.join('data', 'ticks', 'daily', self.symbol, year)
+            dir_path = Path(f"data/ticks/daily/{self.symbol}/{year}")
         else:
             raise ValueError(f"Invalid storage_type: {storage_type}. Must be 'minute' or 'daily'")
-
-        os.makedirs(dir_path, exist_ok=True)
+        dir_path.mkdir(parents=True, exist_ok=True)
 
         # Convert datapoints to dictionaries
         ticks_data = [asdict(dp) for dp in dps]
 
-        # Write to JSON file
-        file_path = os.path.join(dir_path, 'ticks.json')
-        with open(file_path, 'w') as f:
-            json.dump(ticks_data, f, indent=2)
+        # Create DataFrame with appropriate schema based on storage type
+        if storage_type == "minute":
+            # For minute data: keep full datetime
+            df = pl.DataFrame(ticks_data).with_columns([
+                pl.col('timestamp').str.to_datetime(format='%Y-%m-%dT%H:%M:%S'),
+                pl.col('open').cast(pl.Float64),
+                pl.col('high').cast(pl.Float64),
+                pl.col('low').cast(pl.Float64),
+                pl.col('close').cast(pl.Float64),
+                pl.col('volume').cast(pl.Int64),
+                pl.col('num_trades').cast(pl.Int64),
+                pl.col('vwap').cast(pl.Float64)
+            ])
+        else:  # daily
+            # For daily data: extract date only
+            df = pl.DataFrame(ticks_data).with_columns([
+                pl.col('timestamp').str.to_date(format='%Y-%m-%dT%H:%M:%S'),
+                pl.col('open').cast(pl.Float64),
+                pl.col('high').cast(pl.Float64),
+                pl.col('low').cast(pl.Float64),
+                pl.col('close').cast(pl.Float64),
+                pl.col('volume').cast(pl.Int64),
+                pl.col('num_trades').cast(pl.Int64),
+                pl.col('vwap').cast(pl.Float64)
+            ])
+
+        # Write to Parquet file
+        file_path = dir_path / 'ticks.parquet'
+        df.write_parquet(file_path, compression='zstd')
 
         print(f"Stored {len(dps)} {storage_type} ticks to {file_path}")
 
