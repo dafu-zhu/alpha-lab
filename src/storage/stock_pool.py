@@ -101,7 +101,7 @@ def fetch_sec_stocks():
     dir_path = os.path.join('data', 'symbols')
     os.makedirs(dir_path, exist_ok=True)
     file_path = os.path.join(dir_path, 'stock_exchange.csv')
-    df.to_csv(file_path)
+    df.to_csv(file_path, index=False)
     
     return df
 
