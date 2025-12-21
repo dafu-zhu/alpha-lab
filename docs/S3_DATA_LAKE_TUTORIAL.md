@@ -2,814 +2,655 @@
 
 ## Introduction
 
-This comprehensive tutorial teaches you how to build a production-ready data lake on AWS S3 using the Boto3 Python SDK. The tutorial is structured around the US Equity Data Lake project, but the concepts apply to any large-scale data storage system.
+This tutorial teaches you how to build the US Equity Data Lake on AWS S3 using Boto3. We focus **only** on the core methods and parameters you'll actually use in this project.
 
 ### What You'll Learn
 
-- **Bucket Management**: Creating and organizing S3 buckets for data lake architecture
-- **Data Upload Strategies**: Efficient file uploads with progress tracking and error handling
-- **Data Download Patterns**: Retrieving data from your lake efficiently
-- **Transfer Optimization**: Configuring multipart transfers, concurrency, and threading
-- **Security & Access Control**: Presigned URLs for secure temporary access
-- **Production Best Practices**: Error handling, retry logic, and monitoring
+- **S3 Client Configuration**: Optimized settings for data lake operations
+- **Upload Operations**: Single files, parallel uploads, from memory
+- **Download Operations**: Single files, parallel downloads, to memory
+- **Batch Operations**: Uploading/downloading thousands of files efficiently
+- **Transfer Optimization**: Multipart uploads and concurrency tuning
 
 ### Prerequisites
 
 - Python 3.8+
-- AWS Account with S3 access
 - AWS credentials configured (see [S3_CONFIGURATION.md](S3_CONFIGURATION.md))
-- Basic understanding of Python and AWS S3 concepts
+- Boto3 installed: `pip install boto3`
 
 ---
 
 ## Table of Contents
 
-1. [Understanding Data Lake Architecture on S3](#1-understanding-data-lake-architecture-on-s3)
-2. [Setting Up Your S3 Bucket](#2-setting-up-your-s3-bucket)
-3. [Uploading Data to Your Data Lake](#3-uploading-data-to-your-data-lake)
-4. [Downloading Data from Your Data Lake](#4-downloading-data-from-your-data-lake)
-5. [Optimizing File Transfers](#5-optimizing-file-transfers)
-6. [Batch Operations and Parallelization](#6-batch-operations-and-parallelization)
-7. [Managing Access with Presigned URLs](#7-managing-access-with-presigned-urls)
-8. [Production Patterns and Best Practices](#8-production-patterns-and-best-practices)
-9. [Complete Implementation Example](#9-complete-implementation-example)
+1. [Core S3 Client Methods](#1-core-s3-client-methods)
+2. [Upload Operations](#2-upload-operations)
+3. [Download Operations](#3-download-operations)
+4. [Listing and Checking Objects](#4-listing-and-checking-objects)
+5. [Transfer Optimization](#5-transfer-optimization)
+6. [Batch Operations](#6-batch-operations)
+7. [Production Patterns](#7-production-patterns)
+8. [Complete Implementation](#8-complete-implementation)
 
 ---
 
-## 1. Understanding Data Lake Architecture on S3
+## 1. Core S3 Client Methods
 
-### What is a Data Lake?
-
-A data lake is a centralized repository that stores all structured and unstructured data at any scale. Unlike traditional databases, data lakes:
-
-- Store raw data in native formats (JSON, Parquet, CSV)
-- Support massive scale (petabytes of data)
-- Enable schema-on-read (define structure when reading, not when writing)
-- Provide cost-effective long-term storage
-
-### Why S3 for Data Lakes?
-
-Amazon S3 is ideal for data lakes because it provides:
-
-✅ **Infinite scalability** - Store unlimited data
-✅ **Durability** - 99.999999999% (11 9's) durability
-✅ **Cost-effective** - Pay only for what you use (~$0.023/GB/month)
-✅ **High availability** - 99.99% availability SLA
-✅ **Integration** - Works with AWS analytics services (Athena, Glue, EMR)
-
-### Our Data Lake Structure
-
-For the US Equity Data Lake, we organize data by type and time partitions:
-
-```
-s3://us-equity-datalake/
-├── ticks/
-│   ├── daily/
-│   │   ├── AAPL/
-│   │   │   ├── 2024/
-│   │   │   │   └── ticks.json
-│   │   │   ├── 2023/
-│   │   │   │   └── ticks.json
-│   ├── minute/
-│   │   ├── AAPL/
-│   │   │   ├── 2024/
-│   │   │   │   ├── 01/
-│   │   │   │   │   ├── 15/
-│   │   │   │   │   │   └── ticks.parquet
-├── fundamental/
-│   ├── AAPL/
-│   │   ├── 2024/
-│   │   │   └── fundamental.json
-├── reference/
-│   ├── ticker_metadata.parquet
-│   └── index_constituents.parquet
-```
-
-**Key Design Principles:**
-
-1. **Hierarchical partitioning** - Organize by symbol → year → month → day
-2. **Predictable paths** - Easy to construct object keys programmatically
-3. **Format optimization** - JSON for small files, Parquet for large datasets
-4. **Separation of concerns** - Different data types in different prefixes
-
----
-
-## 2. Setting Up Your S3 Bucket
-
-### Step 1: Create Your Data Lake Bucket
+### Methods Used in Data Lake Project
 
 ```python
-import logging
+import boto3
+from botocore.config import Config
+
+# Initialize S3 client (covered in S3_CONFIGURATION.md)
+s3_client = boto3.client('s3', config=config)
+
+# Core methods we use:
+s3_client.upload_file(Filename, Bucket, Key, Config, ExtraArgs, Callback)
+s3_client.download_file(Bucket, Key, Filename, Config, Callback)
+s3_client.upload_fileobj(Fileobj, Bucket, Key, Config, ExtraArgs, Callback)
+s3_client.download_fileobj(Bucket, Key, Fileobj, Config, Callback)
+s3_client.list_objects_v2(Bucket, Prefix, MaxKeys, ContinuationToken)
+s3_client.head_object(Bucket, Key)
+```
+
+### Why These Methods?
+
+| Method | Use Case in Data Lake | Why Necessary |
+|--------|----------------------|---------------|
+| `upload_file` | Upload Parquet files from disk to S3 | Main method for daily/minute tick uploads |
+| `download_file` | Download Parquet files from S3 to disk | Query API downloads data for analysis |
+| `upload_fileobj` | Upload JSON data directly from memory | Avoid disk I/O for small fundamental data |
+| `download_fileobj` | Read JSON data directly into memory | Query API returns data without disk writes |
+| `list_objects_v2` | List all tick files for a symbol | Query API needs to find all available dates |
+| `head_object` | Check if file exists before download | Avoid errors when checking data availability |
+
+---
+
+## 2. Upload Operations
+
+### 2.1 upload_file() - Upload from Disk
+
+**Purpose:** Upload a file from local disk to S3.
+
+**All Parameters Explained:**
+
+```python
+s3_client.upload_file(
+    Filename='local/path/to/file.parquet',  # REQUIRED: Local file path
+    Bucket='us-equity-datalake',             # REQUIRED: S3 bucket name
+    Key='data/ticks/daily/AAPL/2024/ticks.parquet',  # REQUIRED: S3 object key
+
+    Config=TransferConfig(...),              # OPTIONAL: Transfer optimization settings
+
+    ExtraArgs={                              # OPTIONAL: Additional S3 parameters
+        'Metadata': {                        # Custom metadata (key-value pairs)
+            'symbol': 'AAPL',
+            'collection-date': '2024-12-19',
+            'data-type': 'daily-ticks'
+        },
+        'ContentType': 'application/octet-stream'  # MIME type
+    },
+
+    Callback=ProgressPercentage(filename)    # OPTIONAL: Progress tracking function
+)
+```
+
+**Parameter Details:**
+
+| Parameter | Type | Required | Purpose in Data Lake |
+|-----------|------|----------|---------------------|
+| `Filename` | str | ✅ Yes | Path to local Parquet/JSON file to upload |
+| `Bucket` | str | ✅ Yes | Always `'us-equity-datalake'` in our project |
+| `Key` | str | ✅ Yes | S3 path following our structure: `data/ticks/daily/{symbol}/{year}/ticks.parquet` |
+| `Config` | TransferConfig | ⚠️ Recommended | Controls multipart upload, concurrency (see section 5) |
+| `ExtraArgs` | dict | ❌ Optional | We use `Metadata` to track data lineage (source, date, symbol) |
+| `Callback` | callable | ❌ Optional | We use for progress bars during large uploads |
+
+**Example Usage in Data Lake:**
+
+```python
 import boto3
 from botocore.exceptions import ClientError
+import logging
 
-def create_data_lake_bucket(bucket_name, region='us-east-2'):
+s3_client = boto3.client('s3')
+
+def upload_daily_ticks(symbol, year, local_file_path):
     """
-    Create an S3 bucket for data lake storage.
+    Upload daily tick data for a symbol/year.
 
-    Args:
-        bucket_name: Unique bucket name (must be globally unique)
-        region: AWS region (default: us-east-2)
-
-    Returns:
-        True if bucket created successfully, False otherwise
+    Example: Upload AAPL 2024 daily ticks
+    Local:  data/AAPL_2024.parquet
+    S3:     data/ticks/daily/AAPL/2024/ticks.parquet
     """
+    bucket = 'us-equity-datalake'
+    s3_key = f'data/ticks/daily/{symbol}/{year}/ticks.parquet'
+
     try:
-        # Create S3 client in the target region
-        s3_client = boto3.client('s3', region_name=region)
-
-        # Configure bucket creation
-        bucket_config = {}
-        if region != 'us-east-1':
-            # LocationConstraint required for all regions except us-east-1
-            bucket_config = {
-                'CreateBucketConfiguration': {
-                    'LocationConstraint': region
+        s3_client.upload_file(
+            Filename=local_file_path,
+            Bucket=bucket,
+            Key=s3_key,
+            ExtraArgs={
+                'Metadata': {
+                    'symbol': symbol,
+                    'year': str(year),
+                    'data-type': 'daily-ticks'
                 }
             }
-
-        # Create the bucket
-        s3_client.create_bucket(
-            Bucket=bucket_name,
-            **bucket_config
         )
-
-        logging.info(f"Successfully created bucket: {bucket_name} in {region}")
-        return True
-
-    except ClientError as e:
-        error_code = e.response['Error']['Code']
-
-        if error_code == 'BucketAlreadyOwnedByYou':
-            logging.info(f"Bucket {bucket_name} already exists and is owned by you")
-            return True
-        elif error_code == 'BucketAlreadyExists':
-            logging.error(f"Bucket {bucket_name} already exists globally (owned by someone else)")
-        else:
-            logging.error(f"Error creating bucket: {e}")
-
-        return False
-
-# Usage
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-
-    # Create bucket for US equity data lake
-    create_data_lake_bucket('us-equity-datalake-YOUR-UNIQUE-ID', region='us-east-2')
-```
-
-**Important Notes:**
-
-- **Bucket names must be globally unique** across all AWS accounts
-- **Bucket names are permanent** - choose carefully
-- **Use DNS-compliant names** - lowercase letters, numbers, hyphens only
-- **Consider naming convention** - `{project}-{environment}-{purpose}-{unique-id}`
-
-### Step 2: Verify Bucket Creation
-
-```python
-def list_buckets():
-    """List all S3 buckets in your AWS account."""
-    s3_client = boto3.client('s3')
-
-    try:
-        response = s3_client.list_buckets()
-
-        print('Available S3 buckets:')
-        for bucket in response['Buckets']:
-            print(f"  - {bucket['Name']} (created: {bucket['CreationDate']})")
-
-    except ClientError as e:
-        logging.error(f"Error listing buckets: {e}")
-
-# Usage
-list_buckets()
-```
-
-### Step 3: Configure Bucket Lifecycle Policies (Optional)
-
-For cost optimization, configure lifecycle policies to transition older data to cheaper storage classes:
-
-```python
-def configure_lifecycle_policy(bucket_name):
-    """
-    Configure S3 lifecycle policy for cost optimization.
-
-    Transitions:
-    - After 30 days: Standard → Standard-IA (Infrequent Access)
-    - After 90 days: Standard-IA → Glacier
-    - After 365 days: Glacier → Deep Archive
-    """
-    s3_client = boto3.client('s3')
-
-    lifecycle_policy = {
-        'Rules': [
-            {
-                'Id': 'archive-old-data',
-                'Status': 'Enabled',
-                'Prefix': '',  # Apply to all objects
-                'Transitions': [
-                    {
-                        'Days': 30,
-                        'StorageClass': 'STANDARD_IA'
-                    },
-                    {
-                        'Days': 90,
-                        'StorageClass': 'GLACIER'
-                    },
-                    {
-                        'Days': 365,
-                        'StorageClass': 'DEEP_ARCHIVE'
-                    }
-                ]
-            }
-        ]
-    }
-
-    try:
-        s3_client.put_bucket_lifecycle_configuration(
-            Bucket=bucket_name,
-            LifecycleConfiguration=lifecycle_policy
-        )
-        logging.info(f"Lifecycle policy configured for {bucket_name}")
-    except ClientError as e:
-        logging.error(f"Error configuring lifecycle policy: {e}")
-
-# Usage (optional - only if you want automatic archival)
-# configure_lifecycle_policy('us-equity-datalake-YOUR-UNIQUE-ID')
-```
-
----
-
-## 3. Uploading Data to Your Data Lake
-
-### Basic Upload: Single File
-
-The simplest way to upload a file to S3:
-
-```python
-import boto3
-from botocore.exceptions import ClientError
-import logging
-
-def upload_file_basic(local_file_path, bucket_name, s3_object_key):
-    """
-    Upload a single file to S3.
-
-    Args:
-        local_file_path: Path to local file (e.g., 'data/AAPL_2024.json')
-        bucket_name: S3 bucket name
-        s3_object_key: Destination path in S3 (e.g., 'ticks/daily/AAPL/2024/ticks.json')
-
-    Returns:
-        True if successful, False otherwise
-    """
-    s3_client = boto3.client('s3')
-
-    try:
-        s3_client.upload_file(local_file_path, bucket_name, s3_object_key)
-        logging.info(f"Uploaded {local_file_path} to s3://{bucket_name}/{s3_object_key}")
-        return True
-    except ClientError as e:
-        logging.error(f"Upload failed: {e}")
-        return False
-    except FileNotFoundError:
-        logging.error(f"File not found: {local_file_path}")
-        return False
-
-# Usage
-upload_file_basic(
-    local_file_path='data/ticks/AAPL_2024.json',
-    bucket_name='us-equity-datalake',
-    s3_object_key='ticks/daily/AAPL/2024/ticks.json'
-)
-```
-
-### Upload with Metadata
-
-Attach custom metadata to track data lineage and properties:
-
-```python
-def upload_with_metadata(local_file_path, bucket_name, s3_object_key, metadata=None):
-    """
-    Upload file with custom metadata.
-
-    Example metadata:
-    {
-        'source': 'yfinance',
-        'collection-date': '2024-01-15',
-        'symbol': 'AAPL',
-        'data-type': 'daily-ticks'
-    }
-    """
-    s3_client = boto3.client('s3')
-
-    # Default metadata if none provided
-    if metadata is None:
-        metadata = {}
-
-    try:
-        s3_client.upload_file(
-            local_file_path,
-            bucket_name,
-            s3_object_key,
-            ExtraArgs={
-                'Metadata': metadata,
-                'ContentType': 'application/json'  # Set appropriate content type
-            }
-        )
-        logging.info(f"Uploaded with metadata: {s3_object_key}")
+        logging.info(f"Uploaded {symbol} {year} to {s3_key}")
         return True
     except ClientError as e:
         logging.error(f"Upload failed: {e}")
         return False
 
 # Usage
-upload_with_metadata(
-    local_file_path='data/ticks/AAPL_2024.json',
-    bucket_name='us-equity-datalake',
-    s3_object_key='ticks/daily/AAPL/2024/ticks.json',
-    metadata={
-        'source': 'yfinance',
-        'collection-date': '2024-01-15',
-        'symbol': 'AAPL',
-        'data-type': 'daily-ticks',
-        'record-count': '252'
-    }
-)
+upload_daily_ticks('AAPL', 2024, 'data/AAPL_2024.parquet')
 ```
 
-### Upload with Progress Tracking
+### 2.2 upload_fileobj() - Upload from Memory
 
-For large files, track upload progress:
+**Purpose:** Upload data directly from memory without creating a temporary file.
+
+**All Parameters Explained:**
 
 ```python
-import os
-import sys
-import threading
+import io
 
-class ProgressPercentage:
-    """
-    Progress callback for S3 uploads/downloads.
+s3_client.upload_fileobj(
+    Fileobj=io.BytesIO(data_bytes),          # REQUIRED: File-like object
+    Bucket='us-equity-datalake',             # REQUIRED: S3 bucket name
+    Key='data/fundamental/AAPL/2024/Q4.json', # REQUIRED: S3 object key
 
-    Displays progress as: filename  123 MB / 456 MB  (27.00%)
-    """
-
-    def __init__(self, filename):
-        self._filename = filename
-        self._size = float(os.path.getsize(filename))
-        self._seen_so_far = 0
-        self._lock = threading.Lock()
-
-    def __call__(self, bytes_amount):
-        # Called by boto3 during transfer
-        with self._lock:
-            self._seen_so_far += bytes_amount
-            percentage = (self._seen_so_far / self._size) * 100
-
-            sys.stdout.write(
-                f"\r{self._filename}  {self._seen_so_far / 1024 / 1024:.2f} MB / "
-                f"{self._size / 1024 / 1024:.2f} MB  ({percentage:.2f}%)"
-            )
-            sys.stdout.flush()
-
-def upload_with_progress(local_file_path, bucket_name, s3_object_key):
-    """Upload file with progress bar."""
-    s3_client = boto3.client('s3')
-
-    try:
-        s3_client.upload_file(
-            local_file_path,
-            bucket_name,
-            s3_object_key,
-            Callback=ProgressPercentage(local_file_path)
-        )
-        print()  # New line after progress
-        logging.info(f"Upload complete: {s3_object_key}")
-        return True
-    except ClientError as e:
-        logging.error(f"Upload failed: {e}")
-        return False
-
-# Usage
-upload_with_progress(
-    local_file_path='data/large_dataset.parquet',
-    bucket_name='us-equity-datalake',
-    s3_object_key='ticks/minute/AAPL/2024/01/data.parquet'
+    Config=TransferConfig(...),              # OPTIONAL: Transfer settings
+    ExtraArgs={'Metadata': {...}},           # OPTIONAL: Metadata
+    Callback=progress_callback               # OPTIONAL: Progress tracking
 )
 ```
 
-### Upload from File-Like Object
+**When to Use in Data Lake:**
+- ✅ Uploading small fundamental data (JSON) - no need to write to disk first
+- ✅ Uploading reference data (ticker metadata, index constituents)
+- ❌ NOT for large Parquet files - use `upload_file` instead
 
-Upload data directly from memory without saving to disk:
+**Example Usage:**
 
 ```python
 import io
 import json
 
-def upload_from_memory(data, bucket_name, s3_object_key):
+def upload_fundamental_data(symbol, year, quarter, data_dict):
     """
-    Upload data from memory (without creating local file).
+    Upload fundamental data directly from Python dict to S3.
 
-    Useful for:
-    - Small datasets that fit in memory
-    - Transformed data (avoid intermediate file creation)
-    - Streaming data processing
+    No temporary file created - saves disk I/O.
     """
     s3_client = boto3.client('s3')
 
-    # Convert data to bytes
-    if isinstance(data, dict) or isinstance(data, list):
-        # JSON data
-        data_bytes = json.dumps(data).encode('utf-8')
-    elif isinstance(data, str):
-        data_bytes = data.encode('utf-8')
-    else:
-        data_bytes = data
+    # Convert dict to JSON bytes
+    json_bytes = json.dumps(data_dict, indent=2).encode('utf-8')
+    file_obj = io.BytesIO(json_bytes)
 
-    # Create file-like object
-    file_obj = io.BytesIO(data_bytes)
+    s3_key = f'data/fundamental/{symbol}/{year}/Q{quarter}.json'
 
     try:
-        s3_client.upload_fileobj(file_obj, bucket_name, s3_object_key)
-        logging.info(f"Uploaded from memory: {s3_object_key}")
+        s3_client.upload_fileobj(
+            Fileobj=file_obj,
+            Bucket='us-equity-datalake',
+            Key=s3_key,
+            ExtraArgs={
+                'Metadata': {
+                    'symbol': symbol,
+                    'year': str(year),
+                    'quarter': str(quarter),
+                    'source': 'sec-edgar'
+                },
+                'ContentType': 'application/json'
+            }
+        )
+        logging.info(f"Uploaded {symbol} {year} Q{quarter} fundamental data")
         return True
     except ClientError as e:
         logging.error(f"Upload failed: {e}")
         return False
 
 # Usage
-data = {
+fundamental_data = {
     'symbol': 'AAPL',
-    'date': '2024-01-15',
-    'close': 185.92,
-    'volume': 54213000
+    'revenue': 123456789,
+    'net_income': 23456789,
+    # ... more metrics
 }
-
-upload_from_memory(
-    data=data,
-    bucket_name='us-equity-datalake',
-    s3_object_key='ticks/daily/AAPL/2024/01-15.json'
-)
+upload_fundamental_data('AAPL', 2024, 4, fundamental_data)
 ```
 
 ---
 
-## 4. Downloading Data from Your Data Lake
+## 3. Download Operations
 
-### Basic Download: Single File
+### 3.1 download_file() - Download to Disk
 
-Download a file from S3 to local disk:
+**Purpose:** Download a file from S3 to local disk.
+
+**All Parameters Explained:**
 
 ```python
-def download_file_basic(bucket_name, s3_object_key, local_file_path):
-    """
-    Download a single file from S3.
+s3_client.download_file(
+    Bucket='us-equity-datalake',             # REQUIRED: S3 bucket name
+    Key='data/ticks/daily/AAPL/2024/ticks.parquet',  # REQUIRED: S3 object key
+    Filename='local/downloads/AAPL_2024.parquet',    # REQUIRED: Local destination path
 
-    Args:
-        bucket_name: S3 bucket name
-        s3_object_key: Source path in S3
-        local_file_path: Destination path on local disk
+    Config=TransferConfig(...),              # OPTIONAL: Transfer settings
+    Callback=progress_callback               # OPTIONAL: Progress tracking
+)
+```
 
-    Returns:
-        True if successful, False otherwise
+**Parameter Details:**
+
+| Parameter | Type | Required | Purpose in Data Lake |
+|-----------|------|----------|---------------------|
+| `Bucket` | str | ✅ Yes | Always `'us-equity-datalake'` |
+| `Key` | str | ✅ Yes | S3 path to the file we want to download |
+| `Filename` | str | ✅ Yes | Where to save the downloaded file locally |
+| `Config` | TransferConfig | ⚠️ Recommended | Controls download concurrency for large files |
+| `Callback` | callable | ❌ Optional | Progress tracking for user feedback |
+
+**Example Usage in Data Lake:**
+
+```python
+def download_daily_ticks(symbol, year, local_dir='downloads'):
     """
+    Download daily tick data for analysis.
+
+    S3:     data/ticks/daily/AAPL/2024/ticks.parquet
+    Local:  downloads/AAPL_2024.parquet
+    """
+    import os
+    from pathlib import Path
+
     s3_client = boto3.client('s3')
 
+    # Create download directory
+    Path(local_dir).mkdir(parents=True, exist_ok=True)
+
+    s3_key = f'data/ticks/daily/{symbol}/{year}/ticks.parquet'
+    local_path = os.path.join(local_dir, f'{symbol}_{year}.parquet')
+
     try:
-        s3_client.download_file(bucket_name, s3_object_key, local_file_path)
-        logging.info(f"Downloaded s3://{bucket_name}/{s3_object_key} to {local_file_path}")
-        return True
+        s3_client.download_file(
+            Bucket='us-equity-datalake',
+            Key=s3_key,
+            Filename=local_path
+        )
+        logging.info(f"Downloaded {symbol} {year} to {local_path}")
+        return local_path
     except ClientError as e:
-        error_code = e.response['Error']['Code']
-        if error_code == '404':
-            logging.error(f"Object not found: {s3_object_key}")
+        if e.response['Error']['Code'] == '404':
+            logging.error(f"File not found: {s3_key}")
         else:
             logging.error(f"Download failed: {e}")
-        return False
+        return None
 
 # Usage
-download_file_basic(
-    bucket_name='us-equity-datalake',
-    s3_object_key='ticks/daily/AAPL/2024/ticks.json',
-    local_file_path='data/downloads/AAPL_2024.json'
-)
+local_file = download_daily_ticks('AAPL', 2024)
+if local_file:
+    import pandas as pd
+    df = pd.read_parquet(local_file)
+    print(df.head())
 ```
 
-### Download with Progress Tracking
+### 3.2 download_fileobj() - Download to Memory
+
+**Purpose:** Download file directly into memory (no disk I/O).
+
+**All Parameters Explained:**
 
 ```python
-def download_with_progress(bucket_name, s3_object_key, local_file_path):
-    """Download file with progress bar."""
-    s3_client = boto3.client('s3')
+import io
 
-    # Get file size first
-    try:
-        response = s3_client.head_object(Bucket=bucket_name, Key=s3_object_key)
-        file_size = response['ContentLength']
+file_obj = io.BytesIO()
 
-        # Create custom progress callback
-        class DownloadProgress:
-            def __init__(self, filename, size):
-                self._filename = filename
-                self._size = float(size)
-                self._seen_so_far = 0
-                self._lock = threading.Lock()
+s3_client.download_fileobj(
+    Bucket='us-equity-datalake',             # REQUIRED: S3 bucket name
+    Key='data/fundamental/AAPL/2024/Q4.json', # REQUIRED: S3 object key
+    Fileobj=file_obj,                        # REQUIRED: File-like object to write to
 
-            def __call__(self, bytes_amount):
-                with self._lock:
-                    self._seen_so_far += bytes_amount
-                    percentage = (self._seen_so_far / self._size) * 100
-                    sys.stdout.write(
-                        f"\r{self._filename}  {self._seen_so_far / 1024 / 1024:.2f} MB / "
-                        f"{self._size / 1024 / 1024:.2f} MB  ({percentage:.2f}%)"
-                    )
-                    sys.stdout.flush()
-
-        # Download with progress
-        s3_client.download_file(
-            bucket_name,
-            s3_object_key,
-            local_file_path,
-            Callback=DownloadProgress(s3_object_key, file_size)
-        )
-        print()  # New line after progress
-        logging.info(f"Download complete: {local_file_path}")
-        return True
-
-    except ClientError as e:
-        logging.error(f"Download failed: {e}")
-        return False
-
-# Usage
-download_with_progress(
-    bucket_name='us-equity-datalake',
-    s3_object_key='ticks/minute/AAPL/2024/01/data.parquet',
-    local_file_path='data/downloads/AAPL_minute_data.parquet'
+    Config=TransferConfig(...),              # OPTIONAL: Transfer settings
+    Callback=progress_callback               # OPTIONAL: Progress tracking
 )
+
+file_obj.seek(0)  # Reset to beginning
+data = file_obj.read()  # Read bytes
 ```
 
-### Download to Memory
+**When to Use in Data Lake:**
+- ✅ Query API returning data without saving to disk
+- ✅ Small files (fundamentals, reference data) that fit in memory
+- ❌ NOT for large Parquet files (hundreds of MB) - use `download_file`
 
-Download data directly into memory without creating a file:
+**Example Usage:**
 
 ```python
 import io
 import json
 
-def download_to_memory(bucket_name, s3_object_key):
+def get_fundamental_data(symbol, year, quarter):
     """
-    Download file directly to memory (no disk I/O).
+    Download fundamental data directly into memory and return as dict.
 
-    Returns:
-        File contents as bytes, or None if error
+    No temporary file created - faster for small JSON files.
     """
     s3_client = boto3.client('s3')
+    s3_key = f'data/fundamental/{symbol}/{year}/Q{quarter}.json'
 
     try:
-        # Create in-memory file object
-        file_obj = io.BytesIO()
-
         # Download to memory
-        s3_client.download_fileobj(bucket_name, s3_object_key, file_obj)
+        file_obj = io.BytesIO()
+        s3_client.download_fileobj(
+            Bucket='us-equity-datalake',
+            Key=s3_key,
+            Fileobj=file_obj
+        )
 
-        # Reset file pointer to beginning
+        # Parse JSON
         file_obj.seek(0)
+        data = json.loads(file_obj.read().decode('utf-8'))
 
-        # Read and return bytes
-        return file_obj.read()
+        logging.info(f"Retrieved {symbol} {year} Q{quarter} fundamental data")
+        return data
 
     except ClientError as e:
         logging.error(f"Download failed: {e}")
         return None
 
-def download_json_to_dict(bucket_name, s3_object_key):
-    """Download JSON file and parse to Python dictionary."""
-    data_bytes = download_to_memory(bucket_name, s3_object_key)
-
-    if data_bytes:
-        return json.loads(data_bytes.decode('utf-8'))
-    return None
-
 # Usage
-data = download_json_to_dict(
-    bucket_name='us-equity-datalake',
-    s3_object_key='ticks/daily/AAPL/2024/ticks.json'
-)
-
+data = get_fundamental_data('AAPL', 2024, 4)
 if data:
-    print(f"Downloaded {len(data)} records")
-```
-
-### Check if Object Exists Before Downloading
-
-```python
-def object_exists(bucket_name, s3_object_key):
-    """
-    Check if an S3 object exists.
-
-    Returns:
-        True if exists, False otherwise
-    """
-    s3_client = boto3.client('s3')
-
-    try:
-        s3_client.head_object(Bucket=bucket_name, Key=s3_object_key)
-        return True
-    except ClientError as e:
-        error_code = e.response['Error']['Code']
-        if error_code == '404':
-            return False
-        else:
-            # Other error (permissions, etc.)
-            logging.error(f"Error checking object existence: {e}")
-            return False
-
-def safe_download(bucket_name, s3_object_key, local_file_path):
-    """Download file only if it exists."""
-    if object_exists(bucket_name, s3_object_key):
-        return download_file_basic(bucket_name, s3_object_key, local_file_path)
-    else:
-        logging.warning(f"Object does not exist: {s3_object_key}")
-        return False
-
-# Usage
-safe_download(
-    bucket_name='us-equity-datalake',
-    s3_object_key='ticks/daily/AAPL/2024/ticks.json',
-    local_file_path='data/AAPL_2024.json'
-)
+    print(f"Revenue: ${data['revenue']:,}")
+    print(f"Net Income: ${data['net_income']:,}")
 ```
 
 ---
 
-## 5. Optimizing File Transfers
+## 4. Listing and Checking Objects
 
-### Understanding TransferConfig
+### 4.1 list_objects_v2() - List Files in S3
 
-The `TransferConfig` object controls how boto3 handles file transfers. This is critical for data lake operations involving millions of files.
+**Purpose:** List all objects with a given prefix (folder path).
+
+**All Parameters Explained:**
+
+```python
+response = s3_client.list_objects_v2(
+    Bucket='us-equity-datalake',             # REQUIRED: S3 bucket name
+
+    Prefix='data/ticks/daily/AAPL/',         # OPTIONAL: Filter by prefix
+    MaxKeys=1000,                            # OPTIONAL: Max results per page (default: 1000)
+    ContinuationToken='...',                 # OPTIONAL: For pagination
+    StartAfter='data/ticks/daily/AAPL/2020/' # OPTIONAL: Start listing after this key
+)
+
+# Response structure:
+{
+    'Contents': [
+        {'Key': 'data/ticks/daily/AAPL/2024/ticks.parquet', 'Size': 12345, 'LastModified': ...},
+        {'Key': 'data/ticks/daily/AAPL/2023/ticks.parquet', 'Size': 11234, 'LastModified': ...},
+    ],
+    'IsTruncated': False,
+    'NextContinuationToken': '...'  # Use for next page if IsTruncated=True
+}
+```
+
+**Parameter Details:**
+
+| Parameter | Type | Required | Purpose in Data Lake |
+|-----------|------|----------|---------------------|
+| `Bucket` | str | ✅ Yes | Our data lake bucket |
+| `Prefix` | str | ⚠️ Recommended | Filter files: `'data/ticks/daily/AAPL/'` returns only AAPL files |
+| `MaxKeys` | int | ❌ Optional | Limit results (default 1000). We rarely need to change this. |
+| `ContinuationToken` | str | ❌ Auto | Used for pagination when results > 1000 |
+| `StartAfter` | str | ❌ Optional | We don't use this (Prefix is sufficient) |
+
+**Example Usage in Data Lake:**
+
+```python
+def list_available_years(symbol):
+    """
+    List all years we have daily tick data for a symbol.
+
+    Example: For AAPL, return [2024, 2023, 2022, ...]
+    """
+    s3_client = boto3.client('s3')
+    prefix = f'data/ticks/daily/{symbol}/'
+
+    years = []
+    continuation_token = None
+
+    while True:
+        # Build request parameters
+        params = {
+            'Bucket': 'us-equity-datalake',
+            'Prefix': prefix
+        }
+        if continuation_token:
+            params['ContinuationToken'] = continuation_token
+
+        # List objects
+        response = s3_client.list_objects_v2(**params)
+
+        # Extract years from object keys
+        if 'Contents' in response:
+            for obj in response['Contents']:
+                # Key format: data/ticks/daily/AAPL/2024/ticks.parquet
+                parts = obj['Key'].split('/')
+                if len(parts) >= 5:
+                    year = int(parts[4])
+                    if year not in years:
+                        years.append(year)
+
+        # Check for more pages
+        if response.get('IsTruncated'):
+            continuation_token = response['NextContinuationToken']
+        else:
+            break
+
+    return sorted(years, reverse=True)
+
+# Usage
+years = list_available_years('AAPL')
+print(f"AAPL data available for: {years}")
+# Output: AAPL data available for: [2024, 2023, 2022, 2021, ...]
+```
+
+### 4.2 head_object() - Check if File Exists
+
+**Purpose:** Check if an object exists and get its metadata without downloading it.
+
+**All Parameters Explained:**
+
+```python
+response = s3_client.head_object(
+    Bucket='us-equity-datalake',             # REQUIRED: S3 bucket name
+    Key='data/ticks/daily/AAPL/2024/ticks.parquet'  # REQUIRED: S3 object key
+)
+
+# Response structure:
+{
+    'ContentLength': 12345,
+    'ContentType': 'application/octet-stream',
+    'LastModified': datetime(2024, 12, 19, ...),
+    'Metadata': {
+        'symbol': 'AAPL',
+        'year': '2024',
+        'data-type': 'daily-ticks'
+    }
+}
+```
+
+**Parameter Details:**
+
+| Parameter | Type | Required | Purpose in Data Lake |
+|-----------|------|----------|---------------------|
+| `Bucket` | str | ✅ Yes | Our data lake bucket |
+| `Key` | str | ✅ Yes | S3 path to check |
+
+**Example Usage in Data Lake:**
+
+```python
+def data_exists(symbol, year):
+    """
+    Check if we have daily tick data for a symbol/year.
+
+    Returns True if file exists, False otherwise.
+    """
+    s3_client = boto3.client('s3')
+    s3_key = f'data/ticks/daily/{symbol}/{year}/ticks.parquet'
+
+    try:
+        s3_client.head_object(
+            Bucket='us-equity-datalake',
+            Key=s3_key
+        )
+        return True
+    except ClientError as e:
+        if e.response['Error']['Code'] == '404':
+            return False
+        else:
+            # Other error (permissions, etc.)
+            logging.error(f"Error checking {s3_key}: {e}")
+            return False
+
+# Usage in Query API
+def get_daily_ticks(symbol, year):
+    """Download data only if it exists."""
+    if not data_exists(symbol, year):
+        logging.warning(f"No data for {symbol} {year}")
+        return None
+
+    return download_daily_ticks(symbol, year)
+
+# Usage
+df = get_daily_ticks('AAPL', 2024)
+```
+
+---
+
+## 5. Transfer Optimization
+
+### TransferConfig Class
+
+**Purpose:** Control how boto3 handles file transfers (multipart uploads, concurrency, threading).
+
+**All Parameters Explained:**
 
 ```python
 from boto3.s3.transfer import TransferConfig
 
-# Default configuration (what boto3 uses if you don't specify)
-default_config = TransferConfig(
-    multipart_threshold=8 * 1024 * 1024,  # 8 MB
-    max_concurrency=10,
-    multipart_chunksize=8 * 1024 * 1024,  # 8 MB
-    num_download_attempts=5,
-    max_io_queue=100,
-    io_chunksize=262144,  # 256 KB
-    use_threads=True
+config = TransferConfig(
+    multipart_threshold=10 * 1024 * 1024,    # 10 MB - when to use multipart upload
+    max_concurrency=20,                      # Number of parallel uploads
+    multipart_chunksize=10 * 1024 * 1024,    # 10 MB - size of each part
+    num_download_attempts=5,                 # Retry attempts per chunk
+    max_io_queue=100,                        # Internal queue size
+    io_chunksize=262144,                     # 256 KB - read/write chunk size
+    use_threads=True                         # Enable threading
 )
 ```
 
-### Multipart Transfers
+**Parameter Details for Data Lake:**
 
-For large files, boto3 automatically splits them into chunks and uploads in parallel:
+| Parameter | Default | Our Setting | Why? |
+|-----------|---------|-------------|------|
+| `multipart_threshold` | 8 MB | **10 MB** | Files > 10 MB split into parts. Our Parquet files are 10-500 MB. |
+| `max_concurrency` | 10 | **20** | Upload 20 parts simultaneously. We have good bandwidth, want speed. |
+| `multipart_chunksize` | 8 MB | **10 MB** | Each part is 10 MB. Balance: fewer HTTP requests vs. retry cost. |
+| `num_download_attempts` | 5 | **5** (keep default) | Retry 5 times per chunk. Good for unreliable networks. |
+| `max_io_queue` | 100 | **100** (keep default) | Internal queue size. No need to change. |
+| `io_chunksize` | 256 KB | **256 KB** (keep default) | Read/write chunk size. No need to change. |
+| `use_threads` | True | **True** (keep default) | Enable threading for parallel uploads. Always keep True. |
+
+**Visual: How Multipart Upload Works**
+
+```
+Without multipart (file < 10 MB):
+File (8 MB) ────────────────────────> S3
+Single HTTP request, ~2 seconds
+
+With multipart (file > 10 MB):
+File (100 MB) split into 10 parts (10 MB each)
+Part 1 (10 MB) ──────> S3
+Part 2 (10 MB) ──────> S3  } 20 concurrent uploads
+Part 3 (10 MB) ──────> S3  }
+...                         } Much faster!
+Part 10 (10 MB) ─────> S3
+
+Upload time: ~5 seconds instead of ~20 seconds
+```
+
+**Example Usage in Data Lake:**
 
 ```python
-def upload_large_file(local_file_path, bucket_name, s3_object_key):
-    """
-    Upload large file with optimized multipart settings.
+from boto3.s3.transfer import TransferConfig
 
-    Recommended for files > 100 MB
-    """
+# Configure for our data lake (optimized for 10-500 MB Parquet files)
+transfer_config = TransferConfig(
+    multipart_threshold=10 * 1024 * 1024,   # 10 MB
+    max_concurrency=20,                      # 20 parallel parts
+    multipart_chunksize=10 * 1024 * 1024,   # 10 MB parts
+    use_threads=True
+)
+
+def upload_daily_ticks_optimized(symbol, year, local_file_path):
+    """Upload with optimized transfer settings."""
     s3_client = boto3.client('s3')
-
-    # Configure for large file uploads
-    config = TransferConfig(
-        multipart_threshold=100 * 1024 * 1024,  # Files > 100 MB use multipart
-        multipart_chunksize=10 * 1024 * 1024,   # 10 MB chunks
-        max_concurrency=20,                      # 20 parallel uploads
-        use_threads=True
-    )
+    s3_key = f'data/ticks/daily/{symbol}/{year}/ticks.parquet'
 
     try:
         s3_client.upload_file(
-            local_file_path,
-            bucket_name,
-            s3_object_key,
-            Config=config,
-            Callback=ProgressPercentage(local_file_path)
+            Filename=local_file_path,
+            Bucket='us-equity-datalake',
+            Key=s3_key,
+            Config=transfer_config  # Use our optimized config
         )
-        print()
-        logging.info(f"Large file uploaded: {s3_object_key}")
+        logging.info(f"Uploaded {symbol} {year} (optimized)")
         return True
     except ClientError as e:
         logging.error(f"Upload failed: {e}")
         return False
 
 # Usage
-upload_large_file(
-    local_file_path='data/minute_ticks_2024.parquet',  # 500 MB file
-    bucket_name='us-equity-datalake',
-    s3_object_key='ticks/minute/AAPL/2024/full_year.parquet'
-)
-```
-
-**What Happens:**
-1. File is split into 10 MB chunks
-2. 20 chunks upload simultaneously
-3. S3 automatically assembles the chunks
-4. Much faster than single-threaded upload
-
-### Adjusting Concurrency for Network Speed
-
-```python
-def upload_optimized_for_network(local_file_path, bucket_name, s3_object_key, network_speed='fast'):
-    """
-    Upload with network-appropriate concurrency.
-
-    Args:
-        network_speed: 'slow', 'medium', 'fast', or 'very_fast'
-    """
-    s3_client = boto3.client('s3')
-
-    # Network-appropriate configurations
-    configs = {
-        'slow': TransferConfig(
-            max_concurrency=5,
-            multipart_threshold=50 * 1024 * 1024  # 50 MB
-        ),
-        'medium': TransferConfig(
-            max_concurrency=10,
-            multipart_threshold=20 * 1024 * 1024  # 20 MB
-        ),
-        'fast': TransferConfig(
-            max_concurrency=20,
-            multipart_threshold=10 * 1024 * 1024  # 10 MB
-        ),
-        'very_fast': TransferConfig(
-            max_concurrency=50,
-            multipart_threshold=5 * 1024 * 1024   # 5 MB
-        )
-    }
-
-    config = configs.get(network_speed, configs['medium'])
-
-    try:
-        s3_client.upload_file(
-            local_file_path,
-            bucket_name,
-            s3_object_key,
-            Config=config
-        )
-        logging.info(f"Uploaded with {network_speed} network config")
-        return True
-    except ClientError as e:
-        logging.error(f"Upload failed: {e}")
-        return False
-```
-
-### Disabling Threads for Debugging
-
-Sometimes threading complicates debugging. Disable for troubleshooting:
-
-```python
-def upload_single_threaded(local_file_path, bucket_name, s3_object_key):
-    """Upload without threading (easier to debug)."""
-    s3_client = boto3.client('s3')
-
-    config = TransferConfig(
-        use_threads=False  # Disable threading
-    )
-
-    try:
-        s3_client.upload_file(
-            local_file_path,
-            bucket_name,
-            s3_object_key,
-            Config=config
-        )
-        logging.info(f"Single-threaded upload complete")
-        return True
-    except ClientError as e:
-        logging.error(f"Upload failed: {e}")
-        return False
+upload_daily_ticks_optimized('AAPL', 2024, 'data/AAPL_2024.parquet')
 ```
 
 ---
 
-## 6. Batch Operations and Parallelization
+## 6. Batch Operations
 
-### Uploading Multiple Files
+### Parallel Upload with ThreadPoolExecutor
 
-For data lake backfills, you need to upload thousands of files efficiently:
+**Purpose:** Upload thousands of files efficiently using parallel threads.
+
+**Why Necessary for Data Lake:**
+- Daily backfill: Upload 5,000 symbols × 15 years = 75,000 files
+- Sequential upload: ~75,000 seconds (~21 hours)
+- Parallel upload (20 workers): ~3,750 seconds (~1 hour)
+
+**Example Implementation:**
 
 ```python
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+import logging
 
-def upload_directory(local_dir, bucket_name, s3_prefix, max_workers=10):
+def upload_directory_parallel(local_dir, s3_prefix, max_workers=20):
     """
     Upload entire directory to S3 in parallel.
 
     Args:
-        local_dir: Local directory path
-        bucket_name: S3 bucket name
-        s3_prefix: S3 prefix (folder) to upload to
-        max_workers: Number of parallel uploads
+        local_dir: Local directory (e.g., 'data/ticks/daily')
+        s3_prefix: S3 prefix (e.g., 'data/ticks/daily')
+        max_workers: Number of parallel uploads (default: 20)
 
     Returns:
         Dictionary with success/failure counts
@@ -817,345 +658,159 @@ def upload_directory(local_dir, bucket_name, s3_prefix, max_workers=10):
     s3_client = boto3.client('s3')
     local_dir = Path(local_dir)
 
-    # Find all files to upload
+    # Find all Parquet files to upload
     files_to_upload = []
-    for file_path in local_dir.rglob('*'):
-        if file_path.is_file():
-            # Calculate S3 object key
-            relative_path = file_path.relative_to(local_dir)
-            s3_key = f"{s3_prefix}/{relative_path}".replace('\\', '/')
-            files_to_upload.append((str(file_path), s3_key))
+    for file_path in local_dir.rglob('*.parquet'):
+        relative_path = file_path.relative_to(local_dir)
+        s3_key = f"{s3_prefix}/{relative_path}".replace('\\', '/')
+        files_to_upload.append((str(file_path), s3_key))
 
-    print(f"Found {len(files_to_upload)} files to upload")
+    total = len(files_to_upload)
+    logging.info(f"Found {total} files to upload")
+
+    # Upload function for each file
+    def upload_single_file(file_info):
+        local_path, s3_key = file_info
+        try:
+            s3_client.upload_file(
+                Filename=local_path,
+                Bucket='us-equity-datalake',
+                Key=s3_key
+            )
+            return True, s3_key
+        except Exception as e:
+            logging.error(f"Failed {s3_key}: {e}")
+            return False, s3_key
 
     # Upload in parallel
     results = {'success': 0, 'failed': 0}
 
-    def upload_file(file_info):
-        local_path, s3_key = file_info
-        try:
-            s3_client.upload_file(local_path, bucket_name, s3_key)
-            return True, s3_key
-        except Exception as e:
-            logging.error(f"Failed to upload {local_path}: {e}")
-            return False, s3_key
-
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all upload tasks
-        futures = {executor.submit(upload_file, f): f for f in files_to_upload}
+        # Submit all tasks
+        futures = {executor.submit(upload_single_file, f): f for f in files_to_upload}
 
         # Process results as they complete
-        for future in as_completed(futures):
+        for i, future in enumerate(as_completed(futures), 1):
             success, s3_key = future.result()
             if success:
                 results['success'] += 1
-                print(f"✓ Uploaded {s3_key}")
             else:
                 results['failed'] += 1
-                print(f"✗ Failed {s3_key}")
 
-    print(f"\nUpload complete: {results['success']} succeeded, {results['failed']} failed")
+            # Progress update
+            print(f"\rProgress: {i}/{total} ({i/total*100:.1f}%)", end='')
+
+    print()  # New line
+    logging.info(f"Upload complete: {results['success']} success, {results['failed']} failed")
     return results
 
-# Usage
-upload_directory(
+# Usage: Daily ticks backfill
+results = upload_directory_parallel(
     local_dir='data/ticks/daily',
-    bucket_name='us-equity-datalake',
-    s3_prefix='ticks/daily',
-    max_workers=20  # Upload 20 files simultaneously
+    s3_prefix='data/ticks/daily',
+    max_workers=20  # 20 concurrent uploads
 )
 ```
 
-### Downloading Multiple Files
+### Parallel Download
 
 ```python
-def download_by_prefix(bucket_name, s3_prefix, local_dir, max_workers=10):
+def download_directory_parallel(s3_prefix, local_dir, max_workers=20):
     """
-    Download all objects with a given prefix (folder).
+    Download all files with a given prefix in parallel.
 
-    Args:
-        bucket_name: S3 bucket name
-        s3_prefix: S3 prefix to download from
-        local_dir: Local directory to download to
-        max_workers: Number of parallel downloads
-
-    Returns:
-        Number of files downloaded
+    Example: Download all AAPL daily ticks (all years)
     """
     s3_client = boto3.client('s3')
     local_dir = Path(local_dir)
     local_dir.mkdir(parents=True, exist_ok=True)
 
     # List all objects with prefix
-    objects_to_download = []
-    paginator = s3_client.get_paginator('list_objects_v2')
-
-    for page in paginator.paginate(Bucket=bucket_name, Prefix=s3_prefix):
-        if 'Contents' in page:
-            for obj in page['Contents']:
-                objects_to_download.append(obj['Key'])
-
-    print(f"Found {len(objects_to_download)} objects to download")
-
-    # Download in parallel
-    def download_object(s3_key):
-        # Calculate local file path
-        relative_path = s3_key.replace(s3_prefix, '').lstrip('/')
-        local_path = local_dir / relative_path
-        local_path.parent.mkdir(parents=True, exist_ok=True)
-
-        try:
-            s3_client.download_file(bucket_name, s3_key, str(local_path))
-            return True, s3_key
-        except Exception as e:
-            logging.error(f"Failed to download {s3_key}: {e}")
-            return False, s3_key
-
-    downloaded_count = 0
-
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(download_object, key): key for key in objects_to_download}
-
-        for future in as_completed(futures):
-            success, s3_key = future.result()
-            if success:
-                downloaded_count += 1
-                print(f"✓ Downloaded {s3_key}")
-
-    print(f"\nDownload complete: {downloaded_count} files")
-    return downloaded_count
-
-# Usage
-download_by_prefix(
-    bucket_name='us-equity-datalake',
-    s3_prefix='ticks/daily/AAPL',
-    local_dir='data/downloads/AAPL',
-    max_workers=20
-)
-```
-
-### Listing Objects Efficiently
-
-```python
-def list_objects_by_prefix(bucket_name, prefix='', max_keys=1000):
-    """
-    List S3 objects with pagination support.
-
-    Args:
-        bucket_name: S3 bucket name
-        prefix: Filter by prefix
-        max_keys: Maximum keys to return (None for all)
-
-    Returns:
-        List of object keys
-    """
-    s3_client = boto3.client('s3')
-
     objects = []
     continuation_token = None
 
     while True:
-        # Build request parameters
-        params = {
-            'Bucket': bucket_name,
-            'Prefix': prefix
-        }
-
+        params = {'Bucket': 'us-equity-datalake', 'Prefix': s3_prefix}
         if continuation_token:
             params['ContinuationToken'] = continuation_token
 
-        # List objects
         response = s3_client.list_objects_v2(**params)
 
-        # Add objects from this page
         if 'Contents' in response:
-            for obj in response['Contents']:
-                objects.append({
-                    'Key': obj['Key'],
-                    'Size': obj['Size'],
-                    'LastModified': obj['LastModified']
-                })
+            objects.extend([obj['Key'] for obj in response['Contents']])
 
-                # Stop if we hit max_keys
-                if max_keys and len(objects) >= max_keys:
-                    return objects
-
-        # Check if there are more pages
         if response.get('IsTruncated'):
             continuation_token = response['NextContinuationToken']
         else:
             break
 
-    return objects
+    logging.info(f"Found {len(objects)} files to download")
 
-# Usage
-# List all AAPL daily tick files
-aapl_files = list_objects_by_prefix(
-    bucket_name='us-equity-datalake',
-    prefix='ticks/daily/AAPL/'
-)
+    # Download function
+    def download_single_file(s3_key):
+        relative_path = s3_key.replace(s3_prefix, '').lstrip('/')
+        local_path = local_dir / relative_path
+        local_path.parent.mkdir(parents=True, exist_ok=True)
 
-print(f"Found {len(aapl_files)} files for AAPL")
-for file in aapl_files[:5]:  # Show first 5
-    print(f"  {file['Key']} - {file['Size'] / 1024:.2f} KB")
-```
-
----
-
-## 7. Managing Access with Presigned URLs
-
-Presigned URLs allow temporary access to S3 objects without AWS credentials. Useful for:
-
-- **Sharing data** with collaborators
-- **Web applications** that need direct S3 access
-- **Temporary access** for external systems
-
-### Generate Presigned URL for Download
-
-```python
-def generate_download_url(bucket_name, s3_object_key, expiration=3600):
-    """
-    Generate presigned URL for downloading an object.
-
-    Args:
-        bucket_name: S3 bucket name
-        s3_object_key: S3 object key
-        expiration: URL validity in seconds (default: 1 hour)
-
-    Returns:
-        Presigned URL string, or None if error
-    """
-    s3_client = boto3.client('s3')
-
-    try:
-        url = s3_client.generate_presigned_url(
-            'get_object',
-            Params={
-                'Bucket': bucket_name,
-                'Key': s3_object_key
-            },
-            ExpiresIn=expiration
-        )
-        return url
-    except ClientError as e:
-        logging.error(f"Error generating presigned URL: {e}")
-        return None
-
-# Usage
-url = generate_download_url(
-    bucket_name='us-equity-datalake',
-    s3_object_key='ticks/daily/AAPL/2024/ticks.json',
-    expiration=3600  # Valid for 1 hour
-)
-
-if url:
-    print(f"Share this URL: {url}")
-    print("Anyone with this URL can download the file for the next hour")
-```
-
-### Using Presigned URLs
-
-```python
-import requests
-
-def download_with_presigned_url(presigned_url, local_file_path):
-    """Download file using presigned URL (no AWS credentials needed)."""
-    try:
-        response = requests.get(presigned_url)
-        response.raise_for_status()  # Raise error for bad status codes
-
-        with open(local_file_path, 'wb') as f:
-            f.write(response.content)
-
-        logging.info(f"Downloaded to {local_file_path}")
-        return True
-    except requests.RequestException as e:
-        logging.error(f"Download failed: {e}")
-        return False
-
-# Usage (this can run on ANY machine, no AWS credentials required)
-url = "https://us-equity-datalake.s3.us-east-2.amazonaws.com/ticks/daily/AAPL/2024/ticks.json?..."
-download_with_presigned_url(url, 'AAPL_data.json')
-```
-
-### Generate Presigned URL for Upload
-
-Allow external users to upload files to your data lake:
-
-```python
-def generate_upload_url(bucket_name, s3_object_key, expiration=3600):
-    """
-    Generate presigned URL for uploading an object.
-
-    Returns:
-        Dictionary with 'url' and 'fields' for POST request
-    """
-    s3_client = boto3.client('s3')
-
-    try:
-        response = s3_client.generate_presigned_post(
-            Bucket=bucket_name,
-            Key=s3_object_key,
-            ExpiresIn=expiration
-        )
-        return response
-    except ClientError as e:
-        logging.error(f"Error generating upload URL: {e}")
-        return None
-
-# Usage
-upload_url_data = generate_upload_url(
-    bucket_name='us-equity-datalake',
-    s3_object_key='uploads/user_data.csv',
-    expiration=7200  # Valid for 2 hours
-)
-
-if upload_url_data:
-    print(f"Upload URL: {upload_url_data['url']}")
-    print(f"Fields: {upload_url_data['fields']}")
-```
-
-```python
-def upload_with_presigned_url(presigned_post_data, local_file_path):
-    """Upload file using presigned POST URL."""
-    try:
-        with open(local_file_path, 'rb') as f:
-            files = {'file': (local_file_path, f)}
-            response = requests.post(
-                presigned_post_data['url'],
-                data=presigned_post_data['fields'],
-                files=files
+        try:
+            s3_client.download_file(
+                Bucket='us-equity-datalake',
+                Key=s3_key,
+                Filename=str(local_path)
             )
+            return True, s3_key
+        except Exception as e:
+            logging.error(f"Failed {s3_key}: {e}")
+            return False, s3_key
 
-        response.raise_for_status()
-        logging.info(f"Upload successful")
-        return True
-    except requests.RequestException as e:
-        logging.error(f"Upload failed: {e}")
-        return False
+    # Download in parallel
+    downloaded = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(download_single_file, key): key for key in objects}
+
+        for future in as_completed(futures):
+            success, s3_key = future.result()
+            if success:
+                downloaded += 1
+            print(f"\rDownloaded: {downloaded}/{len(objects)}", end='')
+
+    print()
+    logging.info(f"Download complete: {downloaded} files")
+    return downloaded
+
+# Usage: Download all AAPL data
+download_directory_parallel(
+    s3_prefix='data/ticks/daily/AAPL',
+    local_dir='downloads/AAPL',
+    max_workers=20
+)
 ```
 
 ---
 
-## 8. Production Patterns and Best Practices
+## 7. Production Patterns
 
-### Error Handling and Retries
+### Error Handling with Retries
 
 ```python
-from botocore.exceptions import ClientError
 import time
+from botocore.exceptions import ClientError
 
-def upload_with_retry(local_file_path, bucket_name, s3_object_key, max_retries=3):
+def upload_with_retry(local_path, s3_key, max_retries=3):
     """
-    Upload with automatic retry on failure.
+    Upload with automatic retry on transient errors.
 
-    Implements exponential backoff for transient errors.
+    Implements exponential backoff: 1s, 2s, 4s between retries.
     """
     s3_client = boto3.client('s3')
 
     for attempt in range(max_retries):
         try:
-            s3_client.upload_file(local_file_path, bucket_name, s3_object_key)
+            s3_client.upload_file(
+                Filename=local_path,
+                Bucket='us-equity-datalake',
+                Key=s3_key
+            )
             logging.info(f"Upload succeeded on attempt {attempt + 1}")
             return True
 
@@ -1169,87 +824,17 @@ def upload_with_retry(local_file_path, bucket_name, s3_object_key, max_retries=3
 
             # Transient errors - retry with backoff
             if attempt < max_retries - 1:
-                wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
-                logging.warning(f"Upload failed (attempt {attempt + 1}), retrying in {wait_time}s...")
-                time.sleep(wait_time)
+                wait = 2 ** attempt  # 1s, 2s, 4s
+                logging.warning(f"Attempt {attempt + 1} failed, retrying in {wait}s...")
+                time.sleep(wait)
             else:
-                logging.error(f"Upload failed after {max_retries} attempts")
+                logging.error(f"Failed after {max_retries} attempts")
                 return False
-
-        except Exception as e:
-            logging.error(f"Unexpected error: {e}")
-            return False
 
     return False
 
 # Usage
-upload_with_retry(
-    local_file_path='data/important_data.json',
-    bucket_name='us-equity-datalake',
-    s3_object_key='critical/data.json',
-    max_retries=5
-)
-```
-
-### Atomic Uploads (Avoid Partial Files)
-
-```python
-import tempfile
-import shutil
-
-def atomic_upload(data_generator_func, bucket_name, s3_object_key):
-    """
-    Upload file atomically - either complete upload or nothing.
-
-    Prevents partial/corrupted files in S3.
-
-    Args:
-        data_generator_func: Function that generates/writes data to a file path
-        bucket_name: S3 bucket name
-        s3_object_key: S3 object key
-    """
-    s3_client = boto3.client('s3')
-
-    # Create temporary file
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.tmp') as tmp_file:
-        tmp_path = tmp_file.name
-
-        try:
-            # Generate data to temporary file
-            data_generator_func(tmp_file)
-            tmp_file.flush()
-
-            # Upload only if data generation succeeded
-            s3_client.upload_file(tmp_path, bucket_name, s3_object_key)
-            logging.info(f"Atomic upload complete: {s3_object_key}")
-            return True
-
-        except Exception as e:
-            logging.error(f"Atomic upload failed: {e}")
-            return False
-
-        finally:
-            # Clean up temporary file
-            try:
-                Path(tmp_path).unlink()
-            except:
-                pass
-
-# Usage
-def generate_daily_ticks(file_obj):
-    """Example data generator function."""
-    import json
-    data = {
-        'symbol': 'AAPL',
-        'ticks': [...]  # Generate tick data
-    }
-    json.dump(data, file_obj)
-
-atomic_upload(
-    data_generator_func=generate_daily_ticks,
-    bucket_name='us-equity-datalake',
-    s3_object_key='ticks/daily/AAPL/2024/ticks.json'
-)
+upload_with_retry('data/AAPL_2024.parquet', 'data/ticks/daily/AAPL/2024/ticks.parquet')
 ```
 
 ### Logging and Monitoring
@@ -1258,101 +843,59 @@ atomic_upload(
 import logging
 from datetime import datetime
 
-# Configure structured logging
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(f'data_lake_{datetime.now().strftime("%Y%m%d")}.log'),
+        logging.FileHandler(f'data_lake_{datetime.now():%Y%m%d}.log'),
         logging.StreamHandler()
     ]
 )
 
-def upload_with_monitoring(local_file_path, bucket_name, s3_object_key):
+def upload_with_logging(local_path, s3_key):
     """Upload with detailed logging and metrics."""
     import time
+    from pathlib import Path
 
-    logger = logging.getLogger(__name__)
     s3_client = boto3.client('s3')
 
     # Log upload start
-    file_size = Path(local_file_path).stat().st_size
-    logger.info(f"Starting upload: {local_file_path} ({file_size / 1024 / 1024:.2f} MB)")
+    file_size = Path(local_path).stat().st_size
+    logging.info(f"Starting upload: {local_path} ({file_size / 1024 / 1024:.2f} MB)")
 
-    start_time = time.time()
+    start = time.time()
 
     try:
-        s3_client.upload_file(local_file_path, bucket_name, s3_object_key)
+        s3_client.upload_file(
+            Filename=local_path,
+            Bucket='us-equity-datalake',
+            Key=s3_key
+        )
 
         # Log success with metrics
-        duration = time.time() - start_time
-        speed_mbps = (file_size / 1024 / 1024) / duration if duration > 0 else 0
+        duration = time.time() - start
+        speed = (file_size / 1024 / 1024) / duration if duration > 0 else 0
 
-        logger.info(
-            f"Upload complete: {s3_object_key} | "
+        logging.info(
+            f"Upload complete: {s3_key} | "
             f"Duration: {duration:.2f}s | "
-            f"Speed: {speed_mbps:.2f} MB/s"
+            f"Speed: {speed:.2f} MB/s"
         )
         return True
 
     except ClientError as e:
-        logger.error(
-            f"Upload failed: {s3_object_key} | "
-            f"Error: {e.response['Error']['Code']} | "
-            f"Message: {e.response['Error']['Message']}"
-        )
-        return False
-```
-
-### Data Validation
-
-```python
-import hashlib
-
-def upload_with_validation(local_file_path, bucket_name, s3_object_key):
-    """
-    Upload file and validate integrity with MD5 checksum.
-    """
-    s3_client = boto3.client('s3')
-
-    # Calculate local file MD5
-    def calculate_md5(file_path):
-        hash_md5 = hashlib.md5()
-        with open(file_path, 'rb') as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                hash_md5.update(chunk)
-        return hash_md5.hexdigest()
-
-    local_md5 = calculate_md5(local_file_path)
-    logging.info(f"Local file MD5: {local_md5}")
-
-    try:
-        # Upload file
-        s3_client.upload_file(local_file_path, bucket_name, s3_object_key)
-
-        # Verify upload with ETag (S3's MD5)
-        response = s3_client.head_object(Bucket=bucket_name, Key=s3_object_key)
-        s3_etag = response['ETag'].strip('"')
-
-        if local_md5 == s3_etag:
-            logging.info(f"Upload verified: checksums match")
-            return True
-        else:
-            logging.error(f"Upload corrupted: checksum mismatch")
-            # Delete corrupted file
-            s3_client.delete_object(Bucket=bucket_name, Key=s3_object_key)
-            return False
-
-    except ClientError as e:
-        logging.error(f"Upload/validation failed: {e}")
+        logging.error(f"Upload failed: {s3_key} | Error: {e}")
         return False
 ```
 
 ---
 
-## 9. Complete Implementation Example
+## 8. Complete Implementation
 
-Here's a production-ready data lake uploader for the US Equity Data Lake:
+### Production-Ready DataLakeUploader Class
+
+This class combines all the methods above into a production-ready uploader:
 
 ```python
 """
@@ -1360,10 +903,9 @@ US Equity Data Lake Uploader
 
 Production-ready S3 uploader with:
 - Parallel uploads
-- Progress tracking
 - Error handling and retries
 - Logging and monitoring
-- Data validation
+- Transfer optimization
 """
 
 import boto3
@@ -1372,12 +914,10 @@ from botocore.exceptions import ClientError
 from boto3.s3.transfer import TransferConfig
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from dataclasses import dataclass
+from typing import Optional, Dict
 import logging
 import time
-import json
-from typing import List, Dict, Optional
-from dataclasses import dataclass
-from datetime import datetime
 
 
 @dataclass
@@ -1396,18 +936,17 @@ class DataLakeUploader:
 
     Features:
     - Optimized transfer configuration
-    - Parallel uploads with thread pool
+    - Parallel uploads
     - Automatic retry with exponential backoff
     - Progress tracking and logging
-    - Upload validation
     """
 
     def __init__(
         self,
-        bucket_name: str,
+        bucket_name: str = 'us-equity-datalake',
         region: str = 'us-east-2',
         max_workers: int = 20,
-        max_retries: int = 5
+        max_retries: int = 3
     ):
         """
         Initialize uploader.
@@ -1419,28 +958,26 @@ class DataLakeUploader:
             max_retries: Max retry attempts per file
         """
         self.bucket_name = bucket_name
-        self.region = region
         self.max_workers = max_workers
         self.max_retries = max_retries
 
-        # Configure S3 client
-        self.s3_config = Config(
+        # Configure S3 client (from S3_CONFIGURATION.md)
+        s3_config = Config(
             region_name=region,
             max_pool_connections=max_workers,
             retries={'mode': 'standard', 'total_max_attempts': max_retries},
             tcp_keepalive=True
         )
-        self.s3_client = boto3.client('s3', config=self.s3_config)
+        self.s3_client = boto3.client('s3', config=s3_config)
 
         # Configure transfer settings
         self.transfer_config = TransferConfig(
-            multipart_threshold=10 * 1024 * 1024,  # 10 MB
+            multipart_threshold=10 * 1024 * 1024,
             max_concurrency=20,
             multipart_chunksize=10 * 1024 * 1024,
             use_threads=True
         )
 
-        # Setup logging
         self.logger = logging.getLogger(__name__)
 
     def upload_file(
@@ -1464,16 +1001,14 @@ class DataLakeUploader:
 
         for attempt in range(self.max_retries):
             try:
-                # Prepare extra args
                 extra_args = {}
                 if metadata:
                     extra_args['Metadata'] = metadata
 
-                # Upload file
                 self.s3_client.upload_file(
-                    local_path,
-                    self.bucket_name,
-                    s3_key,
+                    Filename=local_path,
+                    Bucket=self.bucket_name,
+                    Key=s3_key,
                     Config=self.transfer_config,
                     ExtraArgs=extra_args if extra_args else None
                 )
@@ -1491,7 +1026,7 @@ class DataLakeUploader:
             except ClientError as e:
                 error_code = e.response['Error']['Code']
 
-                # Don't retry permanent errors
+                # Permanent errors
                 if error_code in ['NoSuchBucket', 'AccessDenied']:
                     self.logger.error(f"✗ Permanent error for {s3_key}: {error_code}")
                     return UploadResult(
@@ -1504,12 +1039,12 @@ class DataLakeUploader:
 
                 # Retry transient errors
                 if attempt < self.max_retries - 1:
-                    wait_time = 2 ** attempt
+                    wait = 2 ** attempt
                     self.logger.warning(
                         f"Upload failed for {s3_key} (attempt {attempt + 1}), "
-                        f"retrying in {wait_time}s..."
+                        f"retrying in {wait}s..."
                     )
-                    time.sleep(wait_time)
+                    time.sleep(wait)
                 else:
                     self.logger.error(f"✗ Failed {s3_key} after {self.max_retries} attempts")
                     return UploadResult(
@@ -1532,7 +1067,7 @@ class DataLakeUploader:
         self,
         local_dir: str,
         s3_prefix: str,
-        file_pattern: str = '*'
+        file_pattern: str = '*.parquet'
     ) -> Dict[str, any]:
         """
         Upload entire directory in parallel.
@@ -1540,7 +1075,7 @@ class DataLakeUploader:
         Args:
             local_dir: Local directory path
             s3_prefix: S3 prefix (folder)
-            file_pattern: Glob pattern for files (default: all files)
+            file_pattern: Glob pattern (default: '*.parquet')
 
         Returns:
             Dictionary with upload statistics
@@ -1563,13 +1098,11 @@ class DataLakeUploader:
         start_time = time.time()
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            # Submit all tasks
             futures = {
                 executor.submit(self.upload_file, local_path, s3_key): (local_path, s3_key)
                 for local_path, s3_key in files_to_upload
             }
 
-            # Process results
             for future in as_completed(futures):
                 result = future.result()
                 results.append(result)
@@ -1579,24 +1112,22 @@ class DataLakeUploader:
                 percent = (completed / total_files) * 100
                 print(f"\rProgress: {completed}/{total_files} ({percent:.1f}%)", end='')
 
-        print()  # New line after progress
+        print()
 
         # Calculate statistics
         total_duration = time.time() - start_time
         successful = sum(1 for r in results if r.success)
-        failed = total_files - successful
 
         stats = {
             'total_files': total_files,
             'successful': successful,
-            'failed': failed,
+            'failed': total_files - successful,
             'total_duration': total_duration,
             'average_duration': total_duration / total_files if total_files > 0 else 0
         }
 
         self.logger.info(
-            f"Upload complete: {successful}/{total_files} succeeded "
-            f"in {total_duration:.2f}s"
+            f"Upload complete: {successful}/{total_files} succeeded in {total_duration:.2f}s"
         )
 
         return stats
@@ -1604,68 +1135,52 @@ class DataLakeUploader:
 
 # Example usage
 if __name__ == "__main__":
-    # Configure logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(f'upload_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'),
-            logging.StreamHandler()
-        ]
-    )
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-    # Create uploader
     uploader = DataLakeUploader(
         bucket_name='us-equity-datalake',
         region='us-east-2',
         max_workers=20
     )
 
-    # Upload entire directory
+    # Upload daily ticks directory
     stats = uploader.upload_directory(
         local_dir='data/ticks/daily',
-        s3_prefix='ticks/daily',
-        file_pattern='*.json'
+        s3_prefix='data/ticks/daily',
+        file_pattern='*.parquet'
     )
 
-    print(f"\nUpload Statistics:")
-    print(f"  Total files: {stats['total_files']}")
-    print(f"  Successful: {stats['successful']}")
+    print(f"\nStatistics:")
+    print(f"  Total: {stats['total_files']}")
+    print(f"  Success: {stats['successful']}")
     print(f"  Failed: {stats['failed']}")
     print(f"  Duration: {stats['total_duration']:.2f}s")
-    print(f"  Average per file: {stats['average_duration']:.2f}s")
 ```
 
 ---
 
-## Conclusion
+## Summary
 
-You now have a comprehensive understanding of building a data lake with AWS S3 and Boto3. This tutorial covered:
+### Core S3 Methods Used in Data Lake
 
-✅ **Bucket Management** - Creating and organizing S3 buckets
-✅ **File Operations** - Uploading and downloading with various methods
-✅ **Transfer Optimization** - Multipart uploads, concurrency, threading
-✅ **Batch Operations** - Parallel uploads/downloads for large datasets
-✅ **Security** - Presigned URLs for temporary access
-✅ **Production Patterns** - Error handling, retries, logging, validation
+| Method | Purpose | When to Use |
+|--------|---------|-------------|
+| `upload_file()` | Upload Parquet from disk | Daily/minute tick collection |
+| `upload_fileobj()` | Upload JSON from memory | Fundamental data, reference data |
+| `download_file()` | Download to disk | Query API large datasets |
+| `download_fileobj()` | Download to memory | Query API small datasets |
+| `list_objects_v2()` | List available files | Query API discovery |
+| `head_object()` | Check file existence | Query API validation |
+
+### Key Parameters
+
+- **TransferConfig**: `multipart_threshold=10MB`, `max_concurrency=20` for optimal speed
+- **ThreadPoolExecutor**: `max_workers=20` for parallel batch operations
+- **Retries**: `max_retries=3` with exponential backoff for reliability
 
 ### Next Steps
 
-1. **Review [S3_CONFIGURATION.md](S3_CONFIGURATION.md)** for detailed configuration explanations
-2. **Implement the DataLakeUploader** class in your project
-3. **Test with small datasets** before running full backfills
-4. **Monitor costs** using AWS Cost Explorer
-5. **Set up CloudWatch alarms** for monitoring
-
-### Additional Resources
-
-- [AWS S3 Documentation](https://docs.aws.amazon.com/s3/)
-- [Boto3 S3 Reference](https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html)
-- [AWS S3 Best Practices](https://docs.aws.amazon.com/AmazonS3/latest/userguide/optimizing-performance.html)
-- [Data Lake Architecture on AWS](https://aws.amazon.com/big-data/datalakes-and-analytics/)
-
----
-
-**Author**: US Equity Data Lake Project
-**Last Updated**: 2025-01-20
-**Version**: 1.0
+1. Review [S3_CONFIGURATION.md](S3_CONFIGURATION.md) for client configuration
+2. Review [LAMBDA_TUTORIAL.md](LAMBDA_TUTORIAL.md) for automated collection
+3. Review [EVENTBRIDGE_TUTORIAL.md](EVENTBRIDGE_TUTORIAL.md) for scheduling
+4. Implement the `DataLakeUploader` class in your project

@@ -1,179 +1,85 @@
 # AWS EventBridge Tutorial for Data Lake Automation
 
-## Table of Contents
-1. [Introduction](#introduction)
-2. [What is AWS EventBridge?](#what-is-aws-eventbridge)
-3. [Core Concepts](#core-concepts)
-4. [EventBridge for Data Lake Automation](#eventbridge-for-data-lake-automation)
-5. [Scheduled Rules with Cron Expressions](#scheduled-rules-with-cron-expressions)
-6. [Setting Up EventBridge Rules](#setting-up-eventbridge-rules)
-7. [Targeting Lambda Functions](#targeting-lambda-functions)
-8. [Event Patterns vs. Scheduled Rules](#event-patterns-vs-scheduled-rules)
-9. [Error Handling and Retries](#error-handling-and-retries)
-10. [Monitoring and Debugging](#monitoring-and-debugging)
-11. [Production Best Practices](#production-best-practices)
-12. [Complete Implementation Example](#complete-implementation-example)
-
----
-
 ## Introduction
 
-This tutorial teaches you how to use AWS EventBridge to automate data collection workflows for the US Equity Data Lake. You'll learn how to schedule Lambda functions to run at specific times (e.g., daily at 6 AM ET) to collect stock market data, fundamental data, and other time-sensitive information.
+This tutorial teaches you how to use AWS EventBridge to automate data collection for the US Equity Data Lake. We focus **only** on scheduled rules (cron expressions) - the core feature you'll actually use.
 
-**What You'll Build:**
+### What You'll Build
+
 - Daily stock data collection triggered at 6 AM ET
-- Automated fundamental data refresh (quarterly)
+- Automated fundamental data refresh (monthly)
 - Corporate actions monitoring (daily)
-- Automated data quality checks (hourly)
+
+### Prerequisites
+
+- AWS CLI configured
+- Python 3.8+ with boto3
+- Basic understanding of cron expressions
 
 ---
 
-## What is AWS EventBridge?
+## Table of Contents
 
-**AWS EventBridge** is a serverless event bus service that connects applications using events. Think of it as a smart scheduler and event router that can:
-
-1. **Trigger actions on a schedule** (like cron jobs)
-2. **React to AWS service events** (e.g., S3 object creation, EC2 state changes)
-3. **Process custom application events**
-4. **Route events to multiple targets** (Lambda, SQS, SNS, Step Functions, etc.)
-
-### Why Use EventBridge for Data Lakes?
-
-✅ **Serverless**: No infrastructure to manage
-✅ **Reliable**: Built-in retry logic and dead-letter queues
-✅ **Scalable**: Handles millions of events automatically
-✅ **Cost-Effective**: Pay only for events processed ($1/million events)
-✅ **Flexible**: Complex scheduling with cron expressions
-✅ **Integrated**: Native integration with Lambda, S3, SNS, SQS, etc.
-
-### EventBridge vs. CloudWatch Events
-
-**Important:** AWS EventBridge is the evolution of CloudWatch Events. EventBridge has all CloudWatch Events capabilities plus:
-- Support for third-party SaaS events
-- Custom event buses
-- Schema registry
-- Archive and replay features
-
-For new projects, **always use EventBridge**.
+1. [Core EventBridge Methods](#1-core-eventbridge-methods)
+2. [Cron Expressions for Data Collection](#2-cron-expressions-for-data-collection)
+3. [Creating Scheduled Rules](#3-creating-scheduled-rules)
+4. [Targeting Lambda Functions](#4-targeting-lambda-functions)
+5. [Error Handling and Retries](#5-error-handling-and-retries)
+6. [Complete Implementation](#6-complete-implementation)
 
 ---
 
-## Core Concepts
+## 1. Core EventBridge Methods
 
-### 1. Events
+### Methods Used in Data Lake Project
 
-An **event** is a JSON object describing a change in your environment:
+```python
+import boto3
 
-```json
-{
-  "version": "0",
-  "id": "53dc4d37-cffa-4f76-80c9-8b7d4a4d2eaa",
-  "detail-type": "Scheduled Event",
-  "source": "aws.events",
-  "account": "123456789012",
-  "time": "2024-12-19T11:00:00Z",
-  "region": "us-east-2",
-  "resources": [
-    "arn:aws:events:us-east-2:123456789012:rule/DailyTickCollectorRule"
-  ],
-  "detail": {}
-}
+events_client = boto3.client('events', region_name='us-east-2')
+
+# Core methods we use:
+events_client.put_rule(Name, ScheduleExpression, State, Description)
+events_client.put_targets(Rule, Targets)
+lambda_client.add_permission(FunctionName, StatementId, Action, Principal, SourceArn)
 ```
 
-### 2. Event Buses
+### Why These Methods?
 
-An **event bus** receives events. There are three types:
-- **Default event bus**: Receives events from AWS services
-- **Custom event bus**: For your application events
-- **Partner event bus**: For third-party SaaS events
+| Method | Purpose | When to Use |
+|--------|---------|-------------|
+| `put_rule()` | Create/update scheduled rule | Define when data collection runs (e.g., daily at 6 AM ET) |
+| `put_targets()` | Attach Lambda function to rule | Tell EventBridge which Lambda to invoke |
+| `add_permission()` | Grant EventBridge permission | Allow EventBridge to invoke your Lambda function |
 
-For data lake automation, you'll typically use the **default event bus**.
-
-### 3. Rules
-
-A **rule** matches incoming events and routes them to targets. Rules can be:
-- **Scheduled rules**: Trigger on a schedule (cron/rate expressions)
-- **Event pattern rules**: Trigger when events match a pattern
-
-### 4. Targets
-
-A **target** is what EventBridge invokes when an event matches a rule. Common targets:
-- Lambda functions
-- SQS queues
-- SNS topics
-- Step Functions state machines
-- ECS tasks
-- API Gateway endpoints
-
-Each rule can have up to **5 targets**.
+**That's it!** Unlike S3, EventBridge has a minimal API surface for our use case.
 
 ---
 
-## EventBridge for Data Lake Automation
+## 2. Cron Expressions for Data Collection
 
-### Use Case: Daily Stock Data Collection
+### Cron Expression Format
 
-**Requirement:** Collect daily OHLCV data for 5,000 stocks every day at 6 AM ET (after market close at 4 PM ET the previous day).
-
-**EventBridge Setup:**
-1. Create a scheduled rule with cron expression: `cron(0 11 * * ? *)`
-   - `11` = 11:00 UTC = 6:00 AM ET (UTC-5)
-2. Target a Lambda function: `DailyTickCollector`
-3. Lambda downloads yesterday's data and uploads to S3
-
-**Architecture:**
 ```
-EventBridge Rule                Lambda Function              S3 Data Lake
-┌─────────────────┐            ┌──────────────────┐         ┌─────────────┐
-│ DailyTickRule   │  triggers  │ DailyTickCollect │  writes │ ticks/daily/│
-│ cron(0 11 * ..) │───────────>│ - Fetch OHLCV    │────────>│ AAPL/2024/  │
-│                 │            │ - Parse data     │         │ ticks.parq  │
-└─────────────────┘            │ - Upload S3      │         └─────────────┘
-                               └──────────────────┘
+cron(minute hour day-of-month month day-of-week year)
 ```
 
----
+**CRITICAL:** EventBridge uses **UTC time zone**. You must convert ET to UTC.
 
-## Scheduled Rules with Cron Expressions
+| ET (US Eastern) | UTC  | Cron Hour |
+|-----------------|------|-----------|
+| 12 AM (midnight)| 5 AM | 5         |
+| 6 AM            | 11 AM| 11        |
+| 9:30 AM (open)  | 2:30 PM | 14    |
+| 4 PM (close)    | 9 PM | 21        |
 
-EventBridge supports two types of schedules:
+**Note:** ET = UTC-5 (winter), EDT = UTC-4 (summer). For simplicity, we use UTC-5.
 
-### 1. Rate Expressions (Simple)
-
-**Format:** `rate(value unit)`
-
-**Examples:**
-```
-rate(5 minutes)    → Every 5 minutes
-rate(1 hour)       → Every hour
-rate(1 day)        → Every day at the same time you created the rule
-```
-
-**Limitations:**
-- Cannot specify exact time of day
-- Good for simple intervals
-
-### 2. Cron Expressions (Powerful)
-
-**Format:** `cron(minute hour day-of-month month day-of-week year)`
-
-**Fields:**
-| Field         | Values          | Wildcards      |
-|---------------|-----------------|----------------|
-| Minute        | 0-59            | , - * /        |
-| Hour          | 0-23 (UTC)      | , - * /        |
-| Day-of-month  | 1-31            | , - * ? / L W  |
-| Month         | 1-12 or JAN-DEC | , - * /        |
-| Day-of-week   | 1-7 or SUN-SAT  | , - * ? L #    |
-| Year          | 1970-2199       | , - * /        |
-
-**Important:** EventBridge uses **UTC time zone** for cron expressions.
-
-### Cron Examples for Data Lake
+### Cron Expressions for Data Lake
 
 #### Daily at 6 AM ET (11 AM UTC)
-```
-cron(0 11 * * ? *)
+```python
+'cron(0 11 * * ? *)'
 ```
 - `0` = minute 0
 - `11` = 11 AM UTC = 6 AM ET
@@ -184,648 +90,171 @@ cron(0 11 * * ? *)
 
 **Use case:** Daily stock data collection after market close
 
-#### Every 15 minutes during market hours (9:30 AM - 4 PM ET)
-```
-cron(0/15 14-20 ? * MON-FRI *)
-```
-- `0/15` = every 15 minutes starting at minute 0
-- `14-20` = 9 AM - 3 PM UTC (covers 9:30 AM - 4 PM ET)
-- `?` = any day of month
-- `*` = every month
-- `MON-FRI` = weekdays only
-- `*` = every year
-
-**Use case:** Intraday minute-level data collection
-
-#### First day of every quarter at midnight ET
-```
-cron(0 5 1 1,4,7,10 ? *)
-```
-- `0` = minute 0
-- `5` = 5 AM UTC = midnight ET
-- `1` = first day of month
-- `1,4,7,10` = January, April, July, October (Q1, Q2, Q3, Q4)
-- `?` = any day of week
-- `*` = every year
-
-**Use case:** Quarterly fundamental data refresh
-
-#### Every Sunday at 2 AM ET (maintenance window)
-```
-cron(0 7 ? * SUN *)
+#### First Sunday of every month at 2 AM ET (7 AM UTC)
+```python
+'cron(0 7 ? * SUN#1 *)'
 ```
 - `0` = minute 0
 - `7` = 7 AM UTC = 2 AM ET
 - `?` = any day of month
 - `*` = every month
-- `SUN` = Sunday only
+- `SUN#1` = first Sunday
 - `*` = every year
 
-**Use case:** Weekly data quality checks and cleanup
+**Use case:** Monthly fundamental data refresh
 
-### Time Zone Conversion Table
+#### Every weekday at 6 AM ET
+```python
+'cron(0 11 ? * MON-FRI *)'
+```
+- `0` = minute 0
+- `11` = 11 AM UTC = 6 AM ET
+- `?` = any day of month
+- `*` = every month
+- `MON-FRI` = weekdays only
+- `*` = every year
 
-| ET (US Eastern) | UTC  | Cron Hour |
-|-----------------|------|-----------|
-| 12 AM (midnight)| 5 AM | 5         |
-| 6 AM            | 11 AM| 11        |
-| 9:30 AM (open)  | 2:30 PM | 14    |
-| 12 PM (noon)    | 5 PM | 17        |
-| 4 PM (close)    | 9 PM | 21        |
-
-**Note:** Adjust for daylight saving time (EDT = UTC-4, EST = UTC-5)
+**Use case:** Daily tick collection (skip weekends)
 
 ---
 
-## Setting Up EventBridge Rules
+## 3. Creating Scheduled Rules
 
-### Method 1: AWS Console (Visual)
+### put_rule() Method
 
-**Step 1: Create Rule**
-1. Open AWS EventBridge console
-2. Select **Rules** → **Create rule**
-3. Enter rule name: `DailyTickCollectorRule`
-4. Select event bus: **default**
-5. Rule type: **Schedule**
+**Purpose:** Create or update a scheduled rule.
 
-**Step 2: Define Schedule**
-1. Schedule pattern: **Cron-based schedule**
-2. Cron expression: `cron(0 11 * * ? *)`
-3. Time zone: **UTC**
+**All Parameters Explained:**
 
-**Step 3: Select Target**
-1. Target type: **AWS service**
-2. Target: **Lambda function**
-3. Function: **DailyTickCollector**
+```python
+response = events_client.put_rule(
+    Name='DailyTickCollectorRule',              # REQUIRED: Rule name (unique per account/region)
+    ScheduleExpression='cron(0 11 * * ? *)',    # REQUIRED: Cron or rate expression
+    State='ENABLED',                            # REQUIRED: 'ENABLED' or 'DISABLED'
+    Description='Trigger daily at 6 AM ET',     # OPTIONAL: Human-readable description
+    EventBusName='default',                     # OPTIONAL: Event bus (default: 'default')
+    RoleArn='...'                               # OPTIONAL: IAM role (not needed for Lambda targets)
+)
 
-**Step 4: Configure Target**
-1. Configure input: **Constant (JSON text)**
-2. JSON input:
-```json
+# Response:
 {
-  "trigger": "scheduled",
-  "collection_date": "auto",
-  "symbols": "all"
+    'RuleArn': 'arn:aws:events:us-east-2:123456789012:rule/DailyTickCollectorRule'
 }
 ```
 
-**Step 5: Review and Create**
+**Parameter Details:**
 
-### Method 2: AWS CLI (Automation)
+| Parameter | Type | Required | Purpose in Data Lake |
+|-----------|------|----------|---------------------|
+| `Name` | str | ✅ Yes | Rule name. Use pattern: `{Frequency}{DataType}Collector` (e.g., `DailyTickCollector`) |
+| `ScheduleExpression` | str | ✅ Yes | Cron expression defining when to trigger (see section 2) |
+| `State` | str | ✅ Yes | `'ENABLED'` to activate, `'DISABLED'` to pause without deleting |
+| `Description` | str | ⚠️ Recommended | Document what this rule does, owner, runbook link |
+| `EventBusName` | str | ❌ Optional | Always use `'default'` for scheduled rules (auto default) |
+| `RoleArn` | str | ❌ Not used | Only needed for cross-account targets (we don't use this) |
 
-**Create Rule:**
-```bash
-aws events put-rule \
-  --name DailyTickCollectorRule \
-  --schedule-expression "cron(0 11 * * ? *)" \
-  --description "Trigger daily stock data collection at 6 AM ET" \
-  --state ENABLED
-```
-
-**Add Lambda Target:**
-```bash
-aws events put-targets \
-  --rule DailyTickCollectorRule \
-  --targets "Id"="1","Arn"="arn:aws:lambda:us-east-2:123456789012:function:DailyTickCollector","Input"='{"trigger":"scheduled","collection_date":"auto"}'
-```
-
-**Grant EventBridge Permission to Invoke Lambda:**
-```bash
-aws lambda add-permission \
-  --function-name DailyTickCollector \
-  --statement-id AllowEventBridgeInvoke \
-  --action lambda:InvokeFunction \
-  --principal events.amazonaws.com \
-  --source-arn arn:aws:events:us-east-2:123456789012:rule/DailyTickCollectorRule
-```
-
-### Method 3: Boto3 (Python SDK)
+**Example Usage:**
 
 ```python
 import boto3
-import json
+import logging
 
-# Initialize EventBridge client
 events_client = boto3.client('events', region_name='us-east-2')
 
-# Create scheduled rule
-rule_response = events_client.put_rule(
-    Name='DailyTickCollectorRule',
-    ScheduleExpression='cron(0 11 * * ? *)',
-    State='ENABLED',
-    Description='Trigger daily stock data collection at 6 AM ET'
-)
-
-print(f"Rule ARN: {rule_response['RuleArn']}")
-
-# Add Lambda function as target
-target_response = events_client.put_targets(
-    Rule='DailyTickCollectorRule',
-    Targets=[
-        {
-            'Id': '1',
-            'Arn': 'arn:aws:lambda:us-east-2:123456789012:function:DailyTickCollector',
-            'Input': json.dumps({
-                'trigger': 'scheduled',
-                'collection_date': 'auto',
-                'symbols': 'all'
-            })
-        }
-    ]
-)
-
-print(f"Target added: {target_response}")
-
-# Grant EventBridge permission to invoke Lambda
-lambda_client = boto3.client('lambda', region_name='us-east-2')
-lambda_client.add_permission(
-    FunctionName='DailyTickCollector',
-    StatementId='AllowEventBridgeInvoke',
-    Action='lambda:InvokeFunction',
-    Principal='events.amazonaws.com',
-    SourceArn=rule_response['RuleArn']
-)
-
-print("Permission granted to EventBridge")
-```
-
----
-
-## Targeting Lambda Functions
-
-### Input Transformation
-
-EventBridge can transform the event before sending to Lambda. This is useful for:
-- Adding metadata
-- Filtering fields
-- Formatting data
-
-**Example: Add collection date to event**
-
-**Input Path:**
-```json
-{
-  "time": "$.time"
-}
-```
-
-**Input Template:**
-```json
-{
-  "trigger": "scheduled",
-  "event_time": "<time>",
-  "collection_date": "auto",
-  "symbols": "all",
-  "environment": "production"
-}
-```
-
-**Lambda receives:**
-```json
-{
-  "trigger": "scheduled",
-  "event_time": "2024-12-19T11:00:00Z",
-  "collection_date": "auto",
-  "symbols": "all",
-  "environment": "production"
-}
-```
-
-### Multiple Targets (Fan-Out Pattern)
-
-**Use case:** Collect different data types in parallel
-
-```python
-# Create rule
-events_client.put_rule(
-    Name='DailyDataCollectionRule',
-    ScheduleExpression='cron(0 11 * * ? *)',
-    State='ENABLED'
-)
-
-# Add multiple Lambda targets
-events_client.put_targets(
-    Rule='DailyDataCollectionRule',
-    Targets=[
-        {
-            'Id': '1',
-            'Arn': 'arn:aws:lambda:us-east-2:123456789012:function:DailyTickCollector',
-            'Input': '{"data_type": "daily_ticks"}'
-        },
-        {
-            'Id': '2',
-            'Arn': 'arn:aws:lambda:us-east-2:123456789012:function:MinuteTickCollector',
-            'Input': '{"data_type": "minute_ticks"}'
-        },
-        {
-            'Id': '3',
-            'Arn': 'arn:aws:lambda:us-east-2:123456789012:function:CorporateActionsCollector',
-            'Input': '{"data_type": "corporate_actions"}'
-        },
-        {
-            'Id': '4',
-            'Arn': 'arn:aws:lambda:us-east-2:123456789012:function:FundamentalCollector',
-            'Input': '{"data_type": "fundamentals"}'
-        }
-    ]
-)
-```
-
-**Result:** All 4 Lambda functions execute **in parallel** at 6 AM ET.
-
----
-
-## Event Patterns vs. Scheduled Rules
-
-### Scheduled Rules (What We've Covered)
-
-**Use when:** You need to run tasks at specific times or intervals
-
-**Example:**
-```json
-{
-  "ScheduleExpression": "cron(0 11 * * ? *)"
-}
-```
-
-### Event Pattern Rules (Advanced)
-
-**Use when:** You need to react to AWS service events
-
-**Example: Trigger Lambda when new file uploaded to S3**
-
-```json
-{
-  "source": ["aws.s3"],
-  "detail-type": ["Object Created"],
-  "detail": {
-    "bucket": {
-      "name": ["us-equity-datalake"]
-    },
-    "object": {
-      "key": [{
-        "prefix": "uploads/fundamentals/"
-      }]
-    }
-  }
-}
-```
-
-**Use case:** When a new fundamental data file is uploaded, trigger a Lambda function to parse and validate it.
-
-**Example: Trigger when Lambda function fails**
-
-```json
-{
-  "source": ["aws.lambda"],
-  "detail-type": ["Lambda Function Execution State Change"],
-  "detail": {
-    "state": ["Failed"],
-    "function-name": ["DailyTickCollector"]
-  }
-}
-```
-
-**Use case:** Send SNS alert when data collection fails.
-
----
-
-## Error Handling and Retries
-
-### EventBridge Retry Behavior
-
-**Default Behavior:**
-- EventBridge attempts to deliver each event to targets **up to 24 hours**
-- Uses **exponential backoff** (delays increase: 0s, 1s, 2s, 4s, 8s, ...)
-- Retries up to **185 times** for transient errors
-
-**Transient Errors (will retry):**
-- Lambda throttling
-- Network timeouts
-- Service unavailable (5xx errors)
-
-**Permanent Errors (will NOT retry):**
-- Lambda function not found
-- Permission denied
-- Invalid input
-
-### Dead-Letter Queue (DLQ)
-
-**Purpose:** Capture events that fail after all retries
-
-**Setup:**
-```python
-# Create SQS queue for failed events
-sqs_client = boto3.client('sqs')
-dlq_response = sqs_client.create_queue(
-    QueueName='EventBridgeDLQ',
-    Attributes={
-        'MessageRetentionPeriod': '1209600'  # 14 days
-    }
-)
-
-dlq_arn = sqs_client.get_queue_attributes(
-    QueueUrl=dlq_response['QueueUrl'],
-    AttributeNames=['QueueArn']
-)['Attributes']['QueueArn']
-
-# Configure DLQ on EventBridge target
-events_client.put_targets(
-    Rule='DailyTickCollectorRule',
-    Targets=[
-        {
-            'Id': '1',
-            'Arn': 'arn:aws:lambda:us-east-2:123456789012:function:DailyTickCollector',
-            'DeadLetterConfig': {
-                'Arn': dlq_arn
-            },
-            'RetryPolicy': {
-                'MaximumRetryAttempts': 3,
-                'MaximumEventAge': 3600  # 1 hour
-            }
-        }
-    ]
-)
-```
-
-**Benefits:**
-- Investigate why events failed
-- Replay failed events after fixing issues
-- Set up alarms for DLQ message count
-
-### Retry Policy Configuration
-
-You can customize retry behavior:
-
-```python
-'RetryPolicy': {
-    'MaximumRetryAttempts': 3,     # 0-185 (default: 185)
-    'MaximumEventAge': 3600        # 60-86400 seconds (default: 86400)
-}
-```
-
-**Recommendation for Data Lake:**
-- `MaximumRetryAttempts`: 3 (fail fast for data collection)
-- `MaximumEventAge`: 3600 (1 hour)
-- **Reason:** If data collection fails, you want to know quickly and investigate, not retry for 24 hours
-
----
-
-## Monitoring and Debugging
-
-### CloudWatch Metrics
-
-EventBridge publishes metrics to CloudWatch:
-
-| Metric                 | Description                          |
-|------------------------|--------------------------------------|
-| `Invocations`          | Number of times targets were invoked |
-| `FailedInvocations`    | Invocations that failed permanently  |
-| `TriggeredRules`       | Rules that triggered                 |
-| `ThrottledRules`       | Rules throttled due to rate limits   |
-
-**View metrics:**
-```bash
-aws cloudwatch get-metric-statistics \
-  --namespace AWS/Events \
-  --metric-name Invocations \
-  --dimensions Name=RuleName,Value=DailyTickCollectorRule \
-  --start-time 2024-12-19T00:00:00Z \
-  --end-time 2024-12-19T23:59:59Z \
-  --period 3600 \
-  --statistics Sum
-```
-
-### CloudWatch Logs
-
-EventBridge does not log events by default. To enable logging:
-
-1. **Create CloudWatch Log Group:**
-```bash
-aws logs create-log-group --log-group-name /aws/events/DailyTickCollectorRule
-```
-
-2. **Create EventBridge Archive (for replay):**
-```python
-events_client.create_archive(
-    ArchiveName='DailyTickCollectorArchive',
-    EventSourceArn='arn:aws:events:us-east-2:123456789012:event-bus/default',
-    Description='Archive daily tick collector events for replay',
-    RetentionDays=30,
-    EventPattern=json.dumps({
-        "source": ["aws.events"],
-        "detail-type": ["Scheduled Event"],
-        "resources": ["arn:aws:events:us-east-2:123456789012:rule/DailyTickCollectorRule"]
-    })
-)
-```
-
-### Testing Rules
-
-**Manually trigger a rule (for testing):**
-```bash
-aws events put-events \
-  --entries '[
-    {
-      "Source": "aws.events",
-      "DetailType": "Scheduled Event",
-      "Detail": "{\"trigger\":\"manual_test\"}",
-      "Resources": ["arn:aws:events:us-east-2:123456789012:rule/DailyTickCollectorRule"]
-    }
-  ]'
-```
-
-**Check if rule is enabled:**
-```bash
-aws events describe-rule --name DailyTickCollectorRule
-```
-
-**List targets:**
-```bash
-aws events list-targets-by-rule --rule DailyTickCollectorRule
-```
-
----
-
-## Production Best Practices
-
-### 1. Rule Naming Convention
-
-Use descriptive, consistent names:
-```
-{Environment}{Frequency}{DataType}Collector
-```
-
-Examples:
-- `ProdDailyTickCollector`
-- `DevHourlyFundamentalCollector`
-- `ProdWeeklyDataQualityCheck`
-
-### 2. Use Input Constants for Configuration
-
-Pass configuration via input JSON instead of hardcoding in Lambda:
-
-```json
-{
-  "data_type": "daily_ticks",
-  "start_date": "auto",
-  "symbols": "all",
-  "s3_bucket": "us-equity-datalake",
-  "s3_prefix": "data/ticks/daily/",
-  "alpaca_api_version": "v2",
-  "retry_attempts": 3,
-  "log_level": "INFO"
-}
-```
-
-**Benefits:**
-- Change configuration without modifying Lambda code
-- Different configurations for different environments (dev/prod)
-
-### 3. Implement Idempotency
-
-**Problem:** EventBridge may deliver the same event multiple times (rare, but possible).
-
-**Solution:** Make Lambda function idempotent:
-
-```python
-import hashlib
-import json
-
-def lambda_handler(event, context):
-    # Generate unique execution ID from event
-    event_id = event.get('id', 'unknown')
-    execution_id = hashlib.sha256(json.dumps(event).encode()).hexdigest()
-
-    # Check if already processed (use DynamoDB or S3)
-    if is_already_processed(execution_id):
-        logger.info(f"Event {event_id} already processed, skipping")
-        return {'statusCode': 200, 'body': 'Already processed'}
-
-    # Process data
-    result = collect_daily_ticks(event)
-
-    # Mark as processed
-    mark_as_processed(execution_id)
-
-    return result
-```
-
-### 4. Use Tags for Organization
-
-Tag rules for cost tracking and organization:
-
-```python
-events_client.tag_resource(
-    ResourceARN='arn:aws:events:us-east-2:123456789012:rule/DailyTickCollectorRule',
-    Tags=[
-        {'Key': 'Project', 'Value': 'USEquityDataLake'},
-        {'Key': 'Environment', 'Value': 'Production'},
-        {'Key': 'DataType', 'Value': 'DailyTicks'},
-        {'Key': 'CostCenter', 'Value': 'DataEngineering'}
-    ]
-)
-```
-
-### 5. Set Up CloudWatch Alarms
-
-Monitor for failures:
-
-```python
-cloudwatch_client = boto3.client('cloudwatch')
-
-# Alarm for failed invocations
-cloudwatch_client.put_metric_alarm(
-    AlarmName='DailyTickCollectorFailures',
-    ComparisonOperator='GreaterThanThreshold',
-    EvaluationPeriods=1,
-    MetricName='FailedInvocations',
-    Namespace='AWS/Events',
-    Period=3600,
-    Statistic='Sum',
-    Threshold=1.0,
-    ActionsEnabled=True,
-    AlarmActions=[
-        'arn:aws:sns:us-east-2:123456789012:DataLakeAlerts'
-    ],
-    AlarmDescription='Alert when daily tick collection fails',
-    Dimensions=[
-        {
-            'Name': 'RuleName',
-            'Value': 'DailyTickCollectorRule'
-        }
-    ]
-)
-```
-
-### 6. Document Rule Purpose
-
-Add description to every rule:
-
-```python
-events_client.put_rule(
-    Name='DailyTickCollectorRule',
-    ScheduleExpression='cron(0 11 * * ? *)',
-    Description=(
-        'Triggers daily stock data collection at 6 AM ET (11 AM UTC). '
-        'Collects OHLCV data for all 5,000 symbols from previous trading day. '
-        'Owner: data-engineering@company.com | '
-        'Runbook: https://wiki.company.com/data-lake/daily-collection'
-    ),
-    State='ENABLED'
-)
-```
-
----
-
-## Complete Implementation Example
-
-### Scenario: Automated Data Lake Collection Pipeline
-
-**Requirements:**
-1. Daily OHLCV collection at 6 AM ET
-2. Minute-level data collection every 15 minutes during market hours
-3. Fundamental data refresh first Sunday of every month
-4. Data quality check every hour
-5. Error notifications via SNS
-
-### Implementation
-
-```python
-import boto3
-import json
-from typing import Dict, List
-
-class DataLakeEventBridge:
-    """Manage EventBridge rules for US Equity Data Lake automation."""
-
-    def __init__(self, region: str = 'us-east-2'):
-        self.events_client = boto3.client('events', region_name=region)
-        self.lambda_client = boto3.client('lambda', region_name=region)
-        self.region = region
-        self.account_id = boto3.client('sts').get_caller_identity()['Account']
-
-    def create_daily_tick_collection_rule(self):
-        """Create rule for daily OHLCV data collection."""
-
-        rule_name = 'ProdDailyTickCollector'
-        lambda_function = 'DailyTickCollector'
-
-        # Create rule
-        rule_response = self.events_client.put_rule(
-            Name=rule_name,
-            ScheduleExpression='cron(0 11 * * ? *)',  # 6 AM ET
+def create_daily_tick_collection_rule():
+    """
+    Create rule to trigger daily tick collection at 6 AM ET.
+
+    Runs: Monday-Friday at 11 AM UTC (6 AM ET)
+    Targets: DailyTickCollector Lambda function
+    """
+    try:
+        response = events_client.put_rule(
+            Name='DailyTickCollectorRule',
+            ScheduleExpression='cron(0 11 ? * MON-FRI *)',  # Weekdays at 6 AM ET
             State='ENABLED',
-            Description='Collect daily OHLCV data at 6 AM ET after market close'
+            Description=(
+                'Trigger daily stock data collection at 6 AM ET (11 AM UTC). '
+                'Collects OHLCV data for all 5,000 symbols from previous trading day. '
+                'Owner: data-engineering@company.com'
+            )
         )
 
-        # Add Lambda target
-        self.events_client.put_targets(
+        rule_arn = response['RuleArn']
+        logging.info(f"Created rule: {rule_arn}")
+        return rule_arn
+
+    except Exception as e:
+        logging.error(f"Failed to create rule: {e}")
+        raise
+
+# Usage
+rule_arn = create_daily_tick_collection_rule()
+```
+
+---
+
+## 4. Targeting Lambda Functions
+
+### put_targets() Method
+
+**Purpose:** Attach one or more Lambda functions to a rule.
+
+**All Parameters Explained:**
+
+```python
+response = events_client.put_targets(
+    Rule='DailyTickCollectorRule',              # REQUIRED: Rule name
+    Targets=[                                   # REQUIRED: List of targets (max 5)
+        {
+            'Id': '1',                          # REQUIRED: Unique ID within this rule
+            'Arn': 'arn:aws:lambda:...',        # REQUIRED: Lambda function ARN
+            'Input': '{"key":"value"}',         # OPTIONAL: JSON input to Lambda
+            'RetryPolicy': {...},               # OPTIONAL: Retry configuration
+            'DeadLetterConfig': {...}           # OPTIONAL: DLQ for failed events
+        }
+    ]
+)
+
+# Response:
+{
+    'FailedEntryCount': 0,
+    'FailedEntries': []
+}
+```
+
+**Parameter Details:**
+
+| Parameter | Type | Required | Purpose in Data Lake |
+|-----------|------|----------|---------------------|
+| `Rule` | str | ✅ Yes | Rule name created in `put_rule()` |
+| `Targets` | list | ✅ Yes | List of Lambda functions to invoke (we typically use 1 target per rule) |
+| `Targets[].Id` | str | ✅ Yes | Unique ID (use `'1'`, `'2'`, etc.) |
+| `Targets[].Arn` | str | ✅ Yes | Lambda function ARN (format: `arn:aws:lambda:{region}:{account}:function:{name}`) |
+| `Targets[].Input` | str | ⚠️ Recommended | JSON string passed to Lambda event (config, parameters) |
+| `Targets[].RetryPolicy` | dict | ⚠️ Recommended | Controls retry behavior (see section 5) |
+| `Targets[].DeadLetterConfig` | dict | ⚠️ Recommended | SQS queue for failed events (see section 5) |
+
+**Example Usage:**
+
+```python
+import json
+
+def attach_lambda_target(rule_name, lambda_function_arn):
+    """
+    Attach Lambda function to EventBridge rule.
+
+    Args:
+        rule_name: EventBridge rule name
+        lambda_function_arn: Lambda function ARN
+    """
+    try:
+        response = events_client.put_targets(
             Rule=rule_name,
             Targets=[
                 {
                     'Id': '1',
-                    'Arn': f'arn:aws:lambda:{self.region}:{self.account_id}:function:{lambda_function}',
+                    'Arn': lambda_function_arn,
                     'Input': json.dumps({
                         'trigger': 'scheduled',
                         'data_type': 'daily_ticks',
@@ -836,130 +265,344 @@ class DataLakeEventBridge:
                     }),
                     'RetryPolicy': {
                         'MaximumRetryAttempts': 2,
-                        'MaximumEventAge': 3600
-                    },
-                    'DeadLetterConfig': {
-                        'Arn': f'arn:aws:sqs:{self.region}:{self.account_id}:EventBridgeDLQ'
+                        'MaximumEventAge': 3600  # 1 hour
                     }
                 }
             ]
         )
+
+        if response['FailedEntryCount'] == 0:
+            logging.info(f"Attached Lambda to rule: {rule_name}")
+        else:
+            logging.error(f"Failed to attach target: {response['FailedEntries']}")
+            raise Exception(f"Failed to attach target")
+
+    except Exception as e:
+        logging.error(f"Error attaching target: {e}")
+        raise
+
+# Usage
+attach_lambda_target(
+    rule_name='DailyTickCollectorRule',
+    lambda_function_arn='arn:aws:lambda:us-east-2:123456789012:function:DailyTickCollector'
+)
+```
+
+### add_permission() - Grant EventBridge Permission
+
+**Purpose:** Allow EventBridge to invoke your Lambda function.
+
+**All Parameters Explained:**
+
+```python
+lambda_client = boto3.client('lambda', region_name='us-east-2')
+
+response = lambda_client.add_permission(
+    FunctionName='DailyTickCollector',          # REQUIRED: Lambda function name or ARN
+    StatementId='AllowEventBridgeInvoke',       # REQUIRED: Unique statement ID
+    Action='lambda:InvokeFunction',             # REQUIRED: Permission to grant (always this)
+    Principal='events.amazonaws.com',           # REQUIRED: Who can invoke (always EventBridge)
+    SourceArn='arn:aws:events:...'              # REQUIRED: Specific rule ARN (security)
+)
+```
+
+**Parameter Details:**
+
+| Parameter | Type | Required | Purpose in Data Lake |
+|-----------|------|----------|---------------------|
+| `FunctionName` | str | ✅ Yes | Lambda function name (e.g., `'DailyTickCollector'`) |
+| `StatementId` | str | ✅ Yes | Unique ID. Use pattern: `AllowEventBridge{RuleName}` |
+| `Action` | str | ✅ Yes | Always `'lambda:InvokeFunction'` |
+| `Principal` | str | ✅ Yes | Always `'events.amazonaws.com'` |
+| `SourceArn` | str | ✅ Yes | Rule ARN from `put_rule()` (ensures only this rule can invoke) |
+
+**Example Usage:**
+
+```python
+def grant_eventbridge_permission(function_name, rule_arn, rule_name):
+    """
+    Grant EventBridge permission to invoke Lambda function.
+
+    Args:
+        function_name: Lambda function name
+        rule_arn: EventBridge rule ARN
+        rule_name: EventBridge rule name (for statement ID)
+    """
+    lambda_client = boto3.client('lambda', region_name='us-east-2')
+
+    try:
+        lambda_client.add_permission(
+            FunctionName=function_name,
+            StatementId=f'AllowEventBridge{rule_name}',
+            Action='lambda:InvokeFunction',
+            Principal='events.amazonaws.com',
+            SourceArn=rule_arn
+        )
+        logging.info(f"Granted permission for {rule_name} to invoke {function_name}")
+
+    except lambda_client.exceptions.ResourceConflictException:
+        # Permission already exists - this is fine
+        logging.info(f"Permission already exists for {function_name}")
+
+    except Exception as e:
+        logging.error(f"Error granting permission: {e}")
+        raise
+
+# Usage
+grant_eventbridge_permission(
+    function_name='DailyTickCollector',
+    rule_arn='arn:aws:events:us-east-2:123456789012:rule/DailyTickCollectorRule',
+    rule_name='DailyTickCollectorRule'
+)
+```
+
+---
+
+## 5. Error Handling and Retries
+
+### RetryPolicy Configuration
+
+**Purpose:** Control how EventBridge retries failed Lambda invocations.
+
+**All Parameters Explained:**
+
+```python
+'RetryPolicy': {
+    'MaximumRetryAttempts': 2,      # 0-185 (default: 185)
+    'MaximumEventAge': 3600         # 60-86400 seconds (default: 86400)
+}
+```
+
+**Parameter Details:**
+
+| Parameter | Default | Our Setting | Why? |
+|-----------|---------|-------------|------|
+| `MaximumRetryAttempts` | 185 | **2** | Retry twice (3 total attempts). Fail fast for data collection. |
+| `MaximumEventAge` | 86400 (24h) | **3600 (1h)** | If collection fails, we want to know within 1 hour, not wait 24 hours. |
+
+**EventBridge Retry Behavior:**
+
+```
+Attempt 1 (immediate): Lambda fails
+   ↓
+Wait 1 minute
+   ↓
+Attempt 2 (retry 1): Lambda fails
+   ↓
+Wait 2 minutes
+   ↓
+Attempt 3 (retry 2): Lambda fails
+   ↓
+Send to Dead-Letter Queue (if configured)
+```
+
+**When EventBridge Retries:**
+- ✅ Lambda throttled (concurrent execution limit)
+- ✅ Lambda timeout
+- ✅ Lambda internal error (unhandled exception)
+- ❌ Lambda returns error response (we handle this, no retry)
+
+### DeadLetterConfig - Failed Event Handling
+
+**Purpose:** Capture events that fail after all retries.
+
+**All Parameters Explained:**
+
+```python
+'DeadLetterConfig': {
+    'Arn': 'arn:aws:sqs:us-east-2:123456789012:EventBridgeDLQ'
+}
+```
+
+**Parameter Details:**
+
+| Parameter | Type | Required | Purpose in Data Lake |
+|-----------|------|----------|---------------------|
+| `Arn` | str | ✅ Yes | SQS queue ARN to send failed events |
+
+**Why Use DLQ:**
+- Investigate why data collection failed
+- Manually replay failed collections
+- Set up CloudWatch alarms on DLQ message count
+
+**Example Setup:**
+
+```python
+def create_dlq_and_attach():
+    """
+    Create SQS Dead-Letter Queue and attach to EventBridge target.
+
+    Returns:
+        DLQ ARN
+    """
+    sqs_client = boto3.client('sqs', region_name='us-east-2')
+
+    # Create SQS queue
+    queue_response = sqs_client.create_queue(
+        QueueName='EventBridgeDLQ',
+        Attributes={
+            'MessageRetentionPeriod': '1209600'  # 14 days
+        }
+    )
+
+    # Get queue ARN
+    queue_url = queue_response['QueueUrl']
+    attrs = sqs_client.get_queue_attributes(
+        QueueUrl=queue_url,
+        AttributeNames=['QueueArn']
+    )
+    dlq_arn = attrs['Attributes']['QueueArn']
+
+    logging.info(f"Created DLQ: {dlq_arn}")
+    return dlq_arn
+
+# Usage in put_targets
+dlq_arn = create_dlq_and_attach()
+
+events_client.put_targets(
+    Rule='DailyTickCollectorRule',
+    Targets=[
+        {
+            'Id': '1',
+            'Arn': lambda_function_arn,
+            'RetryPolicy': {
+                'MaximumRetryAttempts': 2,
+                'MaximumEventAge': 3600
+            },
+            'DeadLetterConfig': {
+                'Arn': dlq_arn  # Send failed events here
+            }
+        }
+    ]
+)
+```
+
+---
+
+## 6. Complete Implementation
+
+### Production-Ready EventBridge Setup
+
+This class combines all methods into a production-ready implementation:
+
+```python
+"""
+US Equity Data Lake EventBridge Automation
+
+Sets up scheduled rules for:
+- Daily tick collection (6 AM ET, weekdays)
+- Monthly fundamental refresh (first Sunday, 2 AM ET)
+"""
+
+import boto3
+import json
+import logging
+from typing import Dict
+
+
+class DataLakeEventBridge:
+    """Manage EventBridge rules for US Equity Data Lake automation."""
+
+    def __init__(self, region: str = 'us-east-2'):
+        self.region = region
+        self.events_client = boto3.client('events', region_name=region)
+        self.lambda_client = boto3.client('lambda', region_name=region)
+        self.sqs_client = boto3.client('sqs', region_name=region)
+
+        # Get AWS account ID
+        sts_client = boto3.client('sts')
+        self.account_id = sts_client.get_caller_identity()['Account']
+
+        self.logger = logging.getLogger(__name__)
+
+    def create_rule(
+        self,
+        name: str,
+        schedule: str,
+        description: str
+    ) -> str:
+        """
+        Create EventBridge scheduled rule.
+
+        Args:
+            name: Rule name
+            schedule: Cron expression
+            description: Human-readable description
+
+        Returns:
+            Rule ARN
+        """
+        try:
+            response = self.events_client.put_rule(
+                Name=name,
+                ScheduleExpression=schedule,
+                State='ENABLED',
+                Description=description
+            )
+
+            rule_arn = response['RuleArn']
+            self.logger.info(f"Created rule: {name}")
+            return rule_arn
+
+        except Exception as e:
+            self.logger.error(f"Failed to create rule {name}: {e}")
+            raise
+
+    def attach_lambda_target(
+        self,
+        rule_name: str,
+        lambda_function_name: str,
+        input_data: Dict,
+        dlq_arn: str = None
+    ):
+        """
+        Attach Lambda function to rule.
+
+        Args:
+            rule_name: EventBridge rule name
+            lambda_function_name: Lambda function name
+            input_data: JSON input to Lambda
+            dlq_arn: Dead-letter queue ARN (optional)
+        """
+        lambda_arn = f'arn:aws:lambda:{self.region}:{self.account_id}:function:{lambda_function_name}'
+
+        # Build target configuration
+        target_config = {
+            'Id': '1',
+            'Arn': lambda_arn,
+            'Input': json.dumps(input_data),
+            'RetryPolicy': {
+                'MaximumRetryAttempts': 2,
+                'MaximumEventAge': 3600
+            }
+        }
+
+        # Add DLQ if provided
+        if dlq_arn:
+            target_config['DeadLetterConfig'] = {'Arn': dlq_arn}
+
+        # Attach target
+        try:
+            response = self.events_client.put_targets(
+                Rule=rule_name,
+                Targets=[target_config]
+            )
+
+            if response['FailedEntryCount'] > 0:
+                raise Exception(f"Failed to attach target: {response['FailedEntries']}")
+
+            self.logger.info(f"Attached Lambda {lambda_function_name} to rule {rule_name}")
+
+        except Exception as e:
+            self.logger.error(f"Error attaching target: {e}")
+            raise
 
         # Grant permission
-        self._grant_lambda_permission(rule_name, lambda_function)
-
-        print(f"Created rule: {rule_name}")
-        return rule_response['RuleArn']
-
-    def create_intraday_minute_collection_rule(self):
-        """Create rule for minute-level data collection during market hours."""
-
-        rule_name = 'ProdIntradayMinuteCollector'
-        lambda_function = 'MinuteTickCollector'
-
-        # Create rule (every 15 minutes, weekdays, 9 AM - 4 PM ET)
-        rule_response = self.events_client.put_rule(
-            Name=rule_name,
-            ScheduleExpression='cron(0/15 14-21 ? * MON-FRI *)',
-            State='ENABLED',
-            Description='Collect minute-level data every 15 min during market hours'
-        )
-
-        self.events_client.put_targets(
-            Rule=rule_name,
-            Targets=[
-                {
-                    'Id': '1',
-                    'Arn': f'arn:aws:lambda:{self.region}:{self.account_id}:function:{lambda_function}',
-                    'Input': json.dumps({
-                        'trigger': 'scheduled',
-                        'data_type': 'minute_ticks',
-                        'collection_window': '15min',
-                        's3_bucket': 'us-equity-datalake'
-                    }),
-                    'RetryPolicy': {
-                        'MaximumRetryAttempts': 1,
-                        'MaximumEventAge': 900  # 15 minutes
-                    }
-                }
-            ]
-        )
-
-        self._grant_lambda_permission(rule_name, lambda_function)
-
-        print(f"Created rule: {rule_name}")
-        return rule_response['RuleArn']
-
-    def create_monthly_fundamental_refresh_rule(self):
-        """Create rule for monthly fundamental data refresh."""
-
-        rule_name = 'ProdMonthlyFundamentalRefresh'
-        lambda_function = 'FundamentalCollector'
-
-        # First Sunday of every month at 2 AM ET
-        rule_response = self.events_client.put_rule(
-            Name=rule_name,
-            ScheduleExpression='cron(0 7 ? * SUN#1 *)',
-            State='ENABLED',
-            Description='Refresh fundamental data first Sunday of month'
-        )
-
-        self.events_client.put_targets(
-            Rule=rule_name,
-            Targets=[
-                {
-                    'Id': '1',
-                    'Arn': f'arn:aws:lambda:{self.region}:{self.account_id}:function:{lambda_function}',
-                    'Input': json.dumps({
-                        'trigger': 'scheduled',
-                        'data_type': 'fundamentals',
-                        'refresh_type': 'full',
-                        'source': 'sec_edgar'
-                    })
-                }
-            ]
-        )
-
-        self._grant_lambda_permission(rule_name, lambda_function)
-
-        print(f"Created rule: {rule_name}")
-        return rule_response['RuleArn']
-
-    def create_hourly_data_quality_check_rule(self):
-        """Create rule for hourly data quality validation."""
-
-        rule_name = 'ProdHourlyDataQualityCheck'
-        lambda_function = 'DataQualityValidator'
-
-        rule_response = self.events_client.put_rule(
-            Name=rule_name,
-            ScheduleExpression='rate(1 hour)',
-            State='ENABLED',
-            Description='Run data quality checks every hour'
-        )
-
-        self.events_client.put_targets(
-            Rule=rule_name,
-            Targets=[
-                {
-                    'Id': '1',
-                    'Arn': f'arn:aws:lambda:{self.region}:{self.account_id}:function:{lambda_function}',
-                    'Input': json.dumps({
-                        'trigger': 'scheduled',
-                        'check_type': 'incremental',
-                        'lookback_hours': 2
-                    })
-                }
-            ]
-        )
-
-        self._grant_lambda_permission(rule_name, lambda_function)
-
-        print(f"Created rule: {rule_name}")
-        return rule_response['RuleArn']
+        self._grant_lambda_permission(rule_name, lambda_function_name)
 
     def _grant_lambda_permission(self, rule_name: str, function_name: str):
-        """Grant EventBridge permission to invoke Lambda function."""
+        """Grant EventBridge permission to invoke Lambda."""
+        rule_arn = f'arn:aws:events:{self.region}:{self.account_id}:rule/{rule_name}'
 
         try:
             self.lambda_client.add_permission(
@@ -967,58 +610,135 @@ class DataLakeEventBridge:
                 StatementId=f'AllowEventBridge{rule_name}',
                 Action='lambda:InvokeFunction',
                 Principal='events.amazonaws.com',
-                SourceArn=f'arn:aws:events:{self.region}:{self.account_id}:rule/{rule_name}'
+                SourceArn=rule_arn
             )
+            self.logger.info(f"Granted permission for {rule_name} to invoke {function_name}")
+
         except self.lambda_client.exceptions.ResourceConflictException:
             # Permission already exists
-            pass
+            self.logger.info(f"Permission already exists for {function_name}")
 
-    def setup_monitoring(self):
-        """Set up CloudWatch alarms for EventBridge rules."""
+    def create_dlq(self) -> str:
+        """
+        Create Dead-Letter Queue for failed events.
 
-        cloudwatch = boto3.client('cloudwatch', region_name=self.region)
-
-        rules = [
-            'ProdDailyTickCollector',
-            'ProdIntradayMinuteCollector',
-            'ProdMonthlyFundamentalRefresh'
-        ]
-
-        for rule_name in rules:
-            cloudwatch.put_metric_alarm(
-                AlarmName=f'{rule_name}-Failures',
-                ComparisonOperator='GreaterThanThreshold',
-                EvaluationPeriods=1,
-                MetricName='FailedInvocations',
-                Namespace='AWS/Events',
-                Period=3600,
-                Statistic='Sum',
-                Threshold=1.0,
-                ActionsEnabled=True,
-                AlarmActions=[
-                    f'arn:aws:sns:{self.region}:{self.account_id}:DataLakeAlerts'
-                ],
-                AlarmDescription=f'Alert when {rule_name} fails',
-                Dimensions=[{'Name': 'RuleName', 'Value': rule_name}]
+        Returns:
+            DLQ ARN
+        """
+        try:
+            # Create queue
+            queue_response = self.sqs_client.create_queue(
+                QueueName='EventBridgeDLQ',
+                Attributes={
+                    'MessageRetentionPeriod': '1209600'  # 14 days
+                }
             )
 
-        print("Monitoring alarms created")
+            # Get ARN
+            queue_url = queue_response['QueueUrl']
+            attrs = self.sqs_client.get_queue_attributes(
+                QueueUrl=queue_url,
+                AttributeNames=['QueueArn']
+            )
+            dlq_arn = attrs['Attributes']['QueueArn']
+
+            self.logger.info(f"Created DLQ: {dlq_arn}")
+            return dlq_arn
+
+        except self.sqs_client.exceptions.QueueNameExists:
+            # Queue already exists, get ARN
+            queue_url = self.sqs_client.get_queue_url(QueueName='EventBridgeDLQ')['QueueUrl']
+            attrs = self.sqs_client.get_queue_attributes(
+                QueueUrl=queue_url,
+                AttributeNames=['QueueArn']
+            )
+            dlq_arn = attrs['Attributes']['QueueArn']
+            self.logger.info(f"Using existing DLQ: {dlq_arn}")
+            return dlq_arn
+
+    def setup_daily_tick_collection(self, dlq_arn: str = None):
+        """
+        Set up daily tick collection (weekdays at 6 AM ET).
+
+        Args:
+            dlq_arn: Dead-letter queue ARN (optional)
+        """
+        rule_name = 'DailyTickCollectorRule'
+
+        # Create rule
+        self.create_rule(
+            name=rule_name,
+            schedule='cron(0 11 ? * MON-FRI *)',  # 6 AM ET, weekdays
+            description='Trigger daily stock data collection at 6 AM ET (11 AM UTC). '
+                       'Collects OHLCV data for all 5,000 symbols from previous trading day.'
+        )
+
+        # Attach Lambda
+        self.attach_lambda_target(
+            rule_name=rule_name,
+            lambda_function_name='DailyTickCollector',
+            input_data={
+                'trigger': 'scheduled',
+                'data_type': 'daily_ticks',
+                'collection_date': 'auto',
+                'symbols': 'all',
+                's3_bucket': 'us-equity-datalake'
+            },
+            dlq_arn=dlq_arn
+        )
+
+        self.logger.info("Daily tick collection configured")
+
+    def setup_monthly_fundamental_refresh(self, dlq_arn: str = None):
+        """
+        Set up monthly fundamental refresh (first Sunday at 2 AM ET).
+
+        Args:
+            dlq_arn: Dead-letter queue ARN (optional)
+        """
+        rule_name = 'MonthlyFundamentalRefreshRule'
+
+        # Create rule
+        self.create_rule(
+            name=rule_name,
+            schedule='cron(0 7 ? * SUN#1 *)',  # 2 AM ET, first Sunday
+            description='Refresh fundamental data first Sunday of each month at 2 AM ET. '
+                       'Fetches quarterly filings from SEC EDGAR for all symbols.'
+        )
+
+        # Attach Lambda
+        self.attach_lambda_target(
+            rule_name=rule_name,
+            lambda_function_name='FundamentalCollector',
+            input_data={
+                'trigger': 'scheduled',
+                'data_type': 'fundamentals',
+                'refresh_type': 'full',
+                'source': 'sec_edgar'
+            },
+            dlq_arn=dlq_arn
+        )
+
+        self.logger.info("Monthly fundamental refresh configured")
 
     def deploy_all(self):
         """Deploy all EventBridge rules for data lake automation."""
+        self.logger.info("Deploying EventBridge rules for US Equity Data Lake...")
 
-        print("Deploying EventBridge rules for US Equity Data Lake...")
+        # Create DLQ
+        dlq_arn = self.create_dlq()
 
-        self.create_daily_tick_collection_rule()
-        self.create_intraday_minute_collection_rule()
-        self.create_monthly_fundamental_refresh_rule()
-        self.create_hourly_data_quality_check_rule()
-        self.setup_monitoring()
+        # Setup all rules
+        self.setup_daily_tick_collection(dlq_arn=dlq_arn)
+        self.setup_monthly_fundamental_refresh(dlq_arn=dlq_arn)
 
-        print("\n✅ All EventBridge rules deployed successfully!")
+        self.logger.info("✅ All EventBridge rules deployed successfully!")
 
-# Usage
+
+# Example usage
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
     manager = DataLakeEventBridge(region='us-east-2')
     manager.deploy_all()
 ```
@@ -1026,12 +746,15 @@ if __name__ == '__main__':
 **Output:**
 ```
 Deploying EventBridge rules for US Equity Data Lake...
-Created rule: ProdDailyTickCollector
-Created rule: ProdIntradayMinuteCollector
-Created rule: ProdMonthlyFundamentalRefresh
-Created rule: ProdHourlyDataQualityCheck
-Monitoring alarms created
-
+Created DLQ: arn:aws:sqs:us-east-2:123456789012:EventBridgeDLQ
+Created rule: DailyTickCollectorRule
+Attached Lambda DailyTickCollector to rule DailyTickCollectorRule
+Granted permission for DailyTickCollectorRule to invoke DailyTickCollector
+Daily tick collection configured
+Created rule: MonthlyFundamentalRefreshRule
+Attached Lambda FundamentalCollector to rule MonthlyFundamentalRefreshRule
+Granted permission for MonthlyFundamentalRefreshRule to invoke FundamentalCollector
+Monthly fundamental refresh configured
 ✅ All EventBridge rules deployed successfully!
 ```
 
@@ -1039,17 +762,33 @@ Monitoring alarms created
 
 ## Summary
 
-**Key Takeaways:**
+### Core EventBridge Methods Used in Data Lake
 
-1. **EventBridge** is a serverless event scheduler and router for automating data lake workflows
-2. **Scheduled rules** use cron expressions to trigger Lambda at specific times (use UTC)
-3. **Targets** can be Lambda functions, SQS queues, SNS topics, Step Functions, etc.
-4. **Retry logic** is built-in with exponential backoff (up to 24 hours by default)
-5. **Dead-letter queues** capture events that fail after all retries
-6. **Monitoring** via CloudWatch metrics and alarms is essential for production
-7. **Best practices:** idempotency, input constants, tagging, documentation
+| Method | Purpose | When to Use |
+|--------|---------|-------------|
+| `put_rule()` | Create scheduled rule | Define when Lambda should run (cron expression) |
+| `put_targets()` | Attach Lambda to rule | Tell EventBridge which Lambda to invoke |
+| `add_permission()` | Grant invoke permission | Allow EventBridge to call Lambda |
 
-**Next Steps:**
-- Read the Lambda tutorial to learn how to write Lambda functions triggered by EventBridge
-- Set up EventBridge rules for your data lake automation
-- Configure CloudWatch alarms and DLQs for production reliability
+### Key Parameters
+
+- **ScheduleExpression**: `cron(0 11 ? * MON-FRI *)` = weekdays at 6 AM ET
+- **RetryPolicy**: `MaximumRetryAttempts=2`, `MaximumEventAge=3600` (fail fast)
+- **DeadLetterConfig**: SQS queue ARN to capture failed events
+- **Input**: JSON configuration passed to Lambda event
+
+### Common Cron Expressions
+
+```python
+'cron(0 11 ? * MON-FRI *)'   # Weekdays at 6 AM ET
+'cron(0 7 ? * SUN#1 *)'      # First Sunday of month at 2 AM ET
+'cron(0 11 * * ? *)'         # Every day at 6 AM ET
+'cron(0 */6 * * ? *)'        # Every 6 hours
+```
+
+### Next Steps
+
+1. Review [LAMBDA_TUTORIAL.md](LAMBDA_TUTORIAL.md) to write Lambda functions
+2. Deploy EventBridge rules using the `DataLakeEventBridge` class
+3. Monitor rule executions in CloudWatch Logs
+4. Set up CloudWatch alarms on DLQ message count
