@@ -14,18 +14,25 @@ from collection.models import TickField, TickDataPoint
 load_dotenv()
 
 class Ticks:
-    def __init__(
-            self, 
-            symbol: str, 
-            key: str, 
-            secret: str
-        ) -> None:
+    def __init__(self, symbol: str) -> None:
         self.symbol = symbol
+
+        # Load Alpaca API key and secrets
+        ALPACA_KEY = os.getenv("ALPACA_API_KEY")
+        ALPACA_SECRET = os.getenv("ALPACA_API_SECRET")
         self.headers = {
             "accept": "application/json",
-            "APCA-API-KEY-ID": key,
-            "APCA-API-SECRET-KEY": secret
+            "APCA-API-KEY-ID": ALPACA_KEY,
+            "APCA-API-SECRET-KEY": ALPACA_SECRET
         }
+
+        self.calendar_path = Path("data/calendar/master.parquet")
+        self.daily_ticks_df = None
+        self.minute_ticks_df = None
+        
+        # Store path
+        self.daily_path = Path("data/raw/ticks/daily")
+        self.minute_path = Path("data/raw/ticks/minute")
 
     @staticmethod
     def get_trade_day_range(trade_day: str | dt.date) -> Tuple[str]:
@@ -149,103 +156,145 @@ class Ticks:
             )
             datapoints.append(dp)
         return datapoints
-
-    def store_ticks(self, dps: List[TickDataPoint], storage_type: str = "minute"):
+    
+    def collect_daily_ticks(self, year: int) -> pl.DataFrame:
         """
-        Store tick datapoints to Parquet file.
-
-        Storage formats:
-        - minute: data/ticks/minute/{symbol}/{YYYY}/{MM}/{DD}/ticks.parquet (timestamp as Datetime)
-        - daily: data/ticks/daily/{symbol}/{YYYY}/ticks.parquet (timestamp as Date)
-
-        :param dps: List of TickDataPoint objects
-        :param storage_type: "minute" or "daily"
+        Given a year, collect daily ticks of the symbol for that year with a dataframe
+        
+        :param year: Specify trade year
+        :type year: int
         """
-        if not dps:
-            return
+        parsed_ticks: List[TickDataPoint] = self.parse_ticks(self.get_daily(year=year))
+        
+        # Define date range
+        start_date = dt.date(year, 1, 1)
+        end_date = dt.date(year, 12, 31)
 
-        # Extract date from first timestamp (format: "2025-01-03T09:30:00")
-        first_timestamp = dps[0].timestamp
-        date_obj = dt.datetime.fromisoformat(first_timestamp)
+        # Transform dataclass to dictionaries
+        ticks_data = [asdict(dp) for dp in parsed_ticks]
 
-        # Build directory path based on storage type
-        year = date_obj.strftime('%Y')
+        # Merge with master calendar
+        calendar_lf = (
+            pl.scan_parquet(self.calendar_path)
+            .filter(pl.col('Date').is_between(start_date, end_date))
+            .sort('Date')
+            .lazy()
+        )
+        ticks_lf = (
+            pl.DataFrame(ticks_data)
+            .with_columns([
+                pl.col('timestamp').str.to_date(format='%Y-%m-%dT%H:%M:%S').alias('Date'),
+                pl.col('open').cast(pl.Float64),
+                pl.col('high').cast(pl.Float64),
+                pl.col('low').cast(pl.Float64),
+                pl.col('close').cast(pl.Float64),
+                pl.col('volume').cast(pl.Int64),
+                pl.col('num_trades').cast(pl.Int64),
+                pl.col('vwap').cast(pl.Float64)
+            ])
+            .drop("timestamp")
+            .lazy()
+        )
+        calendar_lf = calendar_lf.join_asof(ticks_lf, on='Date')
 
-        if storage_type == "minute":
-            month = date_obj.strftime('%m')
-            day = date_obj.strftime('%d')
-            dir_path = Path(f"data/ticks/minute/{self.symbol}/{year}/{month}/{day}")
-        elif storage_type == "daily":
-            dir_path = Path(f"data/ticks/daily/{self.symbol}/{year}")
-        else:
-            raise ValueError(f"Invalid storage_type: {storage_type}. Must be 'minute' or 'daily'")
+        result = calendar_lf.collect()
+        self.daily_ticks_df = result
+        
+        return result
+    
+    def store_daily_ticks(self, year: int) -> None:
+        """
+        Store dataframe result from collect_daily_ticks with parquet
+        
+        :param year: Specify trade year
+        :type year: int
+        """
+        if not isinstance(self.daily_ticks_df, pl.DataFrame):
+            self.daily_ticks_df: pl.DataFrame = self.collect_daily_ticks(year=year)
+
+        # Define storage path
+        dir_path = self.daily_path / f"{self.symbol}/{year}"
         dir_path.mkdir(parents=True, exist_ok=True)
-
-        # Convert datapoints to dictionaries
-        ticks_data = [asdict(dp) for dp in dps]
-
-        # Create DataFrame with appropriate schema based on storage type
-        if storage_type == "minute":
-            # For minute data: keep full datetime
-            df = pl.DataFrame(ticks_data).with_columns([
-                pl.col('timestamp').str.to_datetime(format='%Y-%m-%dT%H:%M:%S'),
-                pl.col('open').cast(pl.Float64),
-                pl.col('high').cast(pl.Float64),
-                pl.col('low').cast(pl.Float64),
-                pl.col('close').cast(pl.Float64),
-                pl.col('volume').cast(pl.Int64),
-                pl.col('num_trades').cast(pl.Int64),
-                pl.col('vwap').cast(pl.Float64)
-            ])
-        else:  # daily
-            # For daily data: extract date only
-            df = pl.DataFrame(ticks_data).with_columns([
-                pl.col('timestamp').str.to_date(format='%Y-%m-%dT%H:%M:%S'),
-                pl.col('open').cast(pl.Float64),
-                pl.col('high').cast(pl.Float64),
-                pl.col('low').cast(pl.Float64),
-                pl.col('close').cast(pl.Float64),
-                pl.col('volume').cast(pl.Int64),
-                pl.col('num_trades').cast(pl.Int64),
-                pl.col('vwap').cast(pl.Float64)
-            ])
 
         # Write to Parquet file
         file_path = dir_path / 'ticks.parquet'
-        df.write_parquet(file_path, compression='zstd')
+        self.daily_ticks_df.write_parquet(file_path, compression='zstd')
 
-        print(f"Stored {len(dps)} {storage_type} ticks to {file_path}")
+        print(f"Stored {len(self.daily_ticks_df)} daily ticks to {file_path}")
+    
+    def collect_minute_ticks(self, trade_day: str) -> pl.DataFrame:
+        """
+        Given a trade day, collect the minute level tick data with dataframe
+        
+        :param trade_day: In format 'YYYY-MM-DD'
+        :type trade_day: str
+        """
+        parsed_ticks: List[TickDataPoint] = self.parse_ticks(self.get_minute(trade_day=trade_day))
 
+        # Convert datapoints to dictionaries
+        ticks_data = [asdict(dp) for dp in parsed_ticks]
 
+        # Create DataFrame with appropriate schema based on storage type
+        df = pl.DataFrame(ticks_data).with_columns([
+            pl.col('timestamp').str.to_datetime(format='%Y-%m-%dT%H:%M:%S'),
+            pl.col('open').cast(pl.Float64),
+            pl.col('high').cast(pl.Float64),
+            pl.col('low').cast(pl.Float64),
+            pl.col('close').cast(pl.Float64),
+            pl.col('volume').cast(pl.Int64),
+            pl.col('num_trades').cast(pl.Int64),
+            pl.col('vwap').cast(pl.Float64)
+        ])
+
+        # No need to merge with master cal
+        self.minute_ticks_df = df
+        
+        return df
+
+    def store_minute_ticks(self, trade_day: str) -> None:
+        """
+        Store dataframe result from collect_minute_ticks with parquet
+        
+        :param trade_day: In format 'YYYY-MM-DD'
+        :type trade_day: str
+        """
+        if not isinstance(self.minute_ticks_df, pl.DataFrame):
+            self.minute_ticks_df: pl.DataFrame = self.collect_minute_ticks(trade_day=trade_day)
+
+        # Build directory path based on storage type
+        date_obj = dt.datetime.strptime(trade_day, '%Y-%m-%d').date()
+        year = date_obj.strftime('%Y')
+        month = date_obj.strftime('%m')
+        day = date_obj.strftime('%d')
+        dir_path = self.minute_path / f"{self.symbol}/{year}/{month}/{day}"
+        dir_path.mkdir(parents=True, exist_ok=True)
+
+        # Write to Parquet file
+        file_path = dir_path / 'ticks.parquet'
+        self.minute_ticks_df.write_parquet(file_path, compression='zstd')
+
+        print(f"Stored {len(self.minute_ticks_df)} minute ticks to {file_path}")
 
 
 if __name__ == "__main__":
     SYMBOL = "AAPL"
-    ALPACA_KEY = os.getenv("ALPACA_API_KEY")
-    ALPACA_SECRET = os.getenv("ALPACA_API_SECRET")
 
-    ticks = Ticks(SYMBOL, ALPACA_KEY, ALPACA_SECRET)
+    ticks = Ticks(SYMBOL)
 
     # Example 1: Fetch and store minute data for a specific day
     print("=" * 50)
     print("Fetching minute data...")
     trade_day = "2025-01-03"
-    minutes = ticks.get_minute(trade_day)
-    print(f"Fetched {len(minutes)} minute bars")
-
-    datapoints_minute = ticks.parse_ticks(minutes)
-    print(f"Parsed {len(datapoints_minute)} datapoints")
-
-    ticks.store_ticks(datapoints_minute, storage_type="minute")
+    minutes = ticks.collect_minute_ticks(trade_day)
+    ticks.store_minute_ticks(trade_day)
+    minute_df = pl.read_parquet(ticks.minute_path/"AAPL/2025/01/03/ticks.parquet")
+    print(minute_df)
 
     # Example 2: Fetch and store daily data for a full year
     print("\n" + "=" * 50)
     print("Fetching daily data...")
-    year = "2024"
-    daily_bars = ticks.get_daily(year)
-    print(f"Fetched {len(daily_bars)} daily bars")
-
-    datapoints_daily = ticks.parse_ticks(daily_bars)
-    print(f"Parsed {len(datapoints_daily)} datapoints")
-
-    ticks.store_ticks(datapoints_daily, storage_type="daily")
+    year = 2024
+    daily_bars = ticks.collect_daily_ticks(year)
+    ticks.store_daily_ticks(year)
+    daily_df = pl.read_parquet(ticks.daily_path/"AAPL/2024/ticks.parquet")
+    print(daily_df)
