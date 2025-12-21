@@ -129,8 +129,8 @@ class Fundamental:
 
         # Read existing logs or create new list
         if log_file.exists():
-            with open(log_file, 'r') as f:
-                logs = json.load(f)
+            with open(log_file, 'r') as file:
+                logs = json.load(file)
         else:
             logs = []
 
@@ -138,8 +138,8 @@ class Fundamental:
         logs.append(log_entry)
 
         # Write back to file
-        with open(log_file, 'w') as f:
-            json.dump(logs, f, indent=2)
+        with open(log_file, 'w') as file:
+            json.dump(logs, file, indent=2)
 
     def _deduplicate_dps(self, dps: List[FndDataPoint]) -> List[FndDataPoint]:
         """
@@ -206,22 +206,22 @@ class Fundamental:
 
             return values
 
-        except KeyError as e:
+        except KeyError as error:
             # Field not available for this company
-            self._log_error(field, 'FieldNotAvailable', str(e))
+            self._log_error(field, 'FieldNotAvailable', str(error))
             print(f"  ⚠ Field '{field}' not available (logged)")
             return None
 
-        except requests.RequestException as e:
+        except requests.RequestException as error:
             # Network or API error
-            self._log_error(field, 'RequestException', str(e))
+            self._log_error(field, 'RequestException', str(error))
             print(f"  ⚠ Request failed for '{field}' (logged)")
             return None
 
-        except Exception as e:
+        except Exception as error:
             # Unexpected error
-            self._log_error(field, 'UnexpectedException', str(e))
-            print(f"  ⚠ Unexpected error for '{field}': {e} (logged)")
+            self._log_error(field, 'UnexpectedException', str(error))
+            print(f"  ⚠ Unexpected error for '{field}': {error} (logged)")
             return None
 
     def generate_year_data(self, year: int, fields: List[str], symbol: str) -> None:
@@ -267,8 +267,23 @@ class Fundamental:
                 data[field] = [None] * len(dates)
                 failed_fields += 1
 
-        # Create Polars DataFrame
+        # Create Polars DataFrame with explicit schema
         df = pl.DataFrame(data)
+
+        # Cast columns to appropriate types
+        # Date column: convert ISO string to Date
+        # All field columns: cast to Float64 (financial values)
+        cast_expressions = [
+            pl.col('date').str.to_date(format='%Y-%m-%d')
+        ]
+
+        # Add cast expressions for all fundamental fields
+        for field in fields:
+            cast_expressions.append(
+                pl.col(field).cast(pl.Float64)
+            )
+
+        df = df.with_columns(cast_expressions)
 
         # Save to Parquet
         output_dir = Path(f"data/fundamental/{symbol}/{year}")
