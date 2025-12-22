@@ -7,6 +7,7 @@ from pathlib import Path
 from collections import defaultdict
 import polars as pl
 import json
+import logging
 
 HEADER = {'User-Agent': 'name@example.com'}
 
@@ -15,10 +16,33 @@ class Fundamental:
         self.cik = cik
         self.symbol = symbol
         self.log_dir = Path("data/logs/fundamental")
-        self.log_dir.mkdir(parents=True, exist_ok=True)
         self.calendar_path = Path("data/calendar/master.parquet")
         self.output_dir = Path("data/raw/fundamental")
         self.fields_df = None
+
+        # Mkdir
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Setup logger
+        self.logger = logging.getLogger(f"fundamental.{cik}")
+        self.logger.setLevel(logging.WARNING)
+
+        # Create file handler with daily rotation
+        log_date = dt.datetime.now().strftime('%Y-%m-%d')
+        log_file = self.log_dir / f"errors_{log_date}.log"
+        handler = logging.FileHandler(log_file)
+        handler.setLevel(logging.WARNING)
+
+        # Create formatter
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        handler.setFormatter(formatter)
+
+        # Add handler if not already added
+        if not self.logger.handlers:
+            self.logger.addHandler(handler)
 
     def get_facts(self, field: str, sleep=True) -> List[dict]:
         """
@@ -135,57 +159,29 @@ class Fundamental:
         
         except KeyError as error:
             # Field not available for this company
-            self._log_error(field, 'FieldNotAvailable', str(error))
+            self.logger.warning(
+                f"Field not available - Symbol: {self.symbol}, Field: {field}, Error: {error}"
+            )
             print(f"  ⚠ Field '{field}' not available (logged)")
             return []
 
         except requests.RequestException as error:
             # Network or API error
-            self._log_error(field, 'RequestException', str(error))
+            self.logger.error(
+                f"Request failed - Symbol: {self.symbol}, Field: {field}, Error: {error}"
+            )
             print(f"  ⚠ Request failed for '{field}' (logged)")
             return []
 
         except Exception as error:
             # Unexpected error
-            self._log_error(field, 'UnexpectedException', str(error))
+            self.logger.error(
+                f"Unexpected error - Symbol: {self.symbol}, Field: {field}, Error: {error}",
+                exc_info=True
+            )
             print(f"  ⚠ Unexpected error for '{field}': {error} (logged)")
             return []
-        
-    def _log_error(self, field: str, error_type: str, error_message: str) -> None:
-        """
-        Log field fetching errors to JSON file.
 
-        :param field: XBRL field name that failed
-        :param error_type: Type of error (e.g., 'FieldNotAvailable', 'RequestException')
-        :param error_message: Detailed error message
-        """
-        log_entry = {
-            'timestamp': dt.datetime.now().isoformat(),
-            'cik': self.cik,
-            'symbol': self.symbol or 'UNKNOWN',
-            'field': field,
-            'error_type': error_type,
-            'error_message': error_message
-        }
-
-        # Create log file path with current date
-        log_date = dt.datetime.now().strftime('%Y-%m-%d')
-        log_file = self.log_dir / f"errors_{log_date}.json"
-
-        # Read existing logs or create new list
-        if log_file.exists():
-            with open(log_file, 'r') as file:
-                logs = json.load(file)
-        else:
-            logs = []
-
-        # Append new log entry
-        logs.append(log_entry)
-
-        # Write back to file
-        with open(log_file, 'w') as file:
-            json.dump(logs, file, indent=2)
-    
     def collect_fields(self, year: int, fields: List[str]) -> pl.DataFrame:
         """
         Collect multiple fields and put into one single dataframe
