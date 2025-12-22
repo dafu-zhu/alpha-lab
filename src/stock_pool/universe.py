@@ -10,7 +10,7 @@ import pandas as pd
 from datetime import datetime
 import time
 
-def fetch_sec_stocks():
+def fetch_sec_stocks() -> pd.DataFrame:
     """
     Fetch all US stocks from SEC EDGAR
     Returns a pandas DataFrame
