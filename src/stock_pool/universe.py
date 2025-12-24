@@ -4,108 +4,86 @@ SEC EDGAR Stock Fetcher
 
 Fetches all actively traded US common stocks from SEC EDGAR API.
 """
+import io
 import os
 import requests
 import pandas as pd
 from datetime import datetime
-import time
+from ftplib import FTP
 
-def fetch_sec_stocks() -> pd.DataFrame:
+def fetch_all_stocks() -> pd.DataFrame:
     """
-    Fetch all US stocks from SEC EDGAR
-    Returns a pandas DataFrame
+    Connects to ftp.nasdaqtrader.com to fetch the raw ticker list.
     """
-    # Setup headers (required by SEC)
-    headers = {
-        'User-Agent': 'name@example.com',
-        'Accept-Encoding': 'gzip, deflate',
-        'Host': 'www.sec.gov'
-    }
-    
-    url = "https://www.sec.gov/files/company_tickers_exchange.json"
-    
+    ftp_host = "ftp.nasdaqtrader.com"
+    ftp_dir = "SymbolDirectory"
+    ftp_file = "nasdaqtraded.txt"
+
     try:
-        # SEC rate limit: 10 requests/second
-        time.sleep(0.11)
+        print(f"Connecting to FTP: {ftp_host}...")
         
-        response = requests.get(url, headers=headers, timeout=30)
+        # Establish FTP Connection
+        ftp = FTP(ftp_host)
+        ftp.login()
+        ftp.cwd(ftp_dir)
         
-        if response.status_code == 200:
-            data = response.json()
-            companies = []
+        # Download file to memory (BytesIO)
+        # This is faster than writing to disk and reading back
+        print(f"Downloading {ftp_file}...")
+        byte_buffer = io.BytesIO()
+        
+        # Retrieve a file
+        ftp.retrbinary(f"RETR {ftp_file}", byte_buffer.write)
+        ftp.quit()
+        
+        # Reset buffer pointer to the beginning so Pandas can read it
+        byte_buffer.seek(0)
+        
+        # Read CSV directly from URL (Separator is '|')
+        # Funny enough: without specifying dtype, pandas recognize 'NaN' as null, which is in fact 'Nano Labs Ltd'
+        df = pd.read_csv(byte_buffer, sep='|', dtype={'Symbol': str}, keep_default_na=False, na_values=[''])
+        
+        # Remove the file footer (usually contains file creation timestamp)
+        df = df[:-1]
+        
+        # FILTER: Exclude ETFs
+        # The 'ETF' column is 'Y' for ETFs and 'N' for stocks
+        if 'ETF' in df.columns:
+            df = df[df['ETF'] == 'N']
+            
+        # FILTER: Exclude Test Issues
+        if 'Test Issue' in df.columns:
+            df = df[df['Test Issue'] == 'N']
 
-            if 'data' in data:
-                # Format: {"fields": [...], "data": [[...]]}
-                for item in data['data']:
-                    companies.append({
-                        'CIK': str(item[0]).zfill(10),
-                        'Name': item[1],
-                        'Ticker': item[2],
-                        'Exchange': item[3]
-                    })
-            
-            df = pd.DataFrame(companies)
-            
-        else:
-            url_fallback = "https://www.sec.gov/files/company_tickers.json"
-            time.sleep(0.11)
-            
-            response = requests.get(url_fallback, headers=headers, timeout=30)
-            
-            if response.status_code == 200:
-                data = response.json()
-                
-                companies = []
-                for key, value in data.items():
-                    companies.append({
-                        'CIK': str(value['cik_str']).zfill(10),
-                        'Ticker': value['ticker'],
-                        'Name': value['title']
-                    })
-                
-                df = pd.DataFrame(companies)
-            else:
-                return None
-                
+        # Rename columns to match your system
+        df = df.rename(columns={'Symbol': 'Ticker', 'Security Name': 'Name'})
+        
+        # Additional Cleanup (Preferreds, Warrants, Rights)
+        df = df[~df['Ticker'].str.contains(r'[-\.](?:W|R|P|U)$', regex=True, na=False)]
+        df = df[~df['Ticker'].str.contains(r'[$~\^\.]', regex=True, na=False)]
+
+        # Remove duplicates
+        df = df.drop_duplicates(subset=['Ticker'], keep='first')
+        df = df.sort_values('Ticker').reset_index(drop=True)
+        
+        print(f"Final Universe: {len(df)} common stocks")
+        
+        # Store result
+        dir_path = os.path.join('data', 'symbols')
+        os.makedirs(dir_path, exist_ok=True)
+        file_path = os.path.join(dir_path, 'stock_exchange.csv')
+        
+        # Save only relevant columns
+        output_df = df[['Ticker', 'Name']]
+        output_df.to_csv(file_path, index=False)
+        
+        return output_df
+
     except Exception as error:
-        print(f"Error: {error}")
+        print(f"Error fetching Nasdaq data: {error}")
         return None
     
-    initial_count = len(df)
-    
-    # Must have ticker
-    df = df[df['Ticker'].notna()]
-    df = df[df['Ticker'] != '']
-
-    # Remove preferred stocks, warrants, units, rights
-    # Pattern: ends with .PR, -W, -WT, -U, -R
-    df = df[~df['Ticker'].str.match(r'.*[-\.](PR|W[A-Z]*|U[A-Z]*|R[A-Z]*)$', na=False)]
-
-    # Remove special characters (^, ~, .)
-    df = df[~df['Ticker'].str.contains(r'[\^~\.]', na=False)]
-
-    # Filter for major US exchanges (if Exchange column exists)
-    if 'Exchange' in df.columns and df['Exchange'].notna().any():
-        major_exchanges = ['Nasdaq', 'NYSE', 'NYSEAmerican', 'AMEX', 'NYSEArca']
-        df = df[df['Exchange'].isin(major_exchanges)]
-    
-    # Remove duplicates
-    df = df.drop_duplicates(subset=['Ticker'], keep='first')
-    
-    # Sort by ticker
-    df = df.sort_values('Ticker').reset_index(drop=True)
-    
-    print(f"Final count: {len(df)} common stocks, removed {initial_count-len(df)}")
-
-    # Store result as csv
-    dir_path = os.path.join('data', 'symbols')
-    os.makedirs(dir_path, exist_ok=True)
-    file_path = os.path.join(dir_path, 'stock_exchange.csv')
-    df.to_csv(file_path, index=False)
-    
-    return df
-
 
 if __name__ == "__main__":
-    result = fetch_sec_stocks()
+    result = fetch_all_stocks()
     print(result.tail())

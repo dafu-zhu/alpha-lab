@@ -1,12 +1,9 @@
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
+import shutil
+import time
 import polars as pl
-from tqdm import tqdm
-
 from collection.ticks import Ticks
-
-from stock_pool.universe import fetch_sec_stocks
+from stock_pool.universe import fetch_all_stocks
 
 class UniverseManager:
     def __init__(self):
@@ -25,7 +22,7 @@ class UniverseManager:
             df = pl.read_csv(csv_path)
             symbols = df["Ticker"].to_list()
         else:
-            pd_df = fetch_sec_stocks()
+            pd_df = fetch_all_stocks()
             if pd_df is not None and not pd_df.empty:
                 symbols = pd_df['Ticker'].tolist()
             else:
@@ -33,35 +30,34 @@ class UniverseManager:
                 
         print(f"Market Universe Size: {len(symbols)} tickers")
         return symbols
+    
+    def remove_recent_data(self) -> None:
+        if self.recent_dir.exists():
+            shutil.rmtree(self.recent_dir)
 
-    def fetch_recent_data(self, symbols: list[str]) -> None:
+    def fetch_recent_data(self, symbols: list[str], refresh=False) -> None:
         """
-        Downloads 3-month daily history for ALL symbols in parallel.
+        Downloads 3-month daily history for ALL symbols using the efficient bulk fetcher.
         """
+        if refresh:
+            self.remove_recent_data()
 
-        # Alpaca allows ~200 req/min. 
-        # Ticks.get_ticks has a 0.1s sleep, limiting to 10/sec per thread.
-        # 5 threads = 50 req/sec (too fast). 2 threads = 20 req/sec (safe).
-        # Use 4 workers and rely on the internal sleep.
+        print(f"Starting bulk fetch for {len(symbols)} symbols...")        
+        # Instantiate Ticks with a dummy symbol (symbol arg is ignored for bulk fetch)
+        fetcher = Ticks(symbol="UNIVERSE")
         
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            # Map symbol -> Future
-            future_to_symbol = {
-                executor.submit(Ticks(sym).update_liquidity_cache): sym 
-                for sym in symbols
-            }
-            
-            # Progress bar
-            for future in tqdm(as_completed(future_to_symbol), total=len(symbols), desc="Caching Data"):
-                pass 
+        # Call the bulk method 
+        # Handles chunking (100 at a time), rate limits, and saving internally
+        fetcher.fetch_and_store_bulk(symbols)
+        
+        print("Bulk fetch complete.")
 
     def filter_top_3000(self) -> list[str]:
         """
         Reads the cached data, calculates liquidity, and returns Top 3000.
         """       
         try:
-            # 1. Lazy Scan of all recent parquet files
-            # This is extremely fast (Polars is built for this)
+            # Lazy Scan of all recent parquet files
             q = (
                 pl.scan_parquet(self.recent_dir / "*.parquet")
                 .group_by("symbol")
@@ -73,11 +69,8 @@ class UniverseManager:
                 .sort("avg_dollar_vol", descending=True)
                 .head(3000)
             )
-            
-            # 2. Execute
             df = q.collect()
             
-            # 3. Output stats
             top_stock = df.row(0)
             bottom_stock = df.row(-1)
             print(f"Top Liquid Stock: {top_stock[0]} (ADV: ${top_stock[1]:,.0f})")
@@ -106,11 +99,13 @@ class UniverseManager:
         Run complete pipeline
         Output universe_top3000.txt at /data/symbols
         """
+        start = time.perf_counter()
         all_symbols = self.get_market_symbols(refresh=refresh)
-        self.fetch_recent_data(all_symbols)
+        self.fetch_recent_data(all_symbols, refresh=refresh)
         self.store_top_3000()
-
+        time_count = time.perf_counter() - start
+        print(f"Processing time: {time_count:.2f}s")
 
 if __name__ == "__main__":
     um = UniverseManager()
-    um.run()
+    um.run(refresh=True)
