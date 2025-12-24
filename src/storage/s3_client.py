@@ -1,16 +1,28 @@
+import os
 from pathlib import Path
 from typing import Optional
 import yaml
+from dotenv import load_dotenv
 import boto3
 from botocore.config import Config
 
+load_dotenv()
 
 class S3Client:
+    """
+    Load config with config_path
+    Returns a S3 client instance by calling 'create' method
+    """
     def __init__(self, config_path: Optional[str]=None):
         self.config = self._load_config(config_path)
         self.boto_config = self._create_boto_config()
+        
+        # Load key and secrets from .env
+        self.aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID')
+        self.aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY')
 
-    def _load_config(config_path: Optional[str]=None) -> dict:
+    @staticmethod
+    def _load_config(self, config_path: Optional[str]=None) -> dict:
         if not config_path:
             config_path = Path(__file__).parent / 'config.yaml'
         else:
@@ -27,7 +39,7 @@ class S3Client:
         except yaml.YAMLError as error:
             raise ValueError(f"Invalid YAML in {config_path}: {error}")
 
-    def _create_boto_config(self, cfg: Optional[dict]) -> Config:
+    def _create_boto_config(self) -> Config:
         """
         Create boto3 Config object from loaded configuration
         """
@@ -81,3 +93,11 @@ class S3Client:
             config_kwargs['response_checksum_validation'] = client_cfg['response_checksum_validation']
 
         return Config(**config_kwargs)
+    
+    def create(self):
+        return boto3.client(
+            's3', 
+            config=self.boto_config,
+            aws_access_key_id=self.aws_access_key_id,
+            aws_secret_access_key =self.aws_secret_access_key 
+        )
