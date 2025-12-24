@@ -84,7 +84,125 @@ class Ticks:
         end_str = end.isoformat().replace("+00:00", "Z")
 
         return start_str, end_str
+    
+    # ==========================================
+    # 1. BULK METHODS (For Universe Selection)
+    # ==========================================
+    def fetch_and_store_bulk(self, symbols: List[str]) -> bool:
+        """
+        Fetches the last 3 months of daily data for a list of symbols 
+        and saves them to the 'recent' folder.
 
+        If success (for at least one chunk), return True; otherwise return False
+        """
+        def _process_ticks(bars: dict) -> bool:
+            """
+            Core processing logic for requested data
+            
+            :param bars: Bars in format 
+                Dict[symbol: List[Dict['c': float, 'h': float, 'l': ...]]]
+            :type bars: dict
+            """
+            has_data = False
+            # Process each symbol in the chunk
+            for sym, raw_bars in bars.items():
+                if not raw_bars:
+                    continue
+                
+                try:
+                    # Parse and Format for Liquidity Calculation
+                    parsed_bars = self.parse_ticks(raw_bars)
+                    bars_data = [asdict(dp) for dp in parsed_bars]
+
+                    # Create DataFrame
+                    df = (
+                        pl.LazyFrame(bars_data)
+                        .with_columns([
+                            pl.col("timestamp").str.to_date(format='%Y-%m-%dT%H:%M:%S').alias("Date"),
+                            pl.col("close").cast(pl.Float64),
+                            pl.col("volume").cast(pl.Int64),
+                            pl.lit(sym).alias("symbol")
+                        ])
+                        .select(["Date", "symbol", "close", "volume"])
+                    ).collect()
+
+                    # Save to "Recent"
+                    save_path = self.recent_dir / f"{sym}.parquet"
+                    df.write_parquet(save_path)
+                    has_data = True
+                except Exception as error:
+                    print(f"Failed to process {sym}: {error}")
+                    continue
+                
+            return has_data
+            
+        try:
+            # Define 3-month window (UTC) - Same logic as update_liquidity_cache
+            end_dt = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)
+            start_dt = end_dt - dt.timedelta(weeks=12)
+            
+            start_str = start_dt.isoformat().replace("+00:00", "Z")
+            end_str = end_dt.isoformat().replace("+00:00", "Z")
+
+            # Chunking Logic (Alpaca URL limit safety)
+            CHUNK_SIZE = 100
+            base_url = "https://data.alpaca.markets/v2/stocks/bars"
+
+            success_flag = False
+
+            # Alpaca format (BRK.B)
+            symbols = [s.replace('-', '.') for s in symbols]
+
+            for i in range(0, len(symbols), CHUNK_SIZE):
+                chunk = symbols[i:i + CHUNK_SIZE]
+                symbols_str = ",".join(chunk)
+
+                params = {
+                    "symbols": symbols_str,
+                    "timeframe": "1Day",
+                    "start": start_str,
+                    "end": end_str,
+                    "limit": 10000,
+                    "adjustment": "raw",
+                    "feed": 'sip',
+                    "sort": "asc"
+                }
+
+                # Fetch Data
+                response = requests.get(base_url, headers=self.headers, params=params)
+                
+                if response.status_code != 200:
+                    print(f"Error fetching chunk {i}: {response.status_code}, {response.text}")
+                    continue
+
+                data = response.json()
+                bars = data.get("bars", {})
+                if not bars:
+                    continue
+                    
+                success_flag = _process_ticks(bars=bars)
+                
+                # Handle Pagination if necessary
+                while "next_page_token" in data and data["next_page_token"]:
+                    params["page_token"] = data["next_page_token"]
+                    response = requests.get(base_url, headers=self.headers, params=params)
+                    data = response.json()
+                    bars = data.get("bars", {})
+                    if not bars:
+                        continue
+                    success_flag = _process_ticks(bars=bars)
+                
+                print(f"Chunk {i//100+1} successful!")
+
+            return success_flag
+
+        except Exception as e:
+            print(f"Error during bulk fetch: {e}")
+            return False
+
+    # ==========================================
+    # 2. SINGLE SYMBOL METHODS (For Historical Data)
+    # ==========================================
     def get_ticks(
         self,
         start: str,
@@ -302,50 +420,6 @@ class Ticks:
 
         print(f"Stored {len(self.minute_ticks_df)} minute ticks to {file_path}")
 
-    def update_liquidity_cache(self) -> bool:
-        """
-        Fetches the last 3 months of daily data and saves it to a 
-        temporary 'recent' folder for liquidity scoring.
-
-        If success, return True; otherwise return False
-        """
-        try:
-            # Define 3-month window (UTC)
-            end_dt = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1) 
-            start_dt = end_dt - dt.timedelta(weeks=12) 
-            
-            start_str = start_dt.isoformat().replace("+00:00", "Z")
-            end_str = end_dt.isoformat().replace("+00:00", "Z")
-
-            # Fetch Data
-            raw_bars = self.get_ticks(start_str, end_str, timeframe="1Day")
-            
-            if not raw_bars:
-                return False
-
-            # Parse and Format for Liquidity Calculation
-            parsed_bars = self.parse_ticks(raw_bars)
-            bars_data = [asdict(dp) for dp in parsed_bars]
-            
-            # Create DataFrame
-            df = (
-                pl.LazyFrame(bars_data)
-                .with_columns([
-                    pl.col("timestamp").str.to_date(format='%Y-%m-%dT%H:%M:%S').alias("Date"),
-                    pl.col("close").cast(pl.Float64),
-                    pl.col("volume").cast(pl.Int64),
-                    pl.lit(self.symbol).alias("symbol")
-                ])
-                .select(["Date", "symbol", "close", "volume"])
-            ).collect()
-
-            # Save to "Recent"
-            df.write_parquet(self.recent_dir / f"{self.symbol}.parquet")
-            return True
-
-        except Exception as e:
-            print(f"Error fetching recent data for {self.symbol}: {e}")
-            return False
 
 
 if __name__ == "__main__":
