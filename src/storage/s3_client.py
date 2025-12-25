@@ -5,6 +5,7 @@ import yaml
 from dotenv import load_dotenv
 import boto3
 from botocore.config import Config
+from storage.config_loader import UploadConfig
 
 load_dotenv()
 
@@ -13,37 +14,19 @@ class S3Client:
     Load config with config_path
     Returns a S3 client instance by calling 'create' method
     """
-    def __init__(self, config_path: Optional[str]=None):
-        self.config = self._load_config(config_path)
+    def __init__(self, config_path: str="src/storage/config.yaml"):
+        self.config = UploadConfig(config_path)
         self.boto_config = self._create_boto_config()
         
         # Load key and secrets from .env
         self.aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID')
         self.aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY')
 
-    @staticmethod
-    def _load_config(self, config_path: Optional[str]=None) -> dict:
-        if not config_path:
-            config_path = Path(__file__).parent / 'config.yaml'
-        else:
-            config_path = Path(config_path)
-        
-        if not config_path.exists():
-            raise FileNotFoundError(
-                f"Config file not found: {config_path}\n"
-                f"Please create config.yaml in {config_path.parent}"
-            )
-        
-        try:
-            return yaml.safe_load(config_path.read_text())
-        except yaml.YAMLError as error:
-            raise ValueError(f"Invalid YAML in {config_path}: {error}")
-
     def _create_boto_config(self) -> Config:
         """
         Create boto3 Config object from loaded configuration
         """
-        client_cfg = self.config.get('client', {})
+        client_cfg = self.config.client
 
         # Build with required params
         config_kwargs = {
@@ -94,10 +77,11 @@ class S3Client:
 
         return Config(**config_kwargs)
     
-    def create(self):
+    @property
+    def client(self):
         return boto3.client(
             's3', 
             config=self.boto_config,
             aws_access_key_id=self.aws_access_key_id,
-            aws_secret_access_key =self.aws_secret_access_key 
+            aws_secret_access_key=self.aws_secret_access_key 
         )
