@@ -50,7 +50,7 @@ def setup_logger(
     # Setup file handler with optional daily rotation
     if daily_rotation:
         log_date = dt.datetime.now().strftime('%Y-%m-%d')
-        log_file = log_path / f"errors_{log_date}.log"
+        log_file = log_path / f"logs_{log_date}.log"
     else:
         log_file = log_path / f"{name.replace('.', '_')}.log"
 
