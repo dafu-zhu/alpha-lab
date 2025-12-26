@@ -47,8 +47,16 @@ for ticker in target_tickers:
     if resp.status_code == 200:
         facts_data = resp.json()
 
-        # safely access us-gaap keys
-        company_fields = set(facts_data.get('facts', {}).get('us-gaap', {}).keys())
+        # Only include fields that have 'USD' or 'shares' units
+        gaap_data = facts_data.get('facts', {}).get('us-gaap', {})
+        company_fields = set()
+
+        for field_name, field_data in gaap_data.items():
+            units = field_data.get('units', {})
+            # Only include if field has USD or shares units
+            if 'USD' in units or 'shares' in units:
+                company_fields.add(field_name)
+
         count = len(company_fields)
 
         # Store this company's field set
