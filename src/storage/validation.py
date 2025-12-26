@@ -118,7 +118,10 @@ class Validator:
                 s3_key = f'data/raw/{data_type}/daily/{symbol}/{year}/{data_type}.parquet'
             elif day:
                 date = dt.datetime.strptime(day, '%Y-%m-%d').date()
-                s3_key = f'data/raw/{data_type}/daily/{symbol}/{date.year}/{date.month}/{date.day}/{data_type}.parquet'
+                year_str = date.strftime('%Y')
+                month_str = date.strftime('%m')
+                day_str = date.strftime('%d')
+                s3_key = f'data/raw/{data_type}/minute/{symbol}/{year_str}/{month_str}/{day_str}/{data_type}.parquet'
             else:
                 raise ValueError(f'Failed to parse day, expected format YYYY-MM-DD, get {day}')
         elif data_type == 'fundamental':
