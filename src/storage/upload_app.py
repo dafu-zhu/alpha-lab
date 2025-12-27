@@ -110,9 +110,11 @@ class UploadApp:
     def _process_symbol_daily_ticks(self, sym: str, year: int, overwrite: bool = False) -> dict:
         """
         Process daily ticks for a single symbol.
+        Uses yfinance for years < 2017, Alpaca for years >= 2017.
         Returns dict with status for progress tracking.
 
         :param sym: Symbol in Alpaca format (e.g., 'BRK.B')
+        :param year: Year to fetch data for
         :param overwrite: If True, skip existence check and overwrite existing data
         """
         # Convert to SEC format for S3 key (BRK.B -> BRK-B)
@@ -121,11 +123,21 @@ class UploadApp:
         if not overwrite and self.validator.data_exists(sec_symbol, 'ticks', year):
             return {'symbol': sym, 'status': 'canceled', 'error': f'Symbol {sym} for year {year} already exists'}
         try:
-            # Fetch from Alpaca API using Alpaca format (with '.')
-            ticks = Ticks(sym)
-            daily_df = ticks.collect_daily_ticks(year=year)
+            # Initialize Ticks instance with appropriate symbol format
+            if year < 2017:
+                # Use yfinance for years before 2017 (use SEC format with '-')
+                ticks = Ticks(sec_symbol)
+                daily_df = ticks.collect_daily_ticks_yf(year=year)
+            else:
+                # Use Alpaca for years >= 2017 (use Alpaca format with '.')
+                ticks = Ticks(sym)
+                daily_df = ticks.collect_daily_ticks(year=year)
 
-            # Check if all data columns are null (no actual data available)
+            # Check if DataFrame is empty (no rows fetched)
+            if len(daily_df) == 0:
+                return {'symbol': sym, 'status': 'skipped', 'error': 'No data available'}
+
+            # Check if all data columns are null (has rows but no actual data)
             if daily_df['open'].is_null().all():
                 return {'symbol': sym, 'status': 'skipped', 'error': 'No data available'}
 
@@ -140,7 +152,8 @@ class UploadApp:
             s3_metadata = {
                 'symbol': sec_symbol,
                 'year': str(year),
-                'data_type': 'ticks'
+                'data_type': 'ticks',
+                'source': 'yfinance' if year < 2017 else 'alpaca'
             }
             # Allow list or dict as metadata value
             s3_metadata_prepared = {
@@ -163,7 +176,9 @@ class UploadApp:
     def daily_ticks(self, year: int, overwrite: bool = False):
         """
         Upload daily ticks for all symbols sequentially (no concurrency to avoid rate limits).
+        Uses yfinance for years < 2017, Alpaca for years >= 2017.
 
+        :param year: Year to fetch data for
         :param overwrite: If True, overwrite existing data in S3 (default: False)
         """
         total = len(self.alpaca_symbols)
@@ -173,7 +188,8 @@ class UploadApp:
         canceled = 0
         skipped = 0
 
-        self.logger.info(f"Starting daily ticks upload for {total} symbols (sequential processing, overwrite={overwrite})")
+        data_source = 'yfinance' if year < 2017 else 'Alpaca'
+        self.logger.info(f"Starting daily ticks upload for {total} symbols (year={year}, source={data_source}, sequential processing, overwrite={overwrite})")
 
         for sym in self.alpaca_symbols:
             result = self._process_symbol_daily_ticks(sym, year, overwrite=overwrite)
@@ -192,7 +208,7 @@ class UploadApp:
             if completed % 10 == 0:
                 self.logger.info(f"Progress: {completed}/{total} ({success} success, {failed} failed, {canceled} canceled, {skipped} skipped)")
 
-        self.logger.info(f"Daily ticks upload completed: {success} success, {failed} failed, {canceled} canceled, {skipped} skipped out of {total} total")
+        self.logger.info(f"Daily ticks upload completed ({data_source}): {success} success, {failed} failed, {canceled} canceled, {skipped} skipped out of {total} total")
 
     def _upload_minute_ticks_worker(
             self,
@@ -833,4 +849,5 @@ class UploadApp:
 
 if __name__ == "__main__":
     app = UploadApp()
-    app.run(start_year=2010, end_year=2025)
+    # app.run(start_year=2010, end_year=2025)
+    app.daily_ticks(year=2010, overwrite=True)

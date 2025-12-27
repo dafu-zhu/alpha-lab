@@ -4,6 +4,7 @@ import requests
 import time
 import zoneinfo
 import datetime as dt
+import warnings
 from typing import Tuple, List
 from dataclasses import asdict
 from dotenv import load_dotenv
@@ -14,6 +15,13 @@ from collection.models import TickField, TickDataPoint
 from utils.logger import LoggerFactory
 
 load_dotenv()
+
+# Suppress yfinance warnings and error messages
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", message=".*yfinance.*")
+
+# Suppress yfinance logger output (errors printed to stderr)
+logging.getLogger('yfinance').setLevel(logging.CRITICAL)
 
 # Shared logger
 _logger_factory = LoggerFactory(
@@ -410,6 +418,73 @@ class Ticks:
             self.logger.error(f"Request failed for {symbol}: {e}")
             return []
 
+    def get_daily_yf(self, year: str | int) -> pl.DataFrame:
+        """
+        Get daily OHLCV data for a full year from yfinance.
+        Returns DataFrame with schema matching Alpaca format (with null num_trades and vwap).
+
+        :param year: Year as string or integer (e.g., "2024" or 2024)
+        :return: Polars DataFrame with daily ticks (Date, OHLCV, null num_trades/vwap)
+        """
+        import sys
+        import io
+        import yfinance as yf
+
+        if isinstance(year, str):
+            year = int(year)
+
+        start_date = f"{year}-01-01"
+        end_date = f"{year}-12-31"
+
+        try:
+            # Fetch data from yfinance with stderr suppressed
+            self.logger.info(f"Fetching daily data from yfinance for {self.symbol} (year {year})")
+
+            # Redirect stderr to suppress yfinance error messages
+            old_stderr = sys.stderr
+            sys.stderr = io.StringIO()
+
+            try:
+                ticker = yf.Ticker(self.symbol)
+                hist = ticker.history(start=start_date, end=end_date, auto_adjust=True)
+            finally:
+                sys.stderr = old_stderr
+
+            if hist.empty:
+                self.logger.warning(f"No data returned from yfinance for {self.symbol}")
+                return pl.DataFrame()
+
+            # Reset index to get Date as a column
+            hist = hist.reset_index()
+
+            # Create Polars DataFrame with schema matching Alpaca format
+            df = pl.DataFrame({
+                'Date': hist['Date'].dt.date.tolist(),
+                'open': hist['Open'].astype(float).tolist(),
+                'high': hist['High'].astype(float).tolist(),
+                'low': hist['Low'].astype(float).tolist(),
+                'close': hist['Close'].astype(float).tolist(),
+                'volume': hist['Volume'].astype(int).tolist(),
+                'num_trades': [None] * len(hist),  # yfinance doesn't provide this
+                'vwap': [None] * len(hist)  # yfinance doesn't provide this
+            }).with_columns([
+                pl.col('Date').cast(pl.Date),
+                pl.col('open').cast(pl.Float64),
+                pl.col('high').cast(pl.Float64),
+                pl.col('low').cast(pl.Float64),
+                pl.col('close').cast(pl.Float64),
+                pl.col('volume').cast(pl.Int64),
+                pl.col('num_trades').cast(pl.Int64),
+                pl.col('vwap').cast(pl.Float64)
+            ])
+
+            self.logger.info(f"Successfully fetched {len(df)} trading days from yfinance for {self.symbol}")
+            return df
+
+        except Exception as e:
+            self.logger.error(f"Failed to fetch data from yfinance for {self.symbol}: {e}")
+            return pl.DataFrame()
+
     @staticmethod
     def parse_ticks(ticks: List[dict]) -> List[TickDataPoint]:
         """
@@ -452,12 +527,18 @@ class Ticks:
         """
         parsed_ticks: List[TickDataPoint] = self.parse_ticks(self.get_daily(year=year))
 
+        # Transform dataclass to dictionaries
+        ticks_data = [asdict(dp) for dp in parsed_ticks]
+
+        # Handle empty data case - return immediately without merging
+        if not ticks_data:
+            self.logger.warning(f"No data available for {self.symbol} in year {year}")
+            self.daily_ticks_df = pl.DataFrame()
+            return pl.DataFrame()
+
         # Define date range
         start_date = dt.date(year, 1, 1)
         end_date = dt.date(year, 12, 31)
-
-        # Transform dataclass to dictionaries
-        ticks_data = [asdict(dp) for dp in parsed_ticks]
 
         # Merge with master calendar
         calendar_path = self.calendar_dir / "master.parquet"
@@ -467,22 +548,6 @@ class Ticks:
             .sort('Date')
             .lazy()
         )
-
-        # Handle empty data case
-        if not ticks_data:
-            self.logger.warning(f"No data available for {self.symbol} in year {year}")
-            # Return calendar with null values for tick columns
-            result = calendar_lf.with_columns([
-                pl.lit(None).cast(pl.Float64).alias('open'),
-                pl.lit(None).cast(pl.Float64).alias('high'),
-                pl.lit(None).cast(pl.Float64).alias('low'),
-                pl.lit(None).cast(pl.Float64).alias('close'),
-                pl.lit(None).cast(pl.Int64).alias('volume'),
-                pl.lit(None).cast(pl.Int64).alias('num_trades'),
-                pl.lit(None).cast(pl.Float64).alias('vwap')
-            ]).collect()
-            self.daily_ticks_df = result
-            return result
 
         ticks_lf = (
             pl.DataFrame(ticks_data)
@@ -499,6 +564,44 @@ class Ticks:
             .drop("timestamp")
             .lazy()
         )
+        calendar_lf = calendar_lf.join_asof(ticks_lf, on='Date')
+
+        result = calendar_lf.collect()
+        self.daily_ticks_df = result
+
+        return result
+
+    def collect_daily_ticks_yf(self, year: int) -> pl.DataFrame:
+        """
+        Given a year, collect daily ticks from yfinance and merge with master calendar.
+
+        :param year: Specify trade year
+        :type year: int
+        """
+        # Fetch data from yfinance (returns DataFrame directly)
+        ticks_df = self.get_daily_yf(year=year)
+
+        # Handle empty data case
+        if len(ticks_df) == 0:
+            self.logger.warning(f"No data available from yfinance for {self.symbol} in year {year}")
+            self.daily_ticks_df = pl.DataFrame()
+            return pl.DataFrame()
+
+        # Define date range
+        start_date = dt.date(year, 1, 1)
+        end_date = dt.date(year, 12, 31)
+
+        # Merge with master calendar
+        calendar_path = self.calendar_dir / "master.parquet"
+        calendar_lf = (
+            pl.scan_parquet(calendar_path)
+            .filter(pl.col('Date').is_between(start_date, end_date))
+            .sort('Date')
+            .lazy()
+        )
+
+        # Join with calendar (yfinance data already has correct schema)
+        ticks_lf = ticks_df.lazy()
         calendar_lf = calendar_lf.join_asof(ticks_lf, on='Date')
 
         result = calendar_lf.collect()
