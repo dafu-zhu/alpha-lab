@@ -26,7 +26,7 @@ fields:
   us-gaap:
     # Load from separate file: data/config/us-gaap-fields.txt
     # See loader logic in application code
-    source: data/config/common-gaap-fields.txt 
+    source: data/config/popular-gaap-fields.txt 
 
 transfer:
   multipart_threshold: 10*1024*1024
