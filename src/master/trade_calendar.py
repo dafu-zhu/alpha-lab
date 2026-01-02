@@ -12,14 +12,14 @@ ALPACA_KEY = os.getenv("ALPACA_API_KEY")
 ALPACA_SECRET = os.getenv("ALPACA_API_SECRET")
 
 class TradeCalendar:
-    def __init__(self, start_str: str, end_str: str):
-        self.start_date = start_str
-        self.end_date = end_str
+    def __init__(self, start_day: str, end_day: str):
+        self.start_day = start_day
+        self.end_day = end_day
         self.store_dir = Path('data/calendar')
         self.store_dir.mkdir(parents=True, exist_ok=True)
 
     def get_calendar(self) -> pl.DataFrame:
-        url = f"https://paper-api.alpaca.markets/v2/calendar?start={start_date}%2000%3A00%3A00&end={end_date}%2000%3A00%3A00&date_type=TRADING"
+        url = "https://paper-api.alpaca.markets/v2/calendar"
 
         headers = {
             "accept": "application/json",
@@ -27,7 +27,13 @@ class TradeCalendar:
             "APCA-API-SECRET-KEY": ALPACA_SECRET
         }
 
-        response = requests.get(url, headers=headers).json()
+        params = {
+            "start": f"{self.start_day}T00:00:00Z",
+            "end": f"{self.end_day}T00:00:00Z",
+            "date_type": "TRADING"
+        }
+
+        response = requests.get(url, headers=headers, params=params).json()
 
         date_list = []
 
@@ -35,7 +41,7 @@ class TradeCalendar:
             date = dt.datetime.strptime(res['date'], '%Y-%m-%d').date()
             date_list.append(date)
 
-        date_df = pl.DataFrame({'Date': date_list})
+        date_df = pl.DataFrame({'timestamp': date_list})
 
         return date_df
 
@@ -46,10 +52,10 @@ class TradeCalendar:
         print(f"Trading calendar stored at {file_path}")
 
 if __name__ == "__main__":
-    start_date = "2009-01-01"
-    end_date = "2029-12-31"
+    start_day = "2009-01-01"
+    end_day = "2029-12-31"
 
-    tc = TradeCalendar(start_date, end_date)
+    tc = TradeCalendar(start_day, end_day)
     tc.store_calendar()
 
     calendar_path = Path("data/calendar/master.parquet")
