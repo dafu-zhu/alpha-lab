@@ -213,115 +213,6 @@ class Fundamental:
         return result
 
 
-class FundamentalCollector:
-    def __init__(self, symbol: str):
-        self.symbol = symbol
-        self.cik_history_path = Path("data/reference/cik_history.parquet")
-
-    def get_applicable_ciks(self, year: int) -> List[Tuple[str, dt.date, dt.date]]:
-        """
-        Get all CIKs that were active during the given year.
-        
-        Returns:
-            List of (cik, effective_start, effective_end) tuples
-        """
-        year_start = dt.date(year, 1, 1)
-        year_end = dt.date(year, 12, 31)
-
-        cik_df = pl.read_parquet(self.cik_history_path)
-
-        # Filter for this symbol and overlapping date ranges
-        applicable = cik_df.filter(
-            (pl.col("symbol") == self.symbol) &
-            (pl.col("start_date") <= year_end) &
-            ((pl.col("end_date").is_null()) | (pl.col("end_date") >= year_start))
-        ).sort("start_date")
-
-        ciks = []
-        for row in applicable.iter_rows(named=True):
-            start = max(row["start_date"], year_start)
-            end = min(row["end_date"] or year_end, year_end)
-            ciks.append((row["cik"], start, end))
-
-        return ciks
-
-    def collect_fields_multi_cik(
-        self, 
-        year: int, 
-        fields: List[str], 
-        location: str
-    ) -> pl.DataFrame:
-        """
-        Collect fundamental data handling multiple CIKs within the year.
-        """
-        # Get applicable CIKs for this year
-        cik_periods = self.get_applicable_ciks(year)
-
-        if not cik_periods:
-            raise ValueError(f"No CIK found for {self.symbol} in year {year}")
-
-        # Start with calendar
-        start_date = dt.date(year, 1, 1)
-        end_date = dt.date(year, 12, 31)
-
-        calendar_lf = (
-            pl.scan_parquet(Path("data/calendar/master.parquet"))
-            .filter(pl.col("Date").is_between(start_date, end_date))
-            .sort('Date')
-            .lazy()
-        )
-
-        # Collect data for each field across all CIKs
-        for field_name in fields:
-            all_value_tuples = []
-
-            # Fetch from each CIK and filter by filing date range
-            for cik, period_start, period_end in cik_periods:
-                try:
-                    fund = Fundamental(cik=cik, symbol=self.symbol)
-                    dps = fund.get_dps(field_name, location)
-
-                    # Filter: only include data points filed during this CIK's period
-                    # Key insight: use FILING date, not fiscal period end date
-                    for dp in dps:
-                        if period_start <= dp.timestamp <= period_end:
-                            all_value_tuples.append((dp.timestamp, dp.value))
-
-                except KeyError:
-                    # Field not available for this CIK, continue
-                    continue
-
-            # Sort and deduplicate
-            all_value_tuples.sort(key=lambda x: x[0])
-
-            if not all_value_tuples:
-                # No data found across any CIK
-                calendar_lf = calendar_lf.with_columns(
-                    pl.lit(None, dtype=pl.Float64).alias(field_name)
-                )
-            else:
-                # Create temp dataframe and join
-                tmp_lf = (
-                    pl.DataFrame(
-                        all_value_tuples,
-                        schema=['Date', field_name],
-                        orient='row'
-                    )
-                    .with_columns(pl.col(field_name).cast(pl.Float64))
-                    .sort('Date')
-                    .drop_nulls(subset=[field_name])
-                    .lazy()
-                )
-
-                calendar_lf = calendar_lf.join_asof(
-                    tmp_lf,
-                    on='Date',
-                    strategy='backward'
-                )
-
-        return calendar_lf.collect()
-
-
 # Example usage
 if __name__ == "__main__":
     cik = '1819994'  # Rocket Lab USA Inc.
@@ -339,9 +230,15 @@ if __name__ == "__main__":
     # Create Fundamentals instance with symbol for better logging
     fund = Fundamental(cik, symbol=symbol)
 
-    # Generate and save year data for all fields
-    print(f"Generating daily data for {symbol} {year} with {len(fields)} fields...")
-    print("=" * 60)
-    res = fund.collect_fields(year=year, fields=fields)
-    print(res)
-    fund.store_fields(symbol, year, fields)
+    fields_dict = {}
+    for field in fields:
+        try:
+            dps = fund.get_dps(field, 'us-gaap')
+            fields_dict[field] = fund.get_value_tuple(dps)
+        except KeyError as error:
+            print(f"Field not found: {error}")
+
+    start_day = f"{year}-01-01"
+    end_day = f"{year}-12-31"
+    collect_df = fund.collect_fields(start_day, end_day, fields_dict)
+    print(collect_df.head())
