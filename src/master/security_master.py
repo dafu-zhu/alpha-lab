@@ -48,7 +48,7 @@ class SymbolNormalizer:
         :param security_master: SecurityMaster instance for validation (optional)
         """
         # Load current stock list (cached in data/symbols/stock_exchange.csv)
-        self.current_stocks_df = fetch_all_stocks(with_filter=True)
+        self.current_stocks_df = fetch_all_stocks(with_filter=True, refresh=False)
 
         # Create normalized lookup: {crsp_format: nasdaq_format}
         # e.g., {'BRKB': 'BRK.B', 'AAPL': 'AAPL', 'GOOGL': 'GOOGL'}
@@ -119,7 +119,7 @@ class SymbolNormalizer:
                 return symbol.upper()
 
         except ValueError:
-            self.logger.error(f"Symbol not found in SecurityMaster at one of the dates, keep original")
+            self.logger.warning(f"Symbol {symbol} not found in SecurityMaster at one of the dates, keep original")
             return symbol.upper()
 
     def batch_normalize(
