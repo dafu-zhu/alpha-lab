@@ -25,12 +25,20 @@ class UniverseManager:
         self.alpaca_fetcher = Ticks()
         self.security_master = SecurityMaster()  # Reuse WRDS connection
 
+        # Cache for current symbols to avoid re-reading CSV
+        self._current_symbols_cache: Optional[list[str]] = None
+
     def get_current_symbols(self, refresh=False) -> list[str]:
         """
         Get the current list of common stocks from Nasdaq Trader.
 
         :param refresh: If True, fetches fresh data from Nasdaq. If False, reads from cache.
         """
+        # If we have cached symbols and not refreshing, return cache
+        if not refresh and self._current_symbols_cache is not None:
+            return self._current_symbols_cache
+
+        # Otherwise fetch from file/FTP (only one thread will do this)
         pd_df = fetch_all_stocks(refresh=refresh, logger=self.logger)
         if pd_df is not None and not pd_df.empty:
             symbols = pd_df['Ticker'].tolist()
@@ -38,6 +46,9 @@ class UniverseManager:
             raise ValueError("Failed to fetch symbols from Nasdaq Trader.")
 
         self.logger.info(f"Market Universe Size: {len(symbols)} tickers")
+
+        # Cache the result
+        self._current_symbols_cache = symbols
         return symbols
     
     def get_hist_symbols(self, day: str) -> list[str]:
@@ -61,7 +72,7 @@ class UniverseManager:
         :param source: 'crsp' or 'alpaca'
         :return: List of top 3000 symbols ranked by average dollar volume
         """
-        self.logger.info(f"Fetching recent data for {len(symbols)} symbols using {source}...")
+        self.logger.info(f"Fetching recent data on {day} for {len(symbols)} symbols using {source}...")
 
         # Fetch recent data (returns Dict[str, pl.DataFrame])
         # Use pre-initialized fetchers to avoid reconnecting to databases

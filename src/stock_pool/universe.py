@@ -110,7 +110,7 @@ def fetch_all_stocks(with_filter=True, refresh=False, logger=None) -> pd.DataFra
         csv_path = Path("data/symbols/stock_exchange.csv")
         if csv_path.exists():
             logger.info(f"Loading symbols from existing CSV: {csv_path}")
-            df = pd.read_csv(csv_path)
+            df = pd.read_csv(csv_path, dtype={'Ticker': str}, keep_default_na=False, na_values=[''])
             logger.info(f"Loaded {len(df)} symbols from cache")
             return df
         else:
