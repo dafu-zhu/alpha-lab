@@ -4,11 +4,12 @@ import time
 import datetime as dt
 import polars as pl
 import logging
-from typing import Dict
+from typing import Dict, Optional
 from collection.crsp_ticks import CRSPDailyTicks
 from collection.alpaca_ticks import Ticks
 from stock_pool.universe import fetch_all_stocks
 from stock_pool.history_universe import get_hist_universe_nasdaq
+from master.security_master import SecurityMaster
 from utils.logger import setup_logger
 
 class UniverseManager:
@@ -19,9 +20,10 @@ class UniverseManager:
         log_dir = Path("data/logs/symbols")
         self.logger = setup_logger("symbols", log_dir, logging.INFO, console_output=True)
 
-        # Initialize fetchers once to reuse connections
+        # Initialize fetchers and security master once to reuse connections
         self.crsp_fetcher = CRSPDailyTicks()
         self.alpaca_fetcher = Ticks()
+        self.security_master = SecurityMaster()  # Reuse WRDS connection
 
     def get_current_symbols(self, refresh=False) -> list[str]:
         """
@@ -42,12 +44,12 @@ class UniverseManager:
         """
         Get history common stock list from CRSP database
         """
-        symbols_df = get_hist_universe_nasdaq(day)
+        symbols_df = get_hist_universe_nasdaq(day, security_master=self.security_master)
         symbols = symbols_df['Ticker'].to_list()
 
         if len(symbols) == 0:
             self.logger.warning(f"No symbols fetched for day {day}")
-        
+
         return symbols
 
     def get_top_3000(self, day: str, symbols: list[str], source: str) -> list[str]:

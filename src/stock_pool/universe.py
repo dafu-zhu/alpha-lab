@@ -88,7 +88,7 @@ def is_common_stock(name: str) -> bool:
     return True
 
 
-def fetch_all_stocks(with_filter=True, refresh=True, logger=None) -> pd.DataFrame:
+def fetch_all_stocks(with_filter=True, refresh=False, logger=None) -> pd.DataFrame:
     """
     Fetches or loads the current ticker list.
 

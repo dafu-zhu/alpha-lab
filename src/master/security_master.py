@@ -54,6 +54,9 @@ class SymbolNormalizer:
         # e.g., {'BRKB': 'BRK.B', 'AAPL': 'AAPL', 'GOOGL': 'GOOGL'}
         self.sym_map = {}
         for ticker in self.current_stocks_df['Ticker']:
+            # Skip NaN or non-string values
+            if not isinstance(ticker, str):
+                continue
             # Remove separators for lookup key
             crsp_key = ticker.replace('.', '').replace('-', '').upper()
             self.sym_map[crsp_key] = ticker

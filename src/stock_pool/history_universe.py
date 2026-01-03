@@ -38,7 +38,8 @@ def get_hist_universe_crsp(day: str) -> pl.DataFrame:
 
 def get_hist_universe_nasdaq(
     day: str,
-    with_validation: bool = True
+    with_validation: bool = True,
+    security_master: Optional[SecurityMaster] = None
 ) -> pl.DataFrame:
     """
     Historical universe with symbols converted to Nasdaq format (with periods/hyphens).
@@ -48,6 +49,7 @@ def get_hist_universe_nasdaq(
 
     :param day: Trade day with format "YYYY-MM-DD"
     :param with_validation: Use SecurityMaster to validate symbol conversions
+    :param security_master: Optional pre-initialized SecurityMaster instance (recommended for batch processing)
     :return: DataFrame with columns: Ticker (Nasdaq format), Name
 
     Example:
@@ -59,9 +61,15 @@ def get_hist_universe_nasdaq(
     crsp_symbols = crsp_df['Ticker'].to_list()
 
     # Initialize normalizer with optional SecurityMaster validation
-    sm = None
+    sm_to_close = None
     if with_validation:
-        sm = SecurityMaster()
+        # Use provided security_master or create a new one
+        if security_master is not None:
+            sm = security_master
+        else:
+            sm = SecurityMaster()
+            sm_to_close = sm  # Mark for closing later
+
         normalizer = SymbolNormalizer(security_master=sm)
     else:
         normalizer = SymbolNormalizer()
@@ -69,9 +77,9 @@ def get_hist_universe_nasdaq(
     # Convert to Nasdaq format with validation
     nasdaq_symbols = normalizer.batch_normalize(crsp_symbols, day=day if with_validation else None)
 
-    # Close SecurityMaster connection if used
-    if sm is not None:
-        sm.close()
+    # Close SecurityMaster connection only if we created it
+    if sm_to_close is not None:
+        sm_to_close.close()
 
     # Create result DataFrame
     result = pl.DataFrame({
