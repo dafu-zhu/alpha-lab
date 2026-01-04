@@ -1,11 +1,9 @@
 import io
 import os
-import json
 import datetime as dt
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, cast
 from pathlib import Path
 import logging
-import requests
 import queue
 import threading
 import time
@@ -18,11 +16,16 @@ from dotenv import load_dotenv
 from utils.logger import setup_logger
 from storage.config_loader import UploadConfig
 from storage.s3_client import S3Client
-from collection.fundamental import Fundamental
+from storage.validation import Validator
+from storage.rate_limiter import RateLimiter
+from storage.cik_resolver import CIKResolver
+from storage.data_collectors import DataCollectors
+from storage.data_publishers import DataPublishers
 from collection.alpaca_ticks import Ticks
 from collection.crsp_ticks import CRSPDailyTicks
 from collection.models import TickField
-from storage.validation import Validator
+from stock_pool.universe import fetch_all_stocks
+from stock_pool.history_universe import get_hist_universe_nasdaq
 
 load_dotenv()
 
@@ -59,40 +62,80 @@ class UploadApp:
             "APCA-API-SECRET-KEY": ALPACA_SECRET
         }
 
-    def _load_symbols(self, year: int, month: int, sym_type: str) -> List[str]:
+        # Cache for universe data (to avoid reloading for each month in the same year)
+        self._universe_cache = {}
+
+        # Rate limiter for SEC EDGAR API (10 requests per second limit)
+        self.sec_rate_limiter = RateLimiter(max_rate=9.5)  # Slightly under 10 to be safe
+
+        # Initialize helper modules
+        self.cik_resolver = CIKResolver(
+            security_master=self.crsp_ticks.security_master,
+            logger=self.logger
+        )
+
+        self.data_collectors = DataCollectors(
+            crsp_ticks=self.crsp_ticks,
+            alpaca_ticks=self.alpaca_ticks,
+            alpaca_headers=self.headers,
+            logger=self.logger
+        )
+
+        self.data_publishers = DataPublishers(
+            validator=self.validator,
+            upload_fileobj_func=self.upload_fileobj,
+            logger=self.logger
+        )
+
+    def _load_symbols(self, year: int, month: int, sym_type: str) -> List[str]:  # noqa: ARG002
         """
-        Load symbol list from monthly file
+        Load symbol list from historical universe for the given year.
+        Returns all stocks that were active at any point during the year.
         SEC uses '-' as separator ('BRK-B'), Alpaca uses '.' ('BRK.B')
 
         :param year: Year (e.g., 2024)
-        :param month: Month (1-12)
+        :param month: Month (1-12, currently unused but kept for API compatibility)
         :param sym_type: "sec" or "alpaca"
         :return: List of symbols in the specified format
         """
-        # Construct path: data/symbols/YYYY/MM/universe_top3000.txt
-        symbol_path = Path(f"data/symbols/{year}/{month:02d}/universe_top3000.txt")
+        # Check cache first (key by year since we get full year universe)
+        cache_key = f"{year}_{sym_type}"
+        if cache_key in self._universe_cache:
+            return self._universe_cache[cache_key]
 
-        if not symbol_path.exists():
-            self.logger.warning(f"Symbol file not found: {symbol_path}")
-            return []
+        try:
+            # For years >= 2025 (using Alpaca), use current ticker list instead of historical universe
+            if year >= 2025:
+                df = fetch_all_stocks(with_filter=True, refresh=False, logger=self.logger)
+                nasdaq_symbols = df['Ticker'].to_list()
+                self.logger.info(f"Using current ticker list for {year} ({len(nasdaq_symbols)} symbols)")
+            else:
+                # For historical years (< 2025), use CRSP historical universe
+                # Reuse CRSP database connection from crsp_ticks for performance
+                db = self.crsp_ticks.conn if hasattr(self.crsp_ticks, 'conn') else None
+                df = get_hist_universe_nasdaq(year, with_validation=False, db=db)
+                nasdaq_symbols = df['Ticker'].to_list()
+                self.logger.info(f"Using CRSP historical universe for {year} ({len(nasdaq_symbols)} symbols)")
 
-        symbols = []
-        with open(symbol_path, 'r') as file:
             if sym_type == "alpaca":
-                for line in file:
-                    symbol = line.strip()
-                    if symbol:  # Skip empty lines
-                        symbols.append(symbol)
+                # Alpaca format is same as Nasdaq format (e.g., 'BRK.B')
+                symbols = nasdaq_symbols
             elif sym_type == "sec":
-                for line in file:
-                    symbol = line.strip()
-                    if symbol:  # Skip empty lines
-                        symbols.append(symbol.replace('.', '-'))
+                # SEC format uses '-' instead of '.' (e.g., 'BRK-B')
+                symbols = [sym.replace('.', '-') for sym in nasdaq_symbols]
             else:
                 msg = f"Expected sym_type: 'sec' or 'alpaca', get {sym_type}"
                 raise ValueError(msg)
 
-        return symbols
+            # Cache the result
+            self._universe_cache[cache_key] = symbols
+
+            self.logger.info(f"Loaded {len(symbols)} symbols for {year} (format={sym_type})")
+            return symbols
+
+        except Exception as e:
+            self.logger.error(f"Failed to load symbols for {year}: {e}", exc_info=True)
+            return []
 
     def _load_trading_days(self, year: int, month: int) -> List[str]:
         """
@@ -119,169 +162,49 @@ class UploadApp:
 
         return [d.strftime('%Y-%m-%d') for d in df['timestamp'].to_list()]
 
-    def _get_cik(self, symbol: str, date: str) -> Optional[str]:
-        """
-        Get CIK for a symbol at a specific date using SecurityMaster.
-        Handles both current and historical symbols through CRSP data.
-
-        :param symbol: Symbol in SEC format (e.g., 'BRK-B', 'AAPL')
-        :param date: Date in 'YYYY-MM-DD' format (e.g., '2010-01-15')
-        :return: CIK string (zero-padded to 10 digits) or None if not found
-        """
-        # Convert SEC format to CRSP format (BRK-B -> BRKB)
-        crsp_symbol = symbol.replace('.', '').replace('-', '')
-
-        try:
-            # Use SecurityMaster to get security_id at the given date
-            security_id = self.crsp_ticks.security_master.get_security_id(
-                symbol=crsp_symbol,
-                day=date,
-                auto_resolve=True  # Handle symbol changes automatically
-            )
-
-            # Query master table for CIK at this date
-            master_tb = self.crsp_ticks.security_master.master_tb
-            cik_record = master_tb.filter(
-                pl.col('security_id') == security_id,
-                pl.col('start_date') <= dt.datetime.strptime(date, '%Y-%m-%d').date(),
-                pl.col('end_date') >= dt.datetime.strptime(date, '%Y-%m-%d').date()
-            ).select('cik').head(1)
-
-            if cik_record.is_empty():
-                self.logger.warning(f"No CIK found for {symbol} (security_id={security_id}) at {date}")
-                return None
-
-            # Get CIK and ensure it's a string (may be int or None)
-            cik_value = cik_record.item()
-            if cik_value is None:
-                self.logger.warning(f"CIK is NULL for {symbol} (security_id={security_id}) at {date}")
-                return None
-
-            # Convert to zero-padded string
-            cik_str = str(int(cik_value))
-            return cik_str
-
-        except ValueError as e:
-            # SecurityMaster couldn't resolve the symbol
-            self.logger.warning(f"SecurityMaster resolution failed for {symbol} at {date}: {e}")
-            return None
-        except Exception as e:
-            self.logger.error(f"Unexpected error getting CIK for {symbol} at {date}: {e}", exc_info=True)
-            return None
-
     # ===========================
     # Upload ticks
     # ===========================
-    def _collect_daily_ticks(self, sym: str, year: int, month: int) -> List[Dict[str, Any]]:
-        """
-        Fetch daily ticks from appropriate source and return as JSON format.
-
-        :param sym: Symbol in Alpaca format (e.g., 'BRK.B')
-        :param year: Year to fetch data for
-        :param month: Month to fetch data for (1-12)
-        :return: A list of dictionary with keys: timestamp, open, high, low, close, volume
-        """
-        if year < 2025:
-            # Use CRSP for years < 2025 (avoids survivorship bias)
-            crsp_symbol = sym.replace('.', '').replace('-', '')
-            json_list = self.crsp_ticks.collect_daily_ticks(
-                symbol=crsp_symbol,
-                year=year,
-                month=month,
-                adjusted=True,
-                auto_resolve=True
-            )
-        else:
-            # Use Alpaca for years >= 2025
-            json_list = self.alpaca_ticks.collect_daily_ticks(
-                symbol=sym,
-                year=year,
-                month=month,
-                adjusted=True
-            )
-
-        return json_list
-
     def _publish_single_daily_ticks(
-            self, 
-            sym: str, 
-            year: int, 
-            month: int, 
+            self,
+            sym: str,
+            year: int,
             overwrite: bool = False
         ) -> Dict[str, Optional[str]]:
         """
-        Process daily ticks for a single symbol.
+        Process daily ticks for a single symbol for entire year.
         Returns dict with status for progress tracking.
+
+        Storage: data/raw/ticks/daily/{symbol}/{YYYY}/ticks.parquet
+        Contains all trading days for the year (~252 days).
 
         :param sym: Symbol in Alpaca format (e.g., 'BRK.B')
         :param year: Year to fetch data for
-        :param month: Month to fetch data for (1-12)
         :param overwrite: If True, skip existence check and overwrite existing data
         """
-        if not overwrite and self.validator.data_exists(sym, 'ticks', year, month):
-            return {'symbol': sym, 'status': 'canceled', 'error': f'Symbol {sym} for {year}-{month:02d} already exists'}
-        try:
-            # Fetch data from appropriate source
-            json_list = self._collect_daily_ticks(sym, year, month)
+        # Fetch data for entire year
+        df = self.data_collectors.collect_daily_ticks_year(sym, year)
 
-            # Check if DataFrame is empty (no rows fetched)
-            if len(json_list) == 0:
-                return {'symbol': sym, 'status': 'skipped', 'error': 'No data available'}
+        # Publish to S3
+        return self.data_publishers.publish_daily_ticks(sym, year, df, overwrite)
 
-            # Round numeric fields to 6 decimal places
-            for record in json_list:
-                for field in ['open', 'high', 'low', 'close']:
-                    if field in record and record[field] is not None:
-                        record[field] = round(record[field], 4)
-
-            # Setup S3 message
-            bio = io.BytesIO(json.dumps(json_list, ensure_ascii=False).encode('utf-8'))
-
-            s3_data = bio
-            s3_key = f"data/raw/ticks/daily/{sym}/{year}/{month:02d}/ticks.json"
-            s3_metadata = {
-                'symbol': sym,
-                'year': str(year),
-                'data_type': 'ticks',
-                'source': 'crsp' if year < 2025 else 'alpaca'
-            }
-            # Allow list or dict as metadata value
-            s3_metadata_prepared = {
-                k: json.dumps(v) if isinstance(v, (list, dict)) else str(v)
-                for k, v in s3_metadata.items()
-            }
-
-            # Publish onto AWS S3
-            self.upload_fileobj(s3_data, s3_key, s3_metadata_prepared)
-
-            return {'symbol': sym, 'status': 'success', 'error': None}
-
-        except ValueError as e:
-            # Handle expected conditions like security not active on date
-            if "not active on" in str(e):
-                self.logger.info(f'Skipping {sym}: {e}')
-                return {'symbol': sym, 'status': 'skipped', 'error': str(e)}
-            else:
-                self.logger.error(f'ValueError for {sym}: {e}')
-                return {'symbol': sym, 'status': 'failed', 'error': str(e)}
-        except requests.RequestException as e:
-            self.logger.warning(f'Failed to fetch daily ticks for {sym}: {e}')
-            return {'symbol': sym, 'status': 'failed', 'error': str(e)}
-        except Exception as e:
-            self.logger.error(f'Unexpected error for {sym}: {e}')
-            return {'symbol': sym, 'status': 'failed', 'error': str(e)}
-
-    def upload_daily_ticks(self, year: int, month: int, overwrite: bool = False):
+    def upload_daily_ticks(self, year: int, overwrite: bool = False):
         """
-        Upload daily ticks for all symbols sequentially (no concurrency to avoid rate limits).
-        Uses crsp for years < 2025, Alpaca for years >= 2025.
+        Upload daily ticks for all symbols for an entire year.
+
+        Storage strategy: data/raw/ticks/daily/{symbol}/{YYYY}/ticks.parquet
+        - Stores all trading days for the year (~252 days)
+        - Parquet format for efficient storage and querying
+        - One file per symbol per year
+
+        Uses CRSP for years < 2025, Alpaca for years >= 2025.
+        Sequential processing to avoid rate limits.
 
         :param year: Year to fetch data for
-        :param month: Month to fetch data for (1-12)
         :param overwrite: If True, overwrite existing data in S3 (default: False)
         """
-        # Load symbols for this month
-        alpaca_symbols = self._load_symbols(year, month, sym_type='alpaca')
+        # Load symbols for this year
+        alpaca_symbols = self._load_symbols(year, month=1, sym_type='alpaca')
 
         total = len(alpaca_symbols)
         completed = 0
@@ -291,10 +214,11 @@ class UploadApp:
         skipped = 0
 
         data_source = 'crsp' if year < 2025 else 'alpaca'
-        self.logger.info(f"Starting {year}-{month:02d} daily ticks upload for {total} symbols (source={data_source}, sequential processing, overwrite={overwrite})")
+        self.logger.info(f"Starting {year} daily ticks upload for {total} symbols (source={data_source}, year-based, sequential processing, overwrite={overwrite})")
+        self.logger.info(f"Storage: data/raw/ticks/daily/{{symbol}}/{year}/ticks.parquet")
 
         for sym in alpaca_symbols:
-            result = self._publish_single_daily_ticks(sym, year, month, overwrite=overwrite)
+            result = self._publish_single_daily_ticks(sym, year, overwrite=overwrite)
             completed += 1
 
             if result['status'] == 'success':
@@ -306,297 +230,11 @@ class UploadApp:
             else:
                 failed += 1
 
-            # Progress logging every 10 symbols
-            if completed % 10 == 0:
-                self.logger.info(f"{year}-{month} Progress: {completed}/{total} ({success} success, {failed} failed, {canceled} canceled, {skipped} skipped)")
+            # Progress logging every 50 symbols
+            if completed % 50 == 0:
+                self.logger.info(f"{year} Progress: {completed}/{total} ({success} success, {failed} failed, {canceled} canceled, {skipped} skipped)")
 
-        self.logger.info(f"{year}-{month} Daily ticks upload completed ({data_source}): {success} success, {failed} failed, {canceled} canceled, {skipped} skipped out of {total} total")
-
-    def _upload_minute_ticks_worker(
-            self,
-            data_queue: queue.Queue,
-            stats: dict,
-            stats_lock: threading.Lock
-        ):
-        """
-        Worker thread that consumes fetched data and uploads to S3.
-
-        :param data_queue: Queue containing (sym, trade_day, minute_df) tuples
-        :param stats: Shared statistics dictionary
-        :param stats_lock: Lock for updating statistics
-        """
-        while True:
-            try:
-                item = data_queue.get(timeout=1)
-                if item is None:  # Poison pill to stop worker
-                    break
-
-                sym, trade_day, minute_df = item
-
-                try:
-                    # Skip if DataFrame is empty (overwrite check already done before fetching)
-                    if len(minute_df) == 0:
-                        with stats_lock:
-                            stats['skipped'] += 1
-                        continue
-
-                    # Round numeric fields to 6 decimal places
-                    for field in ['open', 'high', 'low', 'close']:
-                        if field in minute_df.columns:
-                            minute_df = minute_df.with_columns(
-                                minute_df[field].round(4)
-                            )
-
-                    # Setup S3 message
-                    buffer = io.BytesIO()
-                    minute_df.write_parquet(buffer)
-                    buffer.seek(0)
-
-                    # Parse date for S3 key
-                    date_obj = dt.datetime.strptime(trade_day, '%Y-%m-%d').date()
-                    year = date_obj.strftime('%Y')
-                    month = date_obj.strftime('%m')
-                    day = date_obj.strftime('%d')
-
-                    s3_key = f"data/raw/ticks/minute/{sym}/{year}/{month}/{day}/ticks.parquet"
-                    s3_metadata = {
-                        'symbol': sym,
-                        'trade_day': trade_day,
-                        'data_type': 'ticks'
-                    }
-                    s3_metadata_prepared = {
-                        k: json.dumps(v) if isinstance(v, (list, dict)) else str(v)
-                        for k, v in s3_metadata.items()
-                    }
-
-                    # Upload to S3
-                    self.upload_fileobj(buffer, s3_key, s3_metadata_prepared)
-
-                    with stats_lock:
-                        stats['success'] += 1
-
-                except Exception as e:
-                    self.logger.error(f'Upload error for {sym} on {trade_day}: {e}')
-                    with stats_lock:
-                        stats['failed'] += 1
-
-                finally:
-                    data_queue.task_done()
-
-            except queue.Empty:
-                continue
-
-    def _fetch_single_symbol_minute(self, symbol: str, year: int, month: int, sleep_time: float = 0.1) -> List[dict]:
-        """
-        Fetch minute data for a single symbol for the specified month from Alpaca.
-
-        :param symbol: Symbol in Alpaca format (e.g., 'AAPL')
-        :param year: Year to fetch
-        :param month: Month to fetch (1-12)
-        :param sleep_time: Sleep time between requests in seconds (default: 0.1)
-        :return: List of bars
-        """
-        # Get month range
-        start_date = dt.date(year, month, 1)
-        if month == 12:
-            end_date = dt.date(year, 12, 31)
-        else:
-            end_date = dt.date(year, month + 1, 1) - dt.timedelta(days=1)
-
-        start_str = dt.datetime.combine(start_date, dt.time(0, 0), tzinfo=dt.timezone.utc).isoformat().replace("+00:00", "Z")
-        end_str = dt.datetime.combine(end_date, dt.time(23, 59, 59), tzinfo=dt.timezone.utc).isoformat().replace("+00:00", "Z")
-
-        # Prepare request
-        base_url = "https://data.alpaca.markets/v2/stocks/bars"
-
-        bars = []
-
-        params = {
-            "symbols": symbol,
-            "timeframe": "1Min",
-            "start": start_str,
-            "end": end_str,
-            "limit": 10000,
-            "adjustment": "raw",
-            "feed": "sip",
-            "sort": "asc"
-        }
-
-        session = requests.Session()
-        session.headers.update(self.headers)
-
-        try:
-            # Initial request
-            response = session.get(base_url, params=params)
-            time.sleep(sleep_time)  # Rate limiting
-
-            if response.status_code != 200:
-                self.logger.error(f"Single fetch error for {symbol}: {response.status_code}, {response.text}")
-                return bars
-
-            data = response.json()
-            symbol_bars = data.get("bars", {}).get(symbol, [])
-            bars.extend(symbol_bars)
-
-            # Handle pagination
-            page_count = 1
-            while "next_page_token" in data and data["next_page_token"]:
-                params["page_token"] = data["next_page_token"]
-                response = session.get(base_url, params=params)
-                time.sleep(sleep_time)  # Rate limiting
-
-                if response.status_code != 200:
-                    self.logger.warning(f"Pagination error on page {page_count} for {symbol}: {response.status_code}")
-                    break
-
-                data = response.json()
-                symbol_bars = data.get("bars", {}).get(symbol, [])
-                bars.extend(symbol_bars)
-
-                page_count += 1
-
-            self.logger.info(f"Fetched {len(bars)} bars for {symbol} ({page_count} pages)")
-
-        except Exception as e:
-            self.logger.error(f"Exception during single fetch for {symbol}: {e}")
-
-        return bars
-
-    def _fetch_minute_bulk(self, symbols: List[str], year: int, month: int, sleep_time: float = 0.2) -> dict:
-        """
-        Bulk fetch minute data for multiple symbols for the specified month from Alpaca.
-        If bulk fetch fails, retry by fetching symbols one by one.
-
-        :param symbols: List of symbols in Alpaca format (e.g., ['AAPL', 'MSFT'])
-        :param year: Year to fetch
-        :param month: Month to fetch (1-12)
-        :param sleep_time: Sleep time between requests in seconds (default: 0.2)
-        :return: Dict mapping symbol -> list of bars
-        """
-        # Get month range
-        start_date = dt.date(year, month, 1)
-        if month == 12:
-            end_date = dt.date(year, 12, 31)
-        else:
-            end_date = dt.date(year, month + 1, 1) - dt.timedelta(days=1)
-
-        start_str = dt.datetime.combine(start_date, dt.time(0, 0), tzinfo=dt.timezone.utc).isoformat().replace("+00:00", "Z")
-        end_str = dt.datetime.combine(end_date, dt.time(23, 59, 59), tzinfo=dt.timezone.utc).isoformat().replace("+00:00", "Z")
-
-        # Prepare request
-        base_url = "https://data.alpaca.markets/v2/stocks/bars"
-        symbols_str = ",".join(symbols)
-        all_bars = {sym: [] for sym in symbols}
-
-        params = {
-            "symbols": symbols_str,
-            "timeframe": "1Min",
-            "start": start_str,
-            "end": end_str,
-            "limit": 10000,
-            "adjustment": "raw",  # Raw prices for minute data
-            "feed": "sip",
-            "sort": "asc"
-        }
-
-        # Retry logic for bulk fetch
-        max_retries = 3
-        bulk_success = False
-
-        # Use persistent session to reuse TCP connections (avoids handshake overhead)
-        session = requests.Session()
-        session.headers.update(self.headers)
-
-        for retry in range(max_retries):
-            try:
-                # Initial request (using session for connection reuse)
-                response = session.get(base_url, params=params)
-                time.sleep(sleep_time)  # Rate limiting
-
-                if response.status_code == 429:
-                    # Rate limit error - use exponential backoff with longer waits
-                    wait_time = min(60, (2 ** retry) * 5)  # 5s, 10s, 20s (capped at 60s)
-                    self.logger.warning(f"Rate limit hit for bulk fetch (retry {retry + 1}/{max_retries}), waiting {wait_time}s")
-                    time.sleep(wait_time)
-                    continue
-                elif response.status_code != 200:
-                    self.logger.error(f"Bulk fetch error for {symbols}: {response.status_code}, {response.text}")
-                    if retry < max_retries - 1:
-                        wait_time = (2 ** retry) * 2  # 2s, 4s, 8s
-                        self.logger.warning(f"Retrying after {wait_time}s...")
-                        time.sleep(wait_time)
-                        continue
-                    break
-
-                data = response.json()
-                bars = data.get("bars", {})
-
-                # Collect bars from initial response
-                for sym in symbols:
-                    if sym in bars:
-                        all_bars[sym].extend(bars[sym])
-
-                # Handle pagination
-                page_count = 1
-                while "next_page_token" in data and data["next_page_token"]:
-                    params["page_token"] = data["next_page_token"]
-                    response = session.get(base_url, params=params)
-                    time.sleep(sleep_time)  # Rate limiting
-
-                    if response.status_code == 429:
-                        # Rate limit during pagination - wait and retry this page
-                        wait_time = 5
-                        self.logger.warning(f"Rate limit hit during pagination on page {page_count}, waiting {wait_time}s")
-                        time.sleep(wait_time)
-                        response = session.get(base_url, params=params)
-                        time.sleep(sleep_time)
-
-                    if response.status_code != 200:
-                        self.logger.warning(f"Pagination error on page {page_count} for {symbols}: {response.status_code}")
-                        break
-
-                    data = response.json()
-                    bars = data.get("bars", {})
-
-                    for sym in symbols:
-                        if sym in bars:
-                            all_bars[sym].extend(bars[sym])
-
-                    page_count += 1
-
-                self.logger.info(f"Fetched {sum(len(v) for v in all_bars.values())} total bars for {len(symbols)} symbols ({page_count} pages)")
-                bulk_success = True
-                break
-
-            except Exception as e:
-                self.logger.error(f"Exception during bulk fetch for {symbols} (retry {retry + 1}/{max_retries}): {e}")
-                if retry < max_retries - 1:
-                    wait_time = (2 ** retry) * 2
-                    self.logger.warning(f"Retrying after {wait_time}s...")
-                    time.sleep(wait_time)
-
-        # Close the session after retry loop
-        session.close()
-
-        # If bulk fetch failed after retries, fetch symbols one by one
-        if not bulk_success:
-            self.logger.warning(f"Bulk fetch failed after {max_retries} retries, fetching symbols individually")
-            failed_symbols = []
-
-            for sym in symbols:
-                try:
-                    bars = self._fetch_single_symbol_minute(sym, year, month, sleep_time=sleep_time)
-                    all_bars[sym] = bars
-                    if not bars:
-                        self.logger.warning(f"No data returned for {sym}")
-                except Exception as e:
-                    self.logger.error(f"Failed to fetch {sym} individually: {e}")
-                    failed_symbols.append(sym)
-
-            if failed_symbols:
-                self.logger.error(f"Failed to fetch {len(failed_symbols)} symbols even after individual retry: {failed_symbols}")
-
-        return all_bars
+        self.logger.info(f"{year} Daily ticks upload completed ({data_source}): {success} success, {failed} failed, {canceled} canceled, {skipped} skipped out of {total} total")
 
     def minute_ticks(self, year: int, month: int, overwrite: bool = False, num_workers: int = 50, chunk_size: int = 30, sleep_time: float = 0.2):
         """
@@ -634,7 +272,7 @@ class UploadApp:
         workers = []
         for _ in range(num_workers):
             worker = threading.Thread(
-                target=self._upload_minute_ticks_worker,
+                target=self.data_publishers.minute_ticks_worker,
                 args=(data_queue, stats, stats_lock),
                 daemon=True
             )
@@ -677,9 +315,10 @@ class UploadApp:
 
                 # Bulk fetch for the month
                 start = time.perf_counter()
-                symbol_bars = self._fetch_minute_bulk(chunk, year, month, sleep_time=sleep_time)
+                symbol_bars = self.data_collectors.fetch_minute_bulk(chunk, year, month, sleep_time=sleep_time)
                 self.logger.debug(f"_fetch_minute_bulk: {time.perf_counter()-start:.2f}s")
                 start = time.perf_counter()
+
                 # Parse and organize by (symbol, day) - OPTIMIZED with vectorized operations
                 for sym in chunk:
                     bars = symbol_bars.get(sym, [])
@@ -794,130 +433,138 @@ class UploadApp:
     # ===========================
     # Upload fundamental
     # ===========================
-    def _process_symbol_fundamental(self, sym: str, year: int, month: int, dei_fields: List[str], gaap_fields: List[str], overwrite: bool = False) -> dict:
+    def _process_symbol_fundamental(
+            self,
+            sym: str,
+            year: int,
+            dei_fields: List[str],
+            gaap_fields: List[str],
+            overwrite: bool = False,
+            cik: Optional[str] = None
+        ) -> dict:
         """
-        Process fundamental data for a single symbol.
+        Process fundamental data for a single symbol for an entire year.
         Returns dict with status for progress tracking.
 
+        Storage: data/raw/fundamental/{symbol}/{YYYY}/fundamental.parquet
+        Contains all quarterly/annual filings for the year (no forward fill).
+
+        :param sym: Symbol in SEC format
         :param year: Year to fetch data for
-        :param month: Month to fetch data for (1-12)
+        :param dei_fields: DEI fields to collect
+        :param gaap_fields: US-GAAP fields to collect
         :param overwrite: If True, skip existence check and overwrite existing data
+        :param cik: Pre-fetched CIK (if None, will look up)
         """
-        if not overwrite and self.validator.data_exists(sym, 'fundamental', year):
-            return {'symbol': sym, 'status': 'canceled', 'error': f'Symbol {sym} for {year}-{month:02d} already exists'}
+        # Use CIKResolver if CIK not provided
+        if cik is None:
+            reference_date = f"{year}-06-30"  # Mid-year reference
+            cik = self.cik_resolver.get_cik(sym, reference_date, year=year)
 
-        cik = None  # Initialize to avoid unbound error
-        try:
-            # Get CIK using SecurityMaster (handles historical symbols)
-            # Use middle of the month as reference date
-            reference_date = dt.date(year, month, 15).strftime('%Y-%m-%d')
-            cik = self._get_cik(sym, reference_date)
+        # Publish fundamental data
+        return self.data_publishers.publish_fundamental(
+            sym=sym,
+            year=year,
+            cik=cik,
+            dei_fields=dei_fields,
+            gaap_fields=gaap_fields,
+            sec_rate_limiter=self.sec_rate_limiter,
+            overwrite=overwrite
+        )
 
-            if cik is None:
-                return {'symbol': sym, 'status': 'skipped', 'error': f'No CIK found for {sym} at {reference_date}'}
-
-            # Fetch from SEC EDGAR API
-            fnd = Fundamental(cik, sym)
-
-            # Build fields_dict using new API
-            fields_dict = {}
-
-            # Collect DEI fields
-            for field in dei_fields:
-                try:
-                    dps = fnd.get_dps(field, 'dei')
-                    fields_dict[field] = fnd.get_value_tuple(dps)
-                except KeyError:
-                    # Field not available for this company
-                    fields_dict[field] = []
-
-            # Collect US-GAAP fields
-            for field in gaap_fields:
-                try:
-                    dps = fnd.get_dps(field, 'us-gaap')
-                    fields_dict[field] = fnd.get_value_tuple(dps)
-                except KeyError:
-                    # Field not available for this company
-                    fields_dict[field] = []
-
-            # Define date range for the month
-            start_date_obj = dt.date(year, month, 1)
-            if month == 12:
-                end_date_obj = dt.date(year, 12, 31)
-            else:
-                end_date_obj = dt.date(year, month + 1, 1) - dt.timedelta(days=1)
-
-            start_day = start_date_obj.strftime('%Y-%m-%d')
-            end_day = end_date_obj.strftime('%Y-%m-%d')
-
-            # Collect fields into DataFrame
-            combined_df = fnd.collect_fields(start_day, end_day, fields_dict)
-
-            # Setup S3 message
-            buffer = io.BytesIO()
-            combined_df.write_parquet(buffer)
-            buffer.seek(0)
-
-            s3_data = buffer
-            s3_key = f"data/raw/fundamental/{sym}/{year}/{month:02d}/fundamental.parquet"
-            s3_metadata = {
-                'symbol': sym,
-                'year': str(year),
-                'data_type': 'fundamental'
-            }
-            # Allow list or dict as metadata value
-            s3_metadata_prepared = {
-                k: json.dumps(v) if isinstance(v, (list, dict)) else str(v)
-                for k, v in s3_metadata.items()
-            }
-
-            # Publish onto AWS S3
-            self.upload_fileobj(s3_data, s3_key, s3_metadata_prepared)
-
-            return {'symbol': sym, 'status': 'success', 'error': None}
-
-        except requests.RequestException as e:
-            cik_str = f" (CIK {cik})" if cik else ""
-            self.logger.warning(f'Failed to fetch data for {sym}{cik_str}: {e}')
-            return {'symbol': sym, 'status': 'failed', 'error': str(e)}
-        except ValueError as e:
-            cik_str = f" (CIK {cik})" if cik else ""
-            self.logger.error(f'Invalid data for {sym}{cik_str}: {e}')
-            return {'symbol': sym, 'status': 'failed', 'error': str(e)}
-        except Exception as e:
-            cik_str = f" (CIK {cik})" if cik else ""
-            self.logger.error(f'Unexpected error for {sym}{cik_str}: {e}', exc_info=True)
-            return {'symbol': sym, 'status': 'failed', 'error': str(e)}
-
-    def fundamental(self, year: int, month: int, max_workers: int = 20, overwrite: bool = False):
+    def fundamental(self, year: int, max_workers: int = 50, overwrite: bool = False):
         """
-        Upload fundamental data for all symbols using threading.
+        Upload fundamental data for all symbols for an entire year.
+
+        Storage strategy: data/raw/fundamental/{symbol}/{YYYY}/fundamental.parquet
+        - Stores all quarterly/annual filings for the year
+        - No forward filling - only actual filed data
+        - One file per symbol per year
+
+        Performance optimizations:
+        1. Batch pre-fetch CIKs to avoid per-symbol database queries
+        2. Rate limiting to maximize SEC API throughput (9.5 req/sec)
+        3. Increased worker pool (50 workers) - rate limiter controls actual request rate
+        4. CIK caching for repeated use
 
         :param year: Year to fetch data for
-        :param month: Month to fetch data for (1-12)
-        :param max_workers: Number of concurrent threads (default: 20)
+        :param max_workers: Number of concurrent threads (default: 50, rate limited to 9.5 req/sec)
         :param overwrite: If True, overwrite existing data in S3 (default: False)
         """
-        # Load symbols for this month
-        sec_symbols = self._load_symbols(year, month, sym_type='sec')
+        start_time = time.time()
+
+        # Load symbols for this year (month parameter unused for year-based universe)
+        sec_symbols = self._load_symbols(year, month=1, sym_type='sec')
 
         # Fields
         dei_fields = self.config.dei_fields
         gaap_fields = self.config.us_gaap_fields
 
         total = len(sec_symbols)
+        self.logger.info(f"Starting {year} fundamental upload for {total} symbols with {max_workers} workers (rate limited to 9.5 req/sec)")
+        self.logger.info(f"Storage: data/raw/fundamental/{{symbol}}/{year}/fundamental.parquet")
+
+        # OPTIMIZATION: Batch pre-fetch all CIKs before starting (avoids per-symbol DB queries)
+        self.logger.info(f"Step 1/3: Pre-fetching CIKs for {total} symbols...")
+        prefetch_start = time.time()
+        cik_map = self.cik_resolver.batch_prefetch_ciks(sec_symbols, year, batch_size=100)
+        prefetch_time = time.time() - prefetch_start
+        self.logger.info(f"CIK pre-fetch completed in {prefetch_time:.1f}s ({total/prefetch_time:.1f} symbols/sec)")
+
+        # Step 2: Filter to only symbols with valid CIKs
+        self.logger.info(f"Step 2/3: Filtering symbols with valid CIKs...")
+        symbols_with_cik = [sym for sym in sec_symbols if cik_map.get(sym) is not None]
+        symbols_without_cik = [sym for sym in sec_symbols if cik_map.get(sym) is None]
+
+        self.logger.info(
+            f"Symbol filtering complete: {len(symbols_with_cik)}/{total} have CIKs, "
+            f"{len(symbols_without_cik)} are non-SEC filers (will be skipped)"
+        )
+
+        # Log examples of skipped symbols with company names
+        if len(symbols_without_cik) > 0:
+            if len(symbols_without_cik) <= 30:
+                # For small lists, show all
+                self.logger.info(f"Non-SEC filers (skipped): {sorted(symbols_without_cik)}")
+            else:
+                # For large lists, show first 30
+                self.logger.info(
+                    f"Non-SEC filers (skipped, showing first 30/{len(symbols_without_cik)}): "
+                    f"{sorted(symbols_without_cik)[:30]}"
+                )
+
+        # Update total to reflect only symbols we'll process
+        total = len(symbols_with_cik)
+        if total == 0:
+            self.logger.warning(f"No symbols with CIKs found for {year}, skipping fundamental upload")
+            return
+
+        # Statistics
         completed = 0
         success = 0
         failed = 0
         canceled = 0
+        skipped = 0
 
-        self.logger.info(f"Starting {year}-{month:02d} fundamental upload for {total} symbols with {max_workers} workers (overwrite={overwrite})")
+        # Track skipped symbols with details for logging
+        skipped_symbols = []  # List of (symbol, cik, error) tuples
+
+        self.logger.info(f"Step 3/3: Fetching fundamental data from SEC EDGAR API for {total} symbols...")
+        fetch_start = time.time()
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all tasks
+            # Submit all tasks with pre-fetched CIKs (only for symbols with CIKs)
             future_to_symbol = {
-                executor.submit(self._process_symbol_fundamental, sym, year, month, dei_fields, gaap_fields, overwrite): sym
-                for sym in sec_symbols
+                executor.submit(
+                    self._process_symbol_fundamental,
+                    sym,
+                    year,
+                    dei_fields,
+                    gaap_fields,
+                    overwrite,
+                    cik_map.get(sym)  # Pass pre-fetched CIK (guaranteed non-NULL)
+                ): sym
+                for sym in symbols_with_cik  # Only process symbols with CIKs
             }
 
             # Process completed tasks
@@ -929,14 +576,81 @@ class UploadApp:
                     success += 1
                 elif result['status'] == 'canceled':
                     canceled += 1
+                elif result['status'] == 'skipped':
+                    skipped += 1
+                    # Track skipped symbol with details
+                    skipped_symbols.append({
+                        'symbol': result.get('symbol'),
+                        'cik': result.get('cik'),
+                        'error': result.get('error', 'Unknown reason')
+                    })
                 else:
                     failed += 1
 
-                # Progress logging every 10 symbols
-                if completed % 10 == 0:
-                    self.logger.info(f"Progress: {completed}/{total} ({success} success, {failed} failed, {canceled} canceled)")
+                # Progress logging every 50 symbols
+                if completed % 50 == 0:
+                    elapsed = time.time() - fetch_start
+                    rate = completed / elapsed if elapsed > 0 else 0
+                    eta = (total - completed) / rate if rate > 0 else 0
+                    self.logger.info(
+                        f"Progress: {completed}/{total} ({success} success, {failed} failed, "
+                        f"{canceled} canceled, {skipped} skipped) | Rate: {rate:.1f} sym/sec | ETA: {eta:.0f}s"
+                    )
 
-        self.logger.info(f"Fundamental upload completed: {success} success, {failed} failed, {canceled} canceled out of {total} total")
+        # Final statistics
+        total_time = time.time() - start_time
+        fetch_time = time.time() - fetch_start
+        avg_rate = completed / fetch_time if fetch_time > 0 else 0
+
+        self.logger.info(
+            f"Fundamental upload for {year} completed in {total_time:.1f}s: "
+            f"{success} success, {failed} failed, {canceled} canceled, {skipped} skipped out of {total} total"
+        )
+        self.logger.info(
+            f"Performance: CIK fetch={prefetch_time:.1f}s, Data fetch={fetch_time:.1f}s, "
+            f"Avg rate={avg_rate:.2f} sym/sec"
+        )
+
+        # Log detailed information about skipped symbols
+        if skipped > 0:
+            self.logger.info(f"\n{'='*80}")
+            self.logger.info(f"SKIPPED COMPANIES DETAILS ({skipped} total)")
+            self.logger.info(f"{'='*80}")
+
+            # Get company names from SecurityMaster for skipped symbols
+            skipped_symbol_list = [s['symbol'] for s in skipped_symbols]
+
+            try:
+                master_tb = self.crsp_ticks.security_master.master_tb
+
+                # Fetch company names for skipped symbols
+                skipped_details = master_tb.filter(
+                    pl.col('symbol').is_in(skipped_symbol_list)
+                ).select(['symbol', 'company', 'cik']).unique()
+
+                # Merge with skip reasons
+                for skip_info in skipped_symbols:
+                    sym = skip_info['symbol']
+                    cik = skip_info['cik']
+                    reason = skip_info['error']
+
+                    # Try to find company name
+                    company_match = skipped_details.filter(pl.col('symbol') == sym)
+                    if not company_match.is_empty():
+                        company = company_match['company'].head(1).item()
+                    else:
+                        company = "Unknown"
+
+                    cik_str = f"CIK {cik}" if cik else "No CIK"
+                    self.logger.info(f"  {sym:10} - {company:50} ({cik_str})")
+                    self.logger.info(f"             Reason: {reason}")
+
+            except Exception as e:
+                self.logger.error(f"Error fetching company details for skipped symbols: {e}", exc_info=True)
+                # Fallback to simple list
+                self.logger.info(f"Skipped symbols: {sorted(skipped_symbol_list)}")
+
+            self.logger.info(f"{'='*80}\n")
 
     def upload_fileobj(
             self,
@@ -947,7 +661,7 @@ class UploadApp:
         """Upload file object to S3 with proper configuration"""
 
         # Define transfer config
-        cfg = self.config.transfer
+        cfg = cast(Dict[str, Any], self.config.transfer or {})
         transfer_config = TransferConfig(
             multipart_threshold=int(cfg.get('multipart_threshold', 10485760)),
             max_concurrency=int(cfg.get('max_concurrency', 5)),
@@ -983,52 +697,57 @@ class UploadApp:
             Config=transfer_config,
             ExtraArgs=extra_args
         )
-    
+
     def run(
             self,
             start_year: int,
-            start_month: int,
             end_year: int,
-            end_month: int,
             max_workers: int=50,
             overwrite: bool=False,
             chunk_size: int=30,
-            sleep_time: float=0.02
+            sleep_time: float=0.02,
+            run_fundamental: bool=False,
+            run_daily_ticks: bool=True,
+            run_minute_ticks: bool=False
         ) -> None:
         """
         Run the complete workflow, fetch and upload fundamental, daily ticks and minute ticks data within the period
 
-        :param start_year: Starting year
-        :param start_month: Starting month (1-12)
-        :param end_year: Ending year
-        :param end_month: Ending month (1-12)
+        Storage strategy:
+        - Fundamental: Once per year -> data/raw/fundamental/{symbol}/{YYYY}/fundamental.parquet
+        - Daily ticks: Once per year -> data/raw/ticks/daily/{symbol}/{YYYY}/ticks.parquet
+        - Minute ticks: Monthly -> data/raw/ticks/minute/{symbol}/{YYYY}/{MM}/{DD}/ticks.parquet
+
+        :param start_year: Starting year (inclusive)
+        :param end_year: Ending year (inclusive)
         :param max_workers: Number of concurrent workers
         :param overwrite: If True, overwrite existing data
         :param chunk_size: Number of symbols to fetch at once for minute data
         :param sleep_time: Sleep time between API requests
+        :param run_fundamental: If True, upload fundamental data
+        :param run_daily_ticks: If True, upload daily ticks data
+        :param run_minute_ticks: If True, upload minute ticks data (all months for each year)
         """
-        year = start_year
-        month = start_month
+        for year in range(start_year, end_year + 1):
+            self.logger.info(f"Processing year {year}")
 
-        while (year < end_year) or (year == end_year and month <= end_month):
-            self.logger.info(f"Processing {year}-{month:02d}")
+            if run_fundamental:
+                self.logger.info(f"Uploading fundamental data for {year} (year-based, all quarters)")
+                self.fundamental(year, max_workers, overwrite)
 
-            # Upload fundamental data
-            self.fundamental(year, month, max_workers, overwrite)
+            if run_daily_ticks:
+                self.logger.info(f"Uploading daily ticks for {year} (year-based, all trading days)")
+                self.upload_daily_ticks(year, overwrite)
 
-            # Upload daily ticks
-            self.upload_daily_ticks(year, month, overwrite)
-
-            # Upload minute ticks (only for years >= 2017)
-            if year >= 2017:
-                self.minute_ticks(year, month, overwrite, max_workers, chunk_size, sleep_time)
-
-            # Move to next month
-            if month == 12:
-                year += 1
-                month = 1
-            else:
-                month += 1
+            if run_minute_ticks:
+                # Upload minute ticks for all months in the year (only for years >= 2017)
+                if year >= 2017:
+                    self.logger.info(f"Uploading minute ticks for {year} (all 12 months)")
+                    for month in range(1, 13):
+                        self.logger.info(f"Processing minute ticks for {year}-{month:02d}")
+                        self.minute_ticks(year, month, overwrite, max_workers, chunk_size, sleep_time)
+                else:
+                    self.logger.info(f"Skipping minute ticks for {year} (data only available from 2017+)")
 
     def close(self):
         """Close WRDS database connections"""
@@ -1041,8 +760,7 @@ class UploadApp:
 if __name__ == "__main__":
     app = UploadApp()
     try:
-        # Example: Run from January 2010 to December 2025
-        app.run(start_year=2010, start_month=1, end_year=2025, end_month=12, overwrite=True)
-        # app.daily_ticks(year=2010, month=1, overwrite=True)
+        # Example: Run from 2010 to 2025 (yearly processing)
+        app.run(start_year=2025, end_year=2026, overwrite=True)
     finally:
         app.close()

@@ -262,6 +262,54 @@ class Ticks:
 
         return result
 
+    def get_daily_year(self, symbol: str, year: int, adjusted: bool=True) -> pl.DataFrame:
+        """
+        Get daily OHLCV data for an entire year and return as Polars DataFrame.
+
+        :param symbol: Stock symbol
+        :param year: Year (e.g., 2024)
+        :param adjusted: If True, apply split adjustments (default: True)
+        :return: Polars DataFrame with daily OHLCV data
+        """
+        # Fetch entire year
+        start_date = dt.date(year, 1, 1)
+        end_date = dt.date(year, 12, 31)
+
+        # Convert to UTC timestamps for API
+        start_utc = dt.datetime.combine(start_date, dt.time(0, 0), tzinfo=dt.timezone.utc)
+        end_utc = dt.datetime.combine(end_date, dt.time(23, 59, 59), tzinfo=dt.timezone.utc)
+        start = start_utc.isoformat().replace("+00:00", "Z")
+        end = end_utc.isoformat().replace("+00:00", "Z")
+
+        # Fetch ticks
+        ticks = self.get_ticks(symbol, start, end, "1Day", adjusted=adjusted)
+
+        # Handle empty data
+        if not ticks:
+            return pl.DataFrame({
+                'timestamp': [],
+                'open': [],
+                'high': [],
+                'low': [],
+                'close': [],
+                'volume': []
+            })
+
+        # Parse and convert to DataFrame
+        parsed_ticks = self.parse_ticks(ticks)
+        ticks_data = [asdict(dp) for dp in parsed_ticks]
+
+        df = pl.DataFrame(ticks_data).with_columns([
+            pl.col('timestamp').str.to_datetime(format='%Y-%m-%dT%H:%M:%S').dt.date(),
+            pl.col('open').cast(pl.Float64),
+            pl.col('high').cast(pl.Float64),
+            pl.col('low').cast(pl.Float64),
+            pl.col('close').cast(pl.Float64),
+            pl.col('volume').cast(pl.Int64)
+        ]).select(['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+
+        return df
+
     @staticmethod
     def parse_ticks(ticks: List[Dict[str, Any]]) -> List[TickDataPoint]:
         """

@@ -1,7 +1,17 @@
 import logging
+import sys
 import datetime as dt
 from pathlib import Path
 from typing import Optional
+
+
+class MaxLevelFilter(logging.Filter):
+    def __init__(self, max_level):
+        super().__init__()
+        self.max_level = max_level
+
+    def filter(self, record):
+        return record.levelno <= self.max_level
 
 
 def setup_logger(
@@ -22,7 +32,9 @@ def setup_logger(
     :param daily_rotation: If True, creates separate log file per day (default: True)
     :param console_output: If True, also outputs logs to console (default: False)
 
-    :return: Configured logger instance
+    :return: Configures a logger where:
+    1. FILE receives logs at `file_level` (default WARNING) and above.
+    2. CONSOLE (if enabled) receives ONLY INFO logs (blocks Warnings/Errors).
 
     Example:
         >>> logger = setup_logger('fundamental.AAPL', 'data/logs/fundamental')
@@ -61,9 +73,20 @@ def setup_logger(
 
     # Optional console handler
     if console_output:
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(level)
-        console_handler.setFormatter(formatter)
+        # Use sys.stdout for INFO (standard output), reserve stderr for actual errors if needed
+        console_handler = logging.StreamHandler(sys.stdout)
+        
+        # Set to INFO so it captures progress
+        console_handler.setLevel(logging.INFO)
+        
+        # CRITICAL FIX: Add the filter to BLOCK Warnings/Errors from Console
+        # This ensures the console stays "clean"
+        console_handler.addFilter(MaxLevelFilter(logging.INFO))
+        
+        # Optional: Simpler format for console (just the message)
+        console_formatter = logging.Formatter('%(message)s') 
+        console_handler.setFormatter(console_formatter)
+        
         logger.addHandler(console_handler)
 
     return logger

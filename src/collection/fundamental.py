@@ -7,8 +7,6 @@ from pathlib import Path
 from collections import defaultdict
 import polars as pl
 import json
-import logging
-from utils.logger import setup_logger
 
 HEADER = {'User-Agent': 'name@example.com'}
 
@@ -24,13 +22,6 @@ class Fundamental:
         # Mkdir
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-
-        # Setup logger
-        self.logger = setup_logger(
-            name=f"fundamental.{cik}",
-            log_dir=self.log_dir,
-            level=logging.WARNING
-        )
 
         # Request response
         self.req_response = self._req_response()
@@ -150,15 +141,79 @@ class Fundamental:
 
         return value_tuples
 
-    def collect_fields(
-            self, 
+    def collect_fields_raw(
+            self,
             start_day: str,
             end_day: str,
             fields_dict: Dict[str, List[Tuple[dt.date, float]]],
         ) -> pl.DataFrame:
         """
-        Collect multiple fields and put into one single dataframe
-        
+        Collect multiple fields without forward-filling - returns only actual filing dates.
+        This returns quarterly data points (typically 4-5 per year) without interpolation.
+
+        :param start_day: Start day to filter filings, format "YYYY-MM-DD"
+        :param end_day: End day to filter filings, format "YYYY-MM-DD"
+        :param fields_dict: Key is the field name, Value is the value tuples from get_value_tuple
+        :return: DataFrame with columns [timestamp, Field1, Field2, ...] containing only actual filings
+        """
+        # Define date range
+        start_date = dt.datetime.strptime(start_day, "%Y-%m-%d").date()
+        end_date = dt.datetime.strptime(end_day, "%Y-%m-%d").date()
+
+        # Collect all unique timestamps from all fields
+        all_timestamps = set()
+        for field_values in fields_dict.values():
+            for timestamp, _ in field_values:
+                if start_date <= timestamp <= end_date:
+                    all_timestamps.add(timestamp)
+
+        # If no data, return empty DataFrame
+        if not all_timestamps:
+            return pl.DataFrame()
+
+        # Sort timestamps
+        sorted_timestamps = sorted(list(all_timestamps))
+
+        # Build result dictionary
+        result_dict = {'timestamp': sorted_timestamps}
+
+        # For each field, map timestamp -> value
+        for field_name, field_values in fields_dict.items():
+            # Create a lookup dict for this field
+            value_map = {timestamp: value for timestamp, value in field_values
+                        if start_date <= timestamp <= end_date}
+
+            # Map each timestamp to its value (or None if not present)
+            result_dict[field_name] = [
+                value_map.get(ts) for ts in sorted_timestamps
+            ]
+
+        # Create DataFrame with strict=False to allow mixed int/float types
+        # Polars will infer types flexibly and we'll cast to Float64 below
+        result_df = pl.DataFrame(result_dict, strict=False)
+
+        # Cast numeric columns to Float64
+        for col in result_df.columns:
+            if col != 'timestamp':
+                result_df = result_df.with_columns(
+                    pl.col(col).cast(pl.Float64)
+                )
+
+        self.fields_df = result_df
+        return result_df
+
+    def collect_fields(
+            self,
+            start_day: str,
+            end_day: str,
+            fields_dict: Dict[str, List[Tuple[dt.date, float]]],
+        ) -> pl.DataFrame:
+        """
+        Collect multiple fields and put into one single dataframe with forward-filling.
+        This method forward-fills quarterly data across all trading days.
+
+        NOTE: For storage without forward-filling, use collect_fields_raw() instead.
+
         :param start_day: Start day to align with master calendar, format "YYYY-MM-DD"
         :param end_day: End day to align with master calendar, format "YYYY-MM-DD"
         :param fields_dict: Key is the field name, Value is the value tuples from get_value_tuple
@@ -167,7 +222,7 @@ class Fundamental:
         # Define date range
         start_date = dt.datetime.strptime(start_day, "%Y-%m-%d").date()
         end_date = dt.datetime.strptime(end_day, "%Y-%m-%d").date()
-        
+
         # Load master calendar and merge
         calendar_lf: pl.LazyFrame = (
             pl.scan_parquet(self.calendar_path)
@@ -179,13 +234,13 @@ class Fundamental:
         # Main loop
         for field_name in fields_dict.keys():
             values = fields_dict[field_name]
-            
+
             if not values:
                 calendar_lf = calendar_lf.with_columns(
                     pl.lit(None, dtype=pl.Float64)
                     .alias(field_name)
                 )
-            
+
             else:
                 tmp_lf = (
                     pl.DataFrame(
@@ -206,7 +261,7 @@ class Fundamental:
                     on='timestamp',
                     strategy='backward'
                 )
-        
+
         result = calendar_lf.collect()
         self.fields_df = result
 

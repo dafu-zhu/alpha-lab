@@ -105,8 +105,7 @@ class Validator:
             self, 
             symbol, 
             data_type: str, 
-            year: Optional[int]=None, 
-            month: Optional[int]=None, 
+            year: Optional[int]=None,  
             day: Optional[str]=None
         ) -> bool:
         """
@@ -123,8 +122,8 @@ class Validator:
 
         # Define Key based on year, day and data_type
         if data_type == 'ticks':
-            if year and month:
-                s3_key = f'data/raw/{data_type}/daily/{symbol}/{year}/{month:02d}/{data_type}.json'
+            if year:
+                s3_key = f'data/raw/{data_type}/daily/{symbol}/{year}/{data_type}.parquet'
             elif day:
                 date = dt.datetime.strptime(day, '%Y-%m-%d').date()
                 year_str = date.strftime('%Y')
@@ -132,10 +131,10 @@ class Validator:
                 day_str = date.strftime('%d')
                 s3_key = f'data/raw/{data_type}/minute/{symbol}/{year_str}/{month_str}/{day_str}/{data_type}.parquet'
             else:
-                raise ValueError(f'Must provide either (year, month) or day parameter. Got year={year}, month={month}, day={day}')
+                raise ValueError(f'Must provide either year or day parameter. Got year={year}, day={day}')
         elif data_type == 'fundamental':
             if year:
-                s3_key = f'data/raw/{data_type}/{symbol}/{year}/{month}/{data_type}.parquet'
+                s3_key = f'data/raw/{data_type}/{symbol}/{year}/{data_type}.parquet'
             else:
                 raise ValueError('Expect input year')
         else:

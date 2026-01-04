@@ -85,6 +85,8 @@ class CRSPDailyTicks:
                 WHERE permno = {permno}
                     AND date = '{day}'
                     AND prc IS NOT NULL
+                    AND cfacpr != 0
+                    AND cfacshr != 0
             """
         else:
             # Fetch raw unadjusted prices
@@ -107,8 +109,13 @@ class CRSPDailyTicks:
         # Handle empty data case
         if df_pandas.empty:
             return {}
-        
+
         row = df_pandas.iloc[0]
+
+        # Check for missing OHLCV data
+        if pd.isna(row['open']) or pd.isna(row['high']) or pd.isna(row['low']) or pd.isna(row['close']) or pd.isna(row['volume']):
+            self.logger.warning(f"Missing OHLCV data for {symbol} on {day}")
+            return {}
 
         result = {
             'timestamp': pd.to_datetime(row['date']).strftime('%Y-%m-%d'),
@@ -117,7 +124,7 @@ class CRSPDailyTicks:
             'low': float(row['low']),
             'close': float(row['close']),
             'volume': int(row['volume'])
-        }      
+        }
 
         return result
 
@@ -165,6 +172,8 @@ class CRSPDailyTicks:
                     AND date >= '{start_day}'
                     AND date <= '{end_day}'
                     AND prc IS NOT NULL
+                    AND cfacpr != 0
+                    AND cfacshr != 0
                 ORDER BY date ASC
             """
         else:
@@ -193,7 +202,13 @@ class CRSPDailyTicks:
 
         # Convert each row to dict
         result = []
+        skipped_count = 0
         for _, row in df_pandas.iterrows():
+            # Skip rows with missing OHLCV data
+            if pd.isna(row['open']) or pd.isna(row['high']) or pd.isna(row['low']) or pd.isna(row['close']) or pd.isna(row['volume']):
+                skipped_count += 1
+                continue
+
             day_data = {
                 'timestamp': pd.to_datetime(row['date']).strftime('%Y-%m-%d'),
                 'open': float(row['open']),
@@ -203,6 +218,9 @@ class CRSPDailyTicks:
                 'volume': int(row['volume'])
             }
             result.append(day_data)
+
+        if skipped_count > 0:
+            self.logger.warning(f"Skipped {skipped_count} rows with missing OHLCV data in date range {start_day} to {end_day}")
 
         return result
 
@@ -276,6 +294,7 @@ class CRSPDailyTicks:
                     AND cfacpr IS NOT NULL
                     AND cfacpr != 0
                     AND cfacshr IS NOT NULL
+                    AND cfacshr != 0
                 ORDER BY permno, date ASC
             """
         else:

@@ -122,7 +122,7 @@ class SymbolNormalizer:
                 return symbol.upper()
 
         except ValueError:
-            self.logger.warning(f"Symbol {symbol} not found in SecurityMaster at one of the dates, keep original")
+            self.logger.error(f"Symbol {symbol} not found in SecurityMaster at one of the dates, keep original")
             return symbol.upper()
 
     def batch_normalize(
@@ -177,26 +177,85 @@ class SecurityMaster:
             log_dir=Path("data/logs/master"),
             level=logging.INFO
         )
+
+        # Cache for SEC CIK mapping (loaded on-demand)
+        self._sec_cik_cache: Optional[pl.DataFrame] = None
+
         self.cik_cusip = self.cik_cusip_mapping()
         self.master_tb = self.master_table()
     
+    def _fetch_sec_cik_mapping(self) -> pl.DataFrame:
+        """
+        Fetch SEC's official CIK-Ticker mapping as fallback for WRDS NULLs.
+
+        Returns DataFrame with columns: [ticker, cik]
+        Note: This is a snapshot mapping (current tickers only), not historical.
+
+        Caches result to avoid repeated API calls.
+        """
+        if self._sec_cik_cache is not None:
+            return self._sec_cik_cache
+
+        try:
+            url = "https://www.sec.gov/files/company_tickers.json"
+            headers = {'User-Agent': 'name@example.com'}  # SEC requires User-Agent
+
+            self.logger.info("Fetching SEC official CIK-Ticker mapping...")
+            response = requests.get(url, headers=headers, timeout=30)
+            response.raise_for_status()
+
+            data = response.json()
+
+            # Parse JSON structure: {0: {cik_str, ticker, title}, 1: {...}, ...}
+            records = []
+            for entry in data.values():
+                # Normalize ticker to CRSP format (remove separators)
+                ticker = str(entry.get('ticker', '')).replace('.', '').replace('-', '').upper()
+                cik = str(entry.get('cik_str', '')).zfill(10)  # Zero-pad to 10 digits
+
+                if ticker and cik != '0000000000':
+                    records.append({'ticker': ticker, 'cik': cik})
+
+            # Create DataFrame
+            sec_df = pl.DataFrame(records)
+
+            self.logger.info(f"Loaded {len(sec_df)} CIK mappings from SEC")
+            self._sec_cik_cache = sec_df
+            return sec_df
+
+        except Exception as e:
+            self.logger.error(f"Failed to fetch SEC CIK mapping: {e}", exc_info=True)
+            # Return empty DataFrame on failure
+            return pl.DataFrame({'ticker': [], 'cik': []}, schema={'ticker': pl.Utf8, 'cik': pl.Utf8})
+
     def cik_cusip_mapping(self) -> pl.DataFrame:
         """
         All historical mappings, updated until Dec 31, 2024
 
+        Strategy:
+        1. Use WRDS CIK mapping as primary source (historical, accurate when present)
+        2. For NULL CIKs, fallback to SEC's official CIK-Ticker mapping (current snapshot)
+        3. Keep NULL if both sources fail (non-SEC filers)
+
         Schema: (permno, symbol, company, cik, cusip, start_date, end_date)
+
+        Note: CIK may be NULL for:
+        - Foreign companies (use Form 6-K, not 10-K)
+        - Small companies (below $10M threshold)
+        - OTC/Pink Sheet stocks
+        - Non-operating entities (shells, SPACs)
         """
         query = """
         SELECT DISTINCT
-            a.kypermno, 
-            a.ticker, 
+            a.kypermno,
+            a.ticker,
             a.tsymbol,
-            a.comnam, 
-            a.ncusip, 
+            a.comnam,
+            a.ncusip,
             b.cik,
-            a.namedt, 
+            a.namedt,
             a.nameenddt
-        FROM 
+        FROM
             crsp.s6z_nam AS a
         LEFT JOIN
             wrdssec_common.wciklink_cusip AS b
@@ -205,11 +264,12 @@ class SecurityMaster:
             AND (b.cik IS NULL OR a.nameenddt >= b.cikdate1)
         WHERE
             a.shrcd IN (10, 11)
-        ORDER BY 
+        ORDER BY
             a.kypermno, a.namedt
         """
 
         # Execute and load into a DataFrame
+        self.logger.info("Fetching CIK-CUSIP mapping from WRDS...")
         map_df = self.db.raw_sql(query)
         map_df['namedt'] = pd.to_datetime(map_df['namedt'])
         map_df['nameenddt'] = pd.to_datetime(map_df['nameenddt'])
@@ -239,6 +299,80 @@ class SecurityMaster:
             pl.col('namedt').cast(pl.Date).alias('start_date'),
             pl.col('nameenddt').cast(pl.Date).alias('end_date')
         ).select(['permno', 'symbol', 'company', 'cik', 'cusip', 'start_date', 'end_date'])
+
+        # Count NULL CIKs before fallback
+        null_count_before = pl_map.filter(pl.col('cik').is_null()).height
+        total_count = pl_map.height
+
+        if null_count_before > 0:
+            self.logger.info(
+                f"Found {null_count_before}/{total_count} records with NULL CIK from WRDS "
+                f"({null_count_before/total_count*100:.1f}%), attempting SEC fallback..."
+            )
+
+            # Fetch SEC CIK mapping
+            sec_mapping = self._fetch_sec_cik_mapping()
+
+            if not sec_mapping.is_empty():
+                # For records with NULL CIK, try to match against SEC mapping by symbol
+                # Note: SEC mapping is current snapshot, so this is best-effort for historical data
+                pl_map = pl_map.join(
+                    sec_mapping,
+                    left_on='symbol',
+                    right_on='ticker',
+                    how='left',
+                    suffix='_sec'
+                ).with_columns([
+                    # Use WRDS CIK if available, otherwise SEC CIK
+                    pl.when(pl.col('cik').is_not_null())
+                    .then(pl.col('cik'))
+                    .otherwise(pl.col('cik_sec'))
+                    .alias('cik')
+                ]).drop('cik_sec')
+
+                # Count how many NULLs were filled
+                null_count_after = pl_map.filter(pl.col('cik').is_null()).height
+                filled = null_count_before - null_count_after
+
+                if filled > 0:
+                    self.logger.info(
+                        f"SEC fallback filled {filled}/{null_count_before} NULL CIKs "
+                        f"({filled/null_count_before*100:.1f}%)"
+                    )
+
+                self.logger.info(
+                    f"Final result: {null_count_after}/{total_count} records still have NULL CIK "
+                    f"({null_count_after/total_count*100:.1f}%) - these are non-SEC filers"
+                )
+
+                # Log details of symbols with NULL CIKs
+                null_cik_records = pl_map.filter(pl.col('cik').is_null()).select(['symbol', 'company']).unique()
+                if not null_cik_records.is_empty():
+                    # Group by unique symbol (may have multiple company names due to history)
+                    null_symbols_list = null_cik_records['symbol'].unique().to_list()
+
+                    self.logger.info(f"Symbols without CIK ({len(null_symbols_list)} unique): {sorted(null_symbols_list)[:50]}")
+
+                    if len(null_symbols_list) > 50:
+                        self.logger.info(f"... and {len(null_symbols_list) - 50} more (see detailed log below)")
+
+                    # Log detailed company information (first 20 examples)
+                    self.logger.info("Examples of non-SEC filers with company names:")
+                    for row in null_cik_records.head(20).iter_rows(named=True):
+                        self.logger.info(f"  {row['symbol']:10} - {row['company']}")
+
+                    if len(null_cik_records) > 20:
+                        self.logger.info(f"  ... and {len(null_cik_records) - 20} more records")
+            else:
+                self.logger.warning("SEC fallback unavailable, keeping WRDS CIKs only")
+
+                # Still log NULL symbols even if SEC fallback failed
+                null_cik_records = pl_map.filter(pl.col('cik').is_null()).select(['symbol', 'company']).unique()
+                if not null_cik_records.is_empty():
+                    null_symbols_list = null_cik_records['symbol'].unique().to_list()
+                    self.logger.warning(f"Symbols without CIK ({len(null_symbols_list)} unique): {sorted(null_symbols_list)[:30]}")
+        else:
+            self.logger.info("All records have CIK from WRDS, no fallback needed")
 
         return pl_map
     
@@ -274,8 +408,6 @@ class SecurityMaster:
         Smart resolve unmatched symbol and query day.
         Route to the security that is active on 'day', and have most recently used / use 'symbol' in the future
         """
-        self.logger.info(f"auto_resolve triggered for symbol='{symbol}' on date='{day}'")
-
         date_check = dt.datetime.strptime(day, '%Y-%m-%d').date()
 
         # Find all securities that ever used this symbol
@@ -284,7 +416,7 @@ class SecurityMaster:
         ).select('security_id').unique()
 
         if candidates.is_empty():
-            self.logger.warning(f"auto_resolve failed: symbol '{symbol}' never existed in security master")
+            self.logger.debug(f"auto_resolve failed: symbol '{symbol}' never existed in security master")
             raise ValueError(f"Symbol '{symbol}' never existed in security master")
 
         # For each candidate, check if it was active on target date (under ANY symbol)
@@ -310,7 +442,7 @@ class SecurityMaster:
 
         # Resolve ambiguity
         if len(active_securities) == 0:
-            self.logger.warning(
+            self.logger.debug(
                     f"auto_resolve failed: symbol '{symbol}' exists but associated security "
                     f"was not active on {day}"
                 )
@@ -337,9 +469,18 @@ class SecurityMaster:
 
             self.logger.info(
                 f"auto_resolve: Multiple candidates found, selected security_id={sid} "
-                f"(minimum temporal distance)"
             )
+
+        try:
+            # Try to fetch the info
+            cik = self.sid_to_info(sid, day, info='cik')
+            company = self.sid_to_info(sid, day, info='company')
             
+            self.logger.info(f"auto_resolve triggered for symbol='{symbol}' ({company}) on date='{day}', sid={sid}, cik={cik}")
+        except Exception as e:
+            # If it fails, log the specific error so you know WHY it crashed
+            self.logger.error(f"auto_resolve triggered for symbol='{symbol}', sid={sid}: {str(e)}")
+
         return sid
 
     def get_security_id(self, symbol: str, day: str, auto_resolve: bool=True) -> int:
@@ -396,15 +537,20 @@ class SecurityMaster:
             .item()
         )
         return permno
-    
-    def sid_to_symbol(self, sid: int, day: str):
-        pass
 
-    def sid_to_cik(self, sid: int, day: str):
-        pass
+    def sid_to_info(self, sid: int, day: str, info: str):
 
-    def sid_to_cusip(self, sid: int, day: str):
-        pass
+        date_obj = dt.datetime.strptime(day, "%Y-%m-%d").date()
+
+        master_tb = self.master_tb
+        result = (
+            master_tb.filter(
+                pl.col('security_id').eq(sid),
+                pl.col('start_date').le(date_obj),
+                pl.col('end_date').ge(date_obj)
+            ).select(info).head(1).item()
+        )
+        return result
 
     def close(self):
         """Close WRDS connection"""

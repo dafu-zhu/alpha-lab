@@ -1,45 +1,75 @@
 import polars as pl
+import pandas as pd
 from pathlib import Path
-from typing import List, Optional
-import datetime as dt
+from typing import Optional
+import wrds
+import os
+from dotenv import load_dotenv
 from master.security_master import SymbolNormalizer, SecurityMaster
 
+load_dotenv()
 
-def get_hist_universe_crsp(day: str) -> pl.DataFrame:
+
+def get_hist_universe_crsp(year: int, db: Optional[wrds.Connection] = None) -> pl.DataFrame:
     """
-    Historical universe common stock list from CRSP database
+    Historical universe common stock list from CRSP database for a given year.
+    Queries CRSP directly using year-end "as of" date to get all active stocks.
+
     Ticker name has no '-' or '.', e.g. BRK.B in alpaca, BRK-B in SEC, BRKB in CRSP
 
-    :param day: Date string in format "YYYY-MM-DD" (only year and month are used for filtering)
-    :return: DataFrame with columns: Ticker (CRSP format), Name
+    :param year: Year (e.g., 2024)
+    :param db: Optional WRDS connection (creates new one if not provided)
+    :return: DataFrame with columns: Ticker (CRSP format), Name, PERMNO
 
-    Note: Filters by year and month only, since history_symbols.csv typically has one entry per month
+    Note: Returns all stocks that were active on the last trading day of the year
     """
-    file_path = Path("data/symbols/history_symbols.csv")
-    date = dt.datetime.strptime(day, '%Y-%m-%d').date()
+    # Create WRDS connection if not provided
+    close_db = False
+    if db is None:
+        username = os.getenv('WRDS_USERNAME')
+        password = os.getenv('WRDS_PASSWORD')
+        db = wrds.Connection(wrds_username=username, wrds_password=password)
+        close_db = True
 
-    q = (
-        pl.scan_csv(file_path)
-        .with_columns(
-            pl.col('date').str.strptime(pl.Date, '%Y-%m-%d'),
-            pl.col('TSYMBOL').alias('Ticker'),
-            pl.col('COMNAM').alias('Name')
-        )
-        .filter(
-            pl.col('date').dt.year().eq(date.year),
-            pl.col('date').dt.month().eq(date.month)
-        )
-        .select(['Ticker', 'Name'])
-        .drop_nulls()
-    )
+    try:
+        # Use year-end as "as of" date
+        asof = f"{year}-12-31"
 
-    return q.collect()
+        sql = f"""
+        SELECT DISTINCT
+            ticker, tsymbol, permno, comnam, shrcd, exchcd
+        FROM crsp_a_stock.dsenames
+        WHERE namedt <= '{asof}'
+          AND nameendt >= '{asof}'
+          AND ticker IS NOT NULL
+          AND shrcd IN (10, 11)
+          AND exchcd IN (1, 2, 3)
+        ORDER BY ticker;
+        """
+
+        # Execute query
+        df = db.raw_sql(sql)
+
+        # Convert to Polars DataFrame with proper schema
+        result = pl.DataFrame({
+            'Ticker': df['tsymbol'].str.upper().tolist(),  # Ensure uppercase
+            'Name': df['comnam'].tolist(),
+            'PERMNO': df['permno'].tolist()
+        }).unique(subset=['Ticker'], maintain_order=True)
+
+        return result
+
+    finally:
+        # Close connection only if we created it
+        if close_db:
+            db.close()
 
 
 def get_hist_universe_nasdaq(
-    day: str,
+    year: int,
     with_validation: bool = True,
-    security_master: Optional[SecurityMaster] = None
+    security_master: Optional[SecurityMaster] = None,
+    db: Optional[wrds.Connection] = None
 ) -> pl.DataFrame:
     """
     Historical universe with symbols converted to Nasdaq format (with periods/hyphens).
@@ -47,17 +77,18 @@ def get_hist_universe_nasdaq(
     Uses SymbolNormalizer with SecurityMaster validation to prevent false matches
     between delisted stocks and new stocks with similar symbols.
 
-    :param day: Trade day with format "YYYY-MM-DD"
+    :param year: Year (e.g., 2024)
     :param with_validation: Use SecurityMaster to validate symbol conversions
     :param security_master: Optional pre-initialized SecurityMaster instance (recommended for batch processing)
-    :return: DataFrame with columns: Ticker (Nasdaq format), Name
+    :param db: Optional WRDS connection (for performance when calling multiple times)
+    :return: DataFrame with columns: Ticker (Nasdaq format), Name, PERMNO
 
     Example:
-        get_hist_universe_nasdaq_format(2022, 1)
+        get_hist_universe_nasdaq(2022)
         # Returns: BRK.B, AAPL, GOOGL, etc. (Nasdaq format)
     """
     # Get historical universe in CRSP format
-    crsp_df = get_hist_universe_crsp(day)
+    crsp_df = get_hist_universe_crsp(year, db=db)
     crsp_symbols = crsp_df['Ticker'].to_list()
 
     # Initialize normalizer with optional SecurityMaster validation
@@ -75,7 +106,9 @@ def get_hist_universe_nasdaq(
         normalizer = SymbolNormalizer()
 
     # Convert to Nasdaq format with validation
-    nasdaq_symbols = normalizer.batch_normalize(crsp_symbols, day=day if with_validation else None)
+    # Use July 1st of the year as reference date for validation
+    reference_day = f"{year}-07-01" if with_validation else None
+    nasdaq_symbols = normalizer.batch_normalize(crsp_symbols, day=reference_day)
 
     # Close SecurityMaster connection only if we created it
     if sm_to_close is not None:
@@ -84,32 +117,33 @@ def get_hist_universe_nasdaq(
     # Create result DataFrame
     result = pl.DataFrame({
         'Ticker': nasdaq_symbols,
-        'Name': crsp_df['Name'].to_list()
+        'Name': crsp_df['Name'].to_list(),
+        'PERMNO': crsp_df['PERMNO'].to_list()
     })
 
     return result
 
 
 if __name__ == "__main__":
-    year = 2010
-    month = 1
-    day = "2010-01-01"
-    
+    year = 2021
+
     print("=" * 70)
-    print(f"Example 1: Historical Universe - CRSP Format ({year}-{month:02d})")
+    print(f"Example 1: Historical Universe - CRSP Format ({year})")
     print("=" * 70)
 
-    crsp_df = get_hist_universe_crsp(day)
+    crsp_df = get_hist_universe_crsp(year)
     crsp_symbols = crsp_df['Ticker'].to_list()
     print(f"\nTotal symbols (CRSP format): {len(crsp_symbols)}")
     print(f"First 10 symbols: {crsp_symbols[:10]}")
+    print(f"Sample data:")
+    print(crsp_df.head(10))
 
     print("\n" + "=" * 70)
     print(f"Example 2: Transformation Analysis - Before vs After")
     print("=" * 70)
 
-    # Get both CRSP and Nasdaq format
-    nasdaq_df = get_hist_universe_nasdaq(day, with_validation=False)
+    # Get both CRSP and Nasdaq format (reuse db connection)
+    nasdaq_df = get_hist_universe_nasdaq(year, with_validation=False)
     nasdaq_symbols = nasdaq_df['Ticker'].to_list()
 
     # Find symbols that changed
