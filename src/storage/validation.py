@@ -3,6 +3,7 @@ from pathlib import Path
 import logging
 from botocore.exceptions import ClientError
 from storage.s3_client import S3Client
+from typing import Optional
 from utils.logger import setup_logger
 
 
@@ -100,14 +101,21 @@ class Validator:
 
         return sorted(years, reverse=True)
 
-    def data_exists(self, symbol, data_type: str, year: str|int=None, day: str=None) -> bool:
+    def data_exists(
+            self, 
+            symbol, 
+            data_type: str, 
+            year: Optional[int]=None,  
+            day: Optional[str]=None
+        ) -> bool:
         """
         For both daily and minute data, check if data exists
 
         :param symbol: Stock to inspect
-        :param year: Daily data only, specify year
-        :param day: Minute data only, specify trade day. Format: YYYY-MM-DD
         :param data_type: "ticks" or "fundamental"
+        :param year: Daily data only, specify year
+        :param month: Daily data only, use YYYY/MM to locate
+        :param day: Minute data only, specify trade day. Format: YYYY-MM-DD
         """
         if year and day:
             raise ValueError(f'Specify year OR day, not both')
@@ -123,7 +131,7 @@ class Validator:
                 day_str = date.strftime('%d')
                 s3_key = f'data/raw/{data_type}/minute/{symbol}/{year_str}/{month_str}/{day_str}/{data_type}.parquet'
             else:
-                raise ValueError(f'Failed to parse day, expected format YYYY-MM-DD, get {day}')
+                raise ValueError(f'Must provide either year or day parameter. Got year={year}, day={day}')
         elif data_type == 'fundamental':
             if year:
                 s3_key = f'data/raw/{data_type}/{symbol}/{year}/{data_type}.parquet'
@@ -142,7 +150,7 @@ class Validator:
             if error.response['Error']['Code'] == '404':
                 return False
             else:
-                self.logger(f'Error checking {s3_key}: {error}')
+                self.logger.error(f'Error checking {s3_key}: {error}')
                 return False
 
 if __name__ == '__main__':

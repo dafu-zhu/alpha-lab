@@ -4,7 +4,7 @@ Loads us-gaap fields from data/config/us-gaap-fields.txt
 """
 import yaml
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 
 class UploadConfig:
@@ -59,28 +59,28 @@ class UploadConfig:
         """Get list of US-GAAP fields (2069 fields)"""
         if self._us_gaap_fields is None:
             self.load()
-        return self._us_gaap_fields
+        return self._us_gaap_fields  # type: ignore[return-value]
 
     @property
     def dei_fields(self) -> List[str]:
         """Get list of DEI fields"""
         if self._dei_fields is None:
             self.load()
-        return self._dei_fields
+        return self._dei_fields  # type: ignore[return-value]
     
     @property
-    def transfer(self) -> Dict[str, Any]:
+    def transfer(self) -> Optional[Dict[str, Any]]:
         """Get transfer config"""
         if self._config is None:
             self.load()
-        return self._config.get('transfer')
-    
+        return self._config.get('transfer') if self._config else None
+
     @property
-    def client(self) -> Dict[str, Any]:
+    def client(self) -> Optional[Dict[str, Any]]:
         """Get client config"""
         if self._config is None:
             self.load()
-        return self._config.get('client')
+        return self._config.get('client') if self._config else None
 
 # Example usage
 if __name__ == "__main__":

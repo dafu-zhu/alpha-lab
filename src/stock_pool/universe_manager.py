@@ -4,170 +4,189 @@ import time
 import datetime as dt
 import polars as pl
 import logging
-from collection.ticks import Ticks
+from typing import Dict, Optional
+from collection.crsp_ticks import CRSPDailyTicks
+from collection.alpaca_ticks import Ticks
 from stock_pool.universe import fetch_all_stocks
-from stock_pool.history_universe import get_hist_universe
+from stock_pool.history_universe import get_hist_universe_nasdaq
+from master.security_master import SecurityMaster
 from utils.logger import setup_logger
 
 class UniverseManager:
     def __init__(self):
-        self.recent_dir = Path("data/raw/ticks/recent")
         self.store_dir = Path("data/symbols")
         self.store_dir.mkdir(parents=True, exist_ok=True)
-        self.top_3000 = None
+
         log_dir = Path("data/logs/symbols")
         self.logger = setup_logger("symbols", log_dir, logging.INFO, console_output=True)
+
+        # Initialize fetchers and security master once to reuse connections
+        self.crsp_fetcher = CRSPDailyTicks()
+        self.alpaca_fetcher = Ticks()
+        self.security_master = SecurityMaster()  # Reuse WRDS connection
+
+        # Cache for current symbols to avoid re-reading CSV
+        self._current_symbols_cache: Optional[list[str]] = None
 
     def get_current_symbols(self, refresh=False) -> list[str]:
         """
         Get the current list of common stocks from Nasdaq Trader.
-        """    
-        csv_path = Path("data/symbols/stock_exchange.csv")
-        if csv_path.exists() and not refresh:
-            self.logger.info("Loading symbols from local CSV...")
-            df = pl.read_csv(csv_path)
-            symbols = df["Ticker"].to_list()
+
+        :param refresh: If True, fetches fresh data from Nasdaq. If False, reads from cache.
+        """
+        # If we have cached symbols and not refreshing, return cache
+        if not refresh and self._current_symbols_cache is not None:
+            return self._current_symbols_cache
+
+        # Otherwise fetch from file/FTP (only one thread will do this)
+        pd_df = fetch_all_stocks(refresh=refresh, logger=self.logger)
+        if pd_df is not None and not pd_df.empty:
+            symbols = pd_df['Ticker'].tolist()
         else:
-            pd_df = fetch_all_stocks(logger=self.logger)
-            if pd_df is not None and not pd_df.empty:
-                symbols = pd_df['Ticker'].tolist()
-            else:
-                raise ValueError("Failed to fetch symbols from Nasdaq Trader.")
-                
+            raise ValueError("Failed to fetch symbols from Nasdaq Trader.")
+
         self.logger.info(f"Market Universe Size: {len(symbols)} tickers")
+
+        # Cache the result
+        self._current_symbols_cache = symbols
         return symbols
     
-    def get_hist_symbols(self, year: int, month: int) -> list[str]:
+    def get_hist_symbols(self, day: str) -> list[str]:
         """
         Get history common stock list from CRSP database
         """
-        symbols_df = get_hist_universe(year, month)
+        symbols_df = get_hist_universe_nasdaq(day, security_master=self.security_master)
         symbols = symbols_df['Ticker'].to_list()
 
         if len(symbols) == 0:
-            self.logger.warning(f"No symbols fetched for year {year}, month {month}")
-        
+            self.logger.warning(f"No symbols fetched for day {day}")
+
         return symbols
-    
-    def remove_recent_data(self) -> None:
-        if self.recent_dir.exists():
-            shutil.rmtree(self.recent_dir)
 
-    def fetch_recent_data(self, day: str, symbols: list[str], batch_size: int=100, refresh=False) -> None:
+    def get_top_3000(self, day: str, symbols: list[str], source: str) -> list[str]:
         """
-        Downloads 3-month daily history for ALL symbols using the efficient bulk fetcher.
-        """
-        if refresh:
-            self.remove_recent_data()
-
-        self.logger.info(f"Starting bulk fetch for {len(symbols)} symbols...")
-        # Instantiate Ticks with a dummy symbol
-        fetcher = Ticks(symbol="UNIVERSE")
-        
-        # Call the bulk method
-        fetcher.recent_daily_ticks(symbols, end_day=day, batch_size=batch_size)
-        
-        self.logger.info("Bulk fetch complete.")
-
-    def filter_top_3000(self, day: str) -> list[str]:
-        """
-        Reads the cached data, calculates liquidity, and returns Top 3000.
-
-        :param day: Date string in format "YYYY-MM-DD" to locate the correct data directory
-        """
-        try:
-            # Extract year and month from day parameter
-            day_dt = dt.datetime.strptime(day, '%Y-%m-%d')
-            year = day_dt.strftime('%Y')
-            month = day_dt.strftime('%m')
-
-            # Build path to dated directory
-            dated_dir = self.recent_dir / year / month
-
-            if not dated_dir.exists():
-                self.logger.error(f"Data directory does not exist: {dated_dir}")
-                return []
-
-            # Lazy Scan of all recent parquet files in the dated directory
-            q = (
-                pl.scan_parquet(dated_dir / "*.parquet")
-                .group_by("symbol")
-                .agg(
-                    # Metric: Average Dollar Volume (Close * Volume)
-                    (pl.col("close") * pl.col("volume")).mean().alias("avg_dollar_vol")
-                )
-                .filter(pl.col("avg_dollar_vol") > 1000)
-                .sort("avg_dollar_vol", descending=True)
-                .head(3000)
-            )
-            df = q.collect()
-
-            top_stock = df.row(0)
-            bottom_stock = df.row(-1)
-            self.logger.info(f"Top Liquid Stock: {top_stock[0]} (ADV: ${top_stock[1]:,.0f})")
-            self.logger.info(f"Rank 3000 Stock:  {bottom_stock[0]} (ADV: ${bottom_stock[1]:,.0f})")
-
-            result = df["symbol"].to_list()
-            self.top_3000 = result
-            return result
-
-        except Exception as e:
-            self.logger.error(f"Error calculating liquidity: {e}")
-            return []
-    
-    # TODO: Refactor for upload
-    def store_top_3000(self, day: str, clear: bool) -> None:
-        """
-        Store top 3000 symbols to dated directory.
+        Fetch recent data and calculate top 3000 most liquid stocks (in-memory).
 
         :param day: Date string in format "YYYY-MM-DD"
+        :param symbols: List of symbols to analyze
+        :param source: 'crsp' or 'alpaca'
+        :return: List of top 3000 symbols ranked by average dollar volume
         """
-        if not self.top_3000:
-            self.top_3000 = self.filter_top_3000(day)
+        self.logger.info(f"Fetching recent data on {day} for {len(symbols)} symbols using {source}...")
 
-        # Extract year and month from day parameter
-        day_dt = dt.datetime.strptime(day, '%Y-%m-%d')
-        year = day_dt.strftime('%Y')
-        month = day_dt.strftime('%m')
-
-        # Create dated directory structure
-        dated_dir = self.store_dir / year / month
-        dated_dir.mkdir(parents=True, exist_ok=True)
-
-        file_path = dated_dir / "universe_top3000.txt"
-        with open(file_path, "w") as file:
-            file.write("\n".join(self.top_3000))
-
-        self.logger.info(f"Saved Top 3000 symbols to {file_path}")
-
-        if clear:
-            self.remove_recent_data()
-        
-        self.logger.info(f"Recent data directory removed {self.recent_dir}")
-
-    def run(self, day: str, refresh=False, clear=True) -> None:
-        """
-        Run complete pipeline
-        Output universe_top3000.txt at data/symbols/YYYY/MM/
-
-        :param day: Date string in format "YYYY-MM-DD"
-        :param refresh: Whether to refresh data from source
-        """
-        start = time.perf_counter()
-        date = dt.datetime.strptime(day, '%Y-%m-%d')
-        year = date.year
-        month = date.month
-        if year < 2025:
-            all_symbols = self.get_hist_symbols(year, month)
+        # Fetch recent data (returns Dict[str, pl.DataFrame])
+        # Use pre-initialized fetchers to avoid reconnecting to databases
+        if source.lower() == 'crsp':
+            recent_data = self.crsp_fetcher.recent_daily_ticks(symbols, end_day=day)
+        elif source.lower() == 'alpaca':
+            recent_data = self.alpaca_fetcher.recent_daily_ticks(symbols, end_day=day)
         else:
-            all_symbols = self.get_current_symbols(refresh=refresh)
-        self.fetch_recent_data(day, all_symbols, refresh=refresh)
-        self.store_top_3000(day, clear=clear)
-        time_count = time.perf_counter() - start
-        self.logger.info(f"Processing time: {time_count:.2f}s")
+            raise ValueError(f"Invalid source: {source}. Must be 'crsp' or 'alpaca'")
+
+        self.logger.info(f"Data fetched for {len(recent_data)} symbols, calculating liquidity...")
+
+        # Calculate average dollar volume for each symbol
+        liquidity_data = []
+        for symbol, df in recent_data.items():
+            if len(df) > 0:
+                # Calculate average dollar volume: avg(close * volume)
+                avg_dollar_vol = (df['close'] * df['volume']).mean()
+                liquidity_data.append({
+                    'symbol': symbol,
+                    'avg_dollar_vol': avg_dollar_vol
+                })
+
+        # Create DataFrame and rank by liquidity
+        liquidity_df = (
+            pl.DataFrame(liquidity_data)
+            .filter(pl.col('avg_dollar_vol') > 1000)
+            .sort('avg_dollar_vol', descending=True)
+            .head(3000)
+        )
+
+        if len(liquidity_df) == 0:
+            self.logger.error("No symbols passed liquidity filter")
+            return []
+
+        # Log top and bottom stocks
+        top_stock = liquidity_df.row(0)
+        bottom_stock = liquidity_df.row(-1)
+        self.logger.info(f"Top Liquid Stock: {top_stock[0]} (ADV: ${top_stock[1]:,.0f})")
+        self.logger.info(f"Rank {len(liquidity_df)} Stock: {bottom_stock[0]} (ADV: ${bottom_stock[1]:,.0f})")
+
+        result = liquidity_df['symbol'].to_list()
+
+        return result
 
 if __name__ == "__main__":
+    print("=" * 70)
+    print("Example: Get Top 3000 Most Liquid Stocks (Alpaca)")
+    print("=" * 70)
+
     um = UniverseManager()
-    # Use today's date as default
-    day = "2011-01-01"
-    um.run(day=day, refresh=True)
+    day = "2026-01-02"
+    source = "alpaca"  # Use Alpaca for recent data
+
+    # Parse date
+    date = dt.datetime.strptime(day, '%Y-%m-%d')
+    year = date.year
+
+    print(f"\nTarget date: {day}")
+    print(f"Year: {year}")
+    print(f"Data source: {source}")
+
+    # Step 1: Get universe (historical or current)
+    print("\n" + "-" * 70)
+    print("Step 1: Fetching stock universe...")
+    print("-" * 70)
+
+    if year < 2025:
+        all_symbols = um.get_hist_symbols(day)
+        print(f"Historical universe loaded: {len(all_symbols)} symbols")
+    else:
+        all_symbols = um.get_current_symbols(refresh=False)
+        print(f"Current universe loaded: {len(all_symbols)} symbols")
+
+    print(f"First 10 symbols: {all_symbols[:10]}")
+
+    # Step 2: Get top 3000 (fetch recent data + calculate liquidity in-memory)
+    print("\n" + "-" * 70)
+    print("Step 2: Fetching recent data and calculating top 3000...")
+    print("-" * 70)
+
+    start = time.perf_counter()
+    top_3000 = um.get_top_3000(day, all_symbols, source)
+    elapsed = time.perf_counter() - start
+
+    print(f"\nTop 3000 calculation complete!")
+    print(f"Processing time: {elapsed:.2f}s")
+    print(f"Total symbols in top 3000: {len(top_3000)}")
+
+    # Step 3: Display results
+    print("\n" + "-" * 70)
+    print("Step 3: Results Summary")
+    print("-" * 70)
+
+    print(f"\nTop 10 most liquid stocks:")
+    for i, symbol in enumerate(top_3000[:10], 1):
+        print(f"  {i:2}. {symbol}")
+
+    print(f"\nBottom 10 (ranked 2991-3000):")
+    for i, symbol in enumerate(top_3000[-10:], len(top_3000) - 9):
+        print(f"  {i:4}. {symbol}")
+
+    # Step 4: Statistics
+    print("\n" + "-" * 70)
+    print("Step 4: Statistics")
+    print("-" * 70)
+
+    universe_size = len(all_symbols)
+    top_3000_size = len(top_3000)
+    coverage_rate = (top_3000_size / universe_size * 100) if universe_size > 0 else 0
+
+    print(f"\nOriginal universe size:     {universe_size:5}")
+    print(f"Top 3000 size:              {top_3000_size:5}")
+    print(f"Coverage rate:              {coverage_rate:5.1f}%")
+    print(f"Filtered out (illiquid):    {universe_size - top_3000_size:5}")
+
+    print("\n" + "=" * 70)
