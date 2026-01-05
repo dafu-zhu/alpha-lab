@@ -58,70 +58,70 @@ def extract_concept(facts: dict, concept: str) -> Optional[dict]:
     return None
 
 
-class Fundamental:
-    def __init__(self, cik: str, symbol: Optional[str] = None) -> None:
-        self.cik = cik
-        self.symbol = symbol
-        self.log_dir = Path("data/logs/fundamental")
-        self.calendar_path = Path("data/calendar/master.parquet")
-        self.output_dir = Path("data/raw/fundamental")
-        self.fields_df = None
+class SECClient:
+    """Handles HTTP requests to SEC EDGAR API"""
 
-        # Mkdir
-        self.log_dir.mkdir(parents=True, exist_ok=True)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, header: Optional[dict] = None):
+        self.header = header or HEADER
 
-        # Request response
-        self.req_response = self._req_response()
-    
-    def _req_response(self) -> dict:
-        cik_padded = str(self.cik).zfill(10)
+    def fetch_company_facts(self, cik: str) -> dict:
+        """
+        Fetch company facts from SEC EDGAR API.
+
+        :param cik: Company CIK number (will be zero-padded to 10 digits)
+        :return: Complete SEC EDGAR API response as dictionary
+        :raises requests.RequestException: If HTTP request fails
+        :raises ValueError: If JSON response is invalid
+        """
+        cik_padded = str(cik).zfill(10)
         url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik_padded}.json"
 
         try:
-            response = requests.get(url=url, headers=HEADER)
+            response = requests.get(url=url, headers=self.header)
             response.raise_for_status()
             res = response.json()
         except requests.RequestException as error:
             raise requests.RequestException(f"Failed to fetch data for CIK {cik_padded}: {error}")
         except json.JSONDecodeError as error:
             raise ValueError(f"Invalid JSON response for CIK {cik_padded}: {error}")
-        
+
         return res
 
-    def get_field(self, field: str, fact_type: str) -> List[dict]:
-        """
-        Get the complete historical facts of a company using SEC XBRL
 
-        :param field: Accounting data to fetch
+class FundamentalExtractor:
+    """Extracts specific fields from SEC EDGAR response data"""
+
+    def extract_field(self, facts_response: dict, field: str, fact_type: str, cik: str) -> List[dict]:
+        """
+        Extract raw field data from SEC EDGAR response.
+
+        :param facts_response: Complete SEC EDGAR API response
+        :param field: Accounting data to fetch (e.g., 'Assets', 'Revenues')
         :param fact_type: Choose from "us-gaap" or "dei"
-        :return: A list of dictionaries from SEC EDGAR
-        :raises requests.RequestException: If HTTP request fails
+        :param cik: CIK number (for error messages)
+        :return: List of raw data dictionaries from SEC EDGAR
         :raises KeyError: If field is not available for this company
-        :raises ValueError: If data format is unexpected
         """
-        res = self.req_response
+        # Check if facts and fact_type exist
+        if 'facts' not in facts_response:
+            raise KeyError(f"No 'facts' data found for CIK {cik}")
 
-        # Check if facts and us-gaap exist
-        if 'facts' not in res:
-            raise KeyError(f"No 'facts' data found for CIK {self.cik}")
+        if fact_type not in facts_response['facts']:
+            raise KeyError(f"No '{fact_type}' data found for CIK {cik}")
 
-        if fact_type not in res['facts']:
-            raise KeyError(f"No '{fact_type}' data found for CIK {self.cik}")
-
-        fact = res['facts'][fact_type]
+        fact = facts_response['facts'][fact_type]
 
         # Check if field exists
         if field not in fact:
             available_fields = list(fact.keys())
             raise KeyError(
-                f"Field '{field}' not available for CIK {self.cik}. "
+                f"Field '{field}' not available for CIK {cik}. "
                 f"Available fields: {len(available_fields)} total"
             )
 
         # Check if units exist for this field
         if 'units' not in fact[field]:
-            raise KeyError(f"No 'units' data found for field '{field}' in CIK {self.cik}")
+            raise KeyError(f"No 'units' data found for field '{field}' in CIK {cik}")
 
         # Check for USD first, then shares as fallback
         if 'USD' in fact[field]['units']:
@@ -131,29 +131,27 @@ class Fundamental:
         else:
             available_units = list(fact[field]['units'].keys())
             raise KeyError(
-                f"Neither USD nor shares units available for field '{field}' in CIK {self.cik}. "
+                f"Neither USD nor shares units available for field '{field}' in CIK {cik}. "
                 f"Available units: {available_units}"
             )
 
         return result
 
-    def get_dps(self, field: str, fact_type: str) -> List[FndDataPoint]:
+    def parse_datapoints(self, raw_data: List[dict]) -> List[FndDataPoint]:
         """
-        Transform raw data point into FndDataPoint object
+        Transform raw SEC data points into FndDataPoint objects.
 
-        :param field: Accounting data to fetch
-        :param fact_type: Choose from "us-gaap" or "dei"
+        :param raw_data: List of raw data dictionaries from SEC EDGAR
+        :return: List of FndDataPoint objects
         """
-        raw_data = self.get_field(field, fact_type=fact_type)
-        
         dps = []
         for dp in raw_data:
             # Reveal date
             filed_date = dt.datetime.strptime(dp['filed'], '%Y-%m-%d').date()
-            
+
             # Fiscal calendar date, avoid look-ahead bias
             end_date = dt.datetime.strptime(dp['end'], '%Y-%m-%d').date()
-            
+
             # Form to track amendment
             form = dp['form']
 
@@ -168,43 +166,45 @@ class Fundamental:
             dps.append(dp_obj)
 
         return dps
-    
-    def get_value_tuple(self, dps: List[FndDataPoint]) -> List[Tuple[dt.date, float]]:
-        """
-        Process the result of get_dps, transform list of FndDataPoint into 
-        a list of tuple in order to fit in dataframe
-        
-        :param dps: A list of FndDataPoint from get_dps
-        :return: list of tuples with (date, value), ordered in date
 
-        Example: [(date(2024, 9, 1), 9.1), (date(2024, 12, 1), 12.1)]
+
+class FundamentalTransformer:
+    """Transforms fundamental data into different formats and aggregations"""
+
+    def __init__(self, calendar_path: Optional[Path] = None):
+        self.calendar_path = calendar_path or Path("data/calendar/master.parquet")
+
+    def to_value_tuples(self, dps: List[FndDataPoint]) -> List[Tuple[dt.date, float]]:
+        """
+        Convert FndDataPoint objects to (date, value) tuples.
+
+        :param dps: List of FndDataPoint objects
+        :return: List of tuples with (date, value), sorted by date
         """
         value_tuples = []
         for dp in dps:
             date: dt.date = dp.timestamp
             value = dp.value
             value_tuples.append((date, value))
-        
-        value_tuples.sort(key=lambda x: x[0])
 
+        value_tuples.sort(key=lambda x: x[0])
         return value_tuples
 
-    def collect_fields_raw(
-            self,
-            start_day: str,
-            end_day: str,
-            fields_dict: Dict[str, List[Tuple[dt.date, float]]],
-        ) -> pl.DataFrame:
+    def aggregate_fields_raw(
+        self,
+        start_day: str,
+        end_day: str,
+        fields_dict: Dict[str, List[Tuple[dt.date, float]]],
+    ) -> pl.DataFrame:
         """
-        Collect multiple fields without forward-filling - returns only actual filing dates.
-        This returns quarterly data points (typically 4-5 per year) without interpolation.
+        Aggregate multiple fields without forward-filling.
+        Returns only actual filing dates (quarterly data points).
 
         :param start_day: Start day to filter filings, format "YYYY-MM-DD"
         :param end_day: End day to filter filings, format "YYYY-MM-DD"
-        :param fields_dict: Key is the field name, Value is the value tuples from get_value_tuple
-        :return: DataFrame with columns [timestamp, Field1, Field2, ...] containing only actual filings
+        :param fields_dict: Dict of {field_name: [(date, value), ...]}
+        :return: DataFrame with columns [timestamp, Field1, Field2, ...]
         """
-        # Define date range
         start_date = dt.datetime.strptime(start_day, "%Y-%m-%d").date()
         end_date = dt.datetime.strptime(end_day, "%Y-%m-%d").date()
 
@@ -228,46 +228,39 @@ class Fundamental:
         # For each field, map timestamp -> value
         for field_name, field_values in fields_dict.items():
             # Create a lookup dict for this field
-            value_map = {timestamp: value for timestamp, value in field_values
-                        if start_date <= timestamp <= end_date}
+            value_map = {
+                timestamp: value
+                for timestamp, value in field_values
+                if start_date <= timestamp <= end_date
+            }
 
             # Map each timestamp to its value (or None if not present)
-            result_dict[field_name] = [
-                value_map.get(ts) for ts in sorted_timestamps
-            ]
+            result_dict[field_name] = [value_map.get(ts) for ts in sorted_timestamps]
 
         # Create DataFrame with strict=False to allow mixed int/float types
-        # Polars will infer types flexibly and we'll cast to Float64 below
         result_df = pl.DataFrame(result_dict, strict=False)
 
         # Cast numeric columns to Float64
         for col in result_df.columns:
             if col != 'timestamp':
-                result_df = result_df.with_columns(
-                    pl.col(col).cast(pl.Float64)
-                )
+                result_df = result_df.with_columns(pl.col(col).cast(pl.Float64))
 
-        self.fields_df = result_df
         return result_df
 
-    def collect_fields(
-            self,
-            start_day: str,
-            end_day: str,
-            fields_dict: Dict[str, List[Tuple[dt.date, float]]],
-        ) -> pl.DataFrame:
+    def aggregate_fields_ffill(
+        self,
+        start_day: str,
+        end_day: str,
+        fields_dict: Dict[str, List[Tuple[dt.date, float]]],
+    ) -> pl.DataFrame:
         """
-        Collect multiple fields and put into one single dataframe with forward-filling.
-        This method forward-fills quarterly data across all trading days.
-
-        NOTE: For storage without forward-filling, use collect_fields_raw() instead.
+        Aggregate multiple fields with forward-filling across trading days.
 
         :param start_day: Start day to align with master calendar, format "YYYY-MM-DD"
         :param end_day: End day to align with master calendar, format "YYYY-MM-DD"
-        :param fields_dict: Key is the field name, Value is the value tuples from get_value_tuple
-        :return: dataframe with columns [Date, Field1, Field2, ...]
+        :param fields_dict: Dict of {field_name: [(date, value), ...]}
+        :return: DataFrame with columns [timestamp, Field1, Field2, ...]
         """
-        # Define date range
         start_date = dt.datetime.strptime(start_day, "%Y-%m-%d").date()
         end_date = dt.datetime.strptime(end_day, "%Y-%m-%d").date()
 
@@ -285,34 +278,130 @@ class Fundamental:
 
             if not values:
                 calendar_lf = calendar_lf.with_columns(
-                    pl.lit(None, dtype=pl.Float64)
-                    .alias(field_name)
+                    pl.lit(None, dtype=pl.Float64).alias(field_name)
                 )
-
             else:
                 tmp_lf = (
-                    pl.DataFrame(
-                        values,
-                        schema=['timestamp', field_name],
-                        orient='row'
-                    )
-                    .with_columns(
-                        pl.col(field_name).cast(pl.Float64)
-                    )
+                    pl.DataFrame(values, schema=['timestamp', field_name], orient='row')
+                    .with_columns(pl.col(field_name).cast(pl.Float64))
                     .sort('timestamp')
                     .drop_nulls(subset=[field_name])
                     .lazy()
                 )
 
                 calendar_lf = calendar_lf.join_asof(
-                    tmp_lf,
-                    on='timestamp',
-                    strategy='backward'
+                    tmp_lf, on='timestamp', strategy='backward'
                 )
 
-        result = calendar_lf.collect()
-        self.fields_df = result
+        return calendar_lf.collect()
 
+
+class Fundamental:
+    """
+    Orchestrator for fundamental data collection workflow.
+    Coordinates SECClient, FundamentalExtractor, and FundamentalTransformer.
+    """
+
+    def __init__(self, cik: str, symbol: Optional[str] = None) -> None:
+        self.cik = cik
+        self.symbol = symbol
+        self.log_dir = Path("data/logs/fundamental")
+        self.calendar_path = Path("data/calendar/master.parquet")
+        self.output_dir = Path("data/raw/fundamental")
+        self.fields_df = None
+
+        # Create service instances
+        self.client = SECClient()
+        self.extractor = FundamentalExtractor()
+        self.transformer = FundamentalTransformer(calendar_path=self.calendar_path)
+
+        # Mkdir
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Fetch company facts
+        self.req_response = self.client.fetch_company_facts(self.cik)
+
+    def get_sec_field(self, field: str, fact_type: str) -> List[dict]:
+        """
+        Fetch raw field and field type from SEC EDGAR data for the given cik.
+
+        :param field: Accounting data to fetch
+        :param fact_type: Choose from "us-gaap" or "dei"
+        :return: A list of dictionaries from SEC EDGAR
+        :raises requests.RequestException: If HTTP request fails
+        :raises KeyError: If field is not available for this company
+        :raises ValueError: If data format is unexpected
+        """
+        return self.extractor.extract_field(
+            self.req_response, field, fact_type, self.cik
+        )
+
+    def get_dps(self, field: str, fact_type: str) -> List[FndDataPoint]:
+        """
+        Transform raw data point into FndDataPoint object.
+
+        :param field: Accounting data to fetch
+        :param fact_type: Choose from "us-gaap" or "dei"
+        :return: List of FndDataPoint objects
+        """
+        raw_data = self.get_sec_field(field, fact_type=fact_type)
+        return self.extractor.parse_datapoints(raw_data)
+
+    def get_value_tuple(self, dps: List[FndDataPoint]) -> List[Tuple[dt.date, float]]:
+        """
+        Process the result of get_dps, transform list of FndDataPoint into
+        a list of tuple in order to fit in dataframe.
+
+        :param dps: A list of FndDataPoint from get_dps
+        :return: list of tuples with (date, value), ordered in date
+
+        Example: [(date(2024, 9, 1), 9.1), (date(2024, 12, 1), 12.1)]
+        """
+        return self.transformer.to_value_tuples(dps)
+
+    def collect_fields_raw(
+        self,
+        start_day: str,
+        end_day: str,
+        fields_dict: Dict[str, List[Tuple[dt.date, float]]],
+    ) -> pl.DataFrame:
+        """
+        Collect multiple fields without forward-filling - returns only actual filing dates.
+        This returns quarterly data points (typically 4-5 per year) without interpolation.
+
+        :param start_day: Start day to filter filings, format "YYYY-MM-DD"
+        :param end_day: End day to filter filings, format "YYYY-MM-DD"
+        :param fields_dict: Key is the field name, Value is the value tuples from get_value_tuple
+        :return: DataFrame with columns [timestamp, Field1, Field2, ...] containing only actual filings
+        """
+        result_df = self.transformer.aggregate_fields_raw(
+            start_day, end_day, fields_dict
+        )
+        self.fields_df = result_df
+        return result_df
+
+    def collect_fields(
+        self,
+        start_day: str,
+        end_day: str,
+        fields_dict: Dict[str, List[Tuple[dt.date, float]]],
+    ) -> pl.DataFrame:
+        """
+        Collect multiple fields and put into one single dataframe with forward-filling.
+        This method forward-fills quarterly data across all trading days.
+
+        NOTE: For storage without forward-filling, use collect_fields_raw() instead.
+
+        :param start_day: Start day to align with master calendar, format "YYYY-MM-DD"
+        :param end_day: End day to align with master calendar, format "YYYY-MM-DD"
+        :param fields_dict: Key is the field name, Value is the value tuples from get_value_tuple
+        :return: dataframe with columns [Date, Field1, Field2, ...]
+        """
+        result = self.transformer.aggregate_fields_ffill(
+            start_day, end_day, fields_dict
+        )
+        self.fields_df = result
         return result
 
 
