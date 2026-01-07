@@ -4,27 +4,21 @@ This module computes derived metrics from raw data.
 
 ## Submodules
 
-### `fundamental.py`
+### `metrics.py`
 
-Computes derived fundamental metrics from raw fundamental data.
-
-**Key Classes:**
-- `FormulaParser`: Loads formula definitions from `data/xbrl/fundamental.xlsx`
-- `DerivedFundamental`: Computes derived metrics for a single symbol/year
-- `batch_compute_derived`: Batch processing for multiple symbols
+Computes derived fundamental metrics from TTM wide-format data.
 
 **Quick Start:**
 
 ```python
-from src.derived.fundamental import DerivedFundamental
+from src.derived.metrics import compute_derived
 
 # Compute derived metrics
-calc = DerivedFundamental(symbol='AAPL', year=2024)
-derived_df = calc.run()
+derived_df = compute_derived(ttm_wide_df)
 ```
 
 **Storage:**
-- Input: `data/raw/fundamental/{symbol}/{YYYY}/fundamental.parquet`
+- Input: `data/derived/features/fundamental/{symbol}/{ASOF_YEAR}/ttm_wide.parquet`
 - Output: `data/derived/fundamental/{symbol}/{YYYY}/fundamental.parquet`
 
 ## Documentation
@@ -70,7 +64,7 @@ pytest tests/test_derived_fundamental.py -v
 ```
 src/derived/
 ├── __init__.py              # Module exports
-├── fundamental.py           # Main implementation
+├── metrics.py               # Main implementation
 └── README.md               # This file
 
 data/derived/fundamental/    # Output storage

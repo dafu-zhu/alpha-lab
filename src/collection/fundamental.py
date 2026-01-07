@@ -16,6 +16,25 @@ FIELD_CONFIG_PATH = Path("configs/approved_mapping.yaml")
 with open(FIELD_CONFIG_PATH) as file:
     MAPPINGS = yaml.safe_load(file)
 
+DURATION_CONCEPTS = {
+    "rev",
+    "cor",
+    "op_inc",
+    "net_inc",
+    "ibt",
+    "inc_tax_exp",
+    "int_exp",
+    "rnd",
+    "sga",
+    "dna",
+    "cfo",
+    "cfi",
+    "cff",
+    "capex",
+    "div",
+    "sto_isu",
+}
+
 
 def extract_concept(facts: dict, concept: str) -> Optional[dict]:
     """
@@ -74,8 +93,9 @@ def extract_concept(facts: dict, concept: str) -> Optional[dict]:
 class SECClient:
     """Handles HTTP requests to SEC EDGAR API"""
 
-    def __init__(self, header: Optional[dict] = None):
+    def __init__(self, header: Optional[dict] = None, rate_limiter=None):
         self.header = header or HEADER
+        self.rate_limiter = rate_limiter
 
     def fetch_company_facts(self, cik: str) -> dict:
         """
@@ -90,6 +110,10 @@ class SECClient:
         url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik_padded}.json"
 
         try:
+            # Apply rate limiting before making API request
+            if self.rate_limiter:
+                self.rate_limiter.acquire()
+
             response = requests.get(url=url, headers=self.header)
             response.raise_for_status()
             res = response.json()
@@ -103,6 +127,86 @@ class SECClient:
 
 class FundamentalExtractor:
     """Extracts specific fields from SEC EDGAR response data"""
+
+    def _normalize_duration_raw(self, raw_data: List[dict]) -> List[dict]:
+        """
+        Normalize duration metrics to per-quarter values using start/end dates.
+        """
+        by_frame_year: Dict[int, List[dict]] = defaultdict(list)
+        for dp in raw_data:
+            start = dp.get("start")
+            end = dp.get("end")
+            filed = dp.get("filed")
+            frame = dp.get("frame")
+            if not start or not end or not filed or not frame:
+                continue
+
+            start_date = dt.datetime.strptime(start, "%Y-%m-%d").date()
+            end_date = dt.datetime.strptime(end, "%Y-%m-%d").date()
+            filed_date = dt.datetime.strptime(filed, "%Y-%m-%d").date()
+            duration_days = (end_date - start_date).days
+            frame_year = int(frame[2:6])
+
+            by_frame_year[frame_year].append(
+                {
+                    "dp": dp,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "filed_date": filed_date,
+                    "duration_days": duration_days,
+                }
+            )
+
+        normalized: List[dict] = []
+        for items in by_frame_year.values():
+            items.sort(key=lambda item: item["filed_date"])
+
+            latest_by_frame: Dict[str, dict] = {}
+            for item in items:
+                frame = item["dp"]["frame"]
+                prev = latest_by_frame.get(frame)
+                if prev is None or item["filed_date"] > prev["filed_date"]:
+                    latest_by_frame[frame] = item
+
+            standalone_frames: Dict[str, dict] = {}
+            annual_frames: Dict[str, dict] = {}
+            for frame, item in latest_by_frame.items():
+                if frame.endswith(("Q1", "Q2", "Q3", "Q4")):
+                    standalone_frames[frame] = item
+                else:
+                    annual_frames[frame] = item
+
+            for frame, item in latest_by_frame.items():
+                dp = item["dp"]
+                if frame.endswith("Q4"):
+                    normalized.append(dp)
+                    continue
+                if frame.endswith(("Q1", "Q2", "Q3")):
+                    normalized.append(dp)
+                    continue
+                if frame in annual_frames:
+                    year = frame[2:6]
+                    q1 = standalone_frames.get(f"CY{year}Q1")
+                    q2 = standalone_frames.get(f"CY{year}Q2")
+                    q3 = standalone_frames.get(f"CY{year}Q3")
+                    if q1 and q2 and q3:
+                        adjusted = dict(dp)
+                        adjusted["val"] = (
+                            float(dp["val"])
+                            - float(q1["dp"]["val"])
+                            - float(q2["dp"]["val"])
+                            - float(q3["dp"]["val"])
+                        )
+                        adjusted["start"] = (q3["end_date"] + dt.timedelta(days=1)).isoformat()
+                        normalized.append(adjusted)
+
+        deduped = {}
+        for dp in normalized:
+            key = (dp.get("start"), dp.get("end"), dp.get("filed"))
+            if key not in deduped:
+                deduped[key] = dp
+
+        return list(deduped.values())
 
     def extract_field(self, facts_response: dict, field: str, fact_type: str, cik: str) -> List[dict]:
         """
@@ -150,13 +254,21 @@ class FundamentalExtractor:
 
         return result
 
-    def parse_datapoints(self, raw_data: List[dict]) -> List[FndDataPoint]:
+    def parse_datapoints(
+        self,
+        raw_data: List[dict],
+        normalize_duration: bool = False,
+    ) -> List[FndDataPoint]:
         """
         Transform raw SEC data points into FndDataPoint objects.
 
         :param raw_data: List of raw data dictionaries from SEC EDGAR
+        :param normalize_duration: When True, normalize to per-quarter duration values
         :return: List of FndDataPoint objects
         """
+        if normalize_duration:
+            raw_data = self._normalize_duration_raw(raw_data)
+
         dps = []
         for dp in raw_data:
             # Reveal date
@@ -164,6 +276,11 @@ class FundamentalExtractor:
 
             # Fiscal calendar date, avoid look-ahead bias
             end_date = dt.datetime.strptime(dp['end'], '%Y-%m-%d').date()
+            start_date = (
+                dt.datetime.strptime(dp['start'], '%Y-%m-%d').date()
+                if dp.get('start')
+                else None
+            )
 
             # Form to track amendment
             form = dp['form']
@@ -171,10 +288,12 @@ class FundamentalExtractor:
             dp_obj = FndDataPoint(
                 timestamp=filed_date,
                 value=dp['val'],
+                start_date=start_date,
                 end_date=end_date,
                 fy=dp['fy'],
                 fp=dp['fp'],
-                form=form
+                form=form,
+                accn=dp.get('accn')
             )
             dps.append(dp_obj)
 
@@ -351,7 +470,8 @@ class EDGARDataSource(DataSource):
         else:
             raw_data = units[list(units.keys())[0]]
 
-        return self.extractor.parse_datapoints(raw_data)
+        normalize_duration = concept in DURATION_CONCEPTS
+        return self.extractor.parse_datapoints(raw_data, normalize_duration=normalize_duration)
 
     def get_coverage_period(self) -> tuple[str, str]:
         return ("2009-01-01", "2099-12-31")  # EDGAR coverage
@@ -373,7 +493,8 @@ class Fundamental:
         self,
         cik: str,
         symbol: Optional[str] = None,
-        permno: Optional[str] = None
+        permno: Optional[str] = None,
+        rate_limiter=None
     ) -> None:
         self.cik = cik
         self.symbol = symbol
@@ -384,7 +505,7 @@ class Fundamental:
         self.fields_df = None
 
         # Create service instances
-        self.client = SECClient()
+        self.client = SECClient(rate_limiter=rate_limiter)
         self.extractor = FundamentalExtractor()
         self.transformer = FundamentalTransformer(calendar_path=self.calendar_path)
 

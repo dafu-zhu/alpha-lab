@@ -17,7 +17,8 @@ import requests
 import polars as pl
 
 from collection.models import TickField
-from collection.fundamental import Fundamental
+from collection.fundamental import Fundamental, DURATION_CONCEPTS
+from derived.ttm import compute_ttm_long
 
 
 class DataCollectors:
@@ -30,7 +31,8 @@ class DataCollectors:
         crsp_ticks,
         alpaca_ticks,
         alpaca_headers: dict,
-        logger: logging.Logger
+        logger: logging.Logger,
+        sec_rate_limiter=None
     ):
         """
         Initialize data collectors.
@@ -39,11 +41,353 @@ class DataCollectors:
         :param alpaca_ticks: Alpaca Ticks instance
         :param alpaca_headers: Headers for Alpaca API requests
         :param logger: Logger instance
+        :param sec_rate_limiter: Optional rate limiter for SEC API calls
         """
         self.crsp_ticks = crsp_ticks
         self.alpaca_ticks = alpaca_ticks
         self.alpaca_headers = alpaca_headers
         self.logger = logger
+        self.sec_rate_limiter = sec_rate_limiter
+
+        # Cache for Fundamental objects to avoid redundant API calls
+        self._fundamental_cache: Dict[str, Fundamental] = {}
+
+    def _load_concepts(
+        self,
+        concepts: Optional[List[str]] = None,
+        config_path: Optional[Path] = None
+    ) -> List[str]:
+        if concepts is not None:
+            return concepts
+        if config_path is None:
+            config_path = Path("configs/approved_mapping.yaml")
+
+        with open(config_path) as f:
+            mappings = yaml.safe_load(f)
+            return list(mappings.keys())
+
+    def _get_or_create_fundamental(
+        self,
+        cik: str,
+        symbol: Optional[str] = None
+    ) -> Fundamental:
+        """
+        Get cached Fundamental object or create new one.
+        Avoids redundant SEC API calls by reusing fetched data.
+
+        :param cik: Company CIK number
+        :param symbol: Optional symbol for logging
+        :return: Fundamental object (cached or newly created)
+        """
+        if cik not in self._fundamental_cache:
+            self._fundamental_cache[cik] = Fundamental(
+                cik=cik,
+                symbol=symbol,
+                rate_limiter=self.sec_rate_limiter
+            )
+        return self._fundamental_cache[cik]
+
+    def collect_fundamental_long(
+        self,
+        cik: str,
+        year: int,
+        symbol: Optional[str] = None,
+        concepts: Optional[List[str]] = None,
+        config_path: Optional[Path] = None
+    ) -> pl.DataFrame:
+        """
+        Fetch long-format fundamental data for a filing year.
+
+        Returns columns:
+        [symbol, as_of_date, accn, form, concept, value, start, end, fp]
+        """
+        try:
+            concepts = self._load_concepts(concepts, config_path)
+
+            # Use cached Fundamental object to avoid redundant API calls
+            fnd = self._get_or_create_fundamental(cik=cik, symbol=symbol)
+            start_date = dt.date(year, 1, 1)
+            end_date = dt.date(year, 12, 31)
+
+            records = []
+            concepts_found = []
+            concepts_missing = []
+
+            for concept in concepts:
+                try:
+                    dps = fnd.get_concept_data(concept)
+                    if dps:
+                        concepts_found.append(concept)
+                        for dp in dps:
+                            if not (start_date <= dp.timestamp <= end_date):
+                                continue
+                            records.append(
+                                {
+                                    "symbol": symbol,
+                                    "as_of_date": dp.timestamp.isoformat(),
+                                    "accn": dp.accn,
+                                    "form": dp.form,
+                                    "concept": concept,
+                                    "value": dp.value,
+                                    "start": dp.start_date.isoformat() if dp.start_date else None,
+                                    "end": dp.end_date.isoformat(),
+                                    "fp": dp.fp,
+                                }
+                            )
+                    else:
+                        concepts_missing.append(concept)
+                except Exception as e:
+                    self.logger.debug(f"Failed to extract concept '{concept}' for CIK {cik}: {e}")
+                    concepts_missing.append(concept)
+
+            if not records:
+                self.logger.warning(f"No fundamental data found for CIK {cik} ({symbol}) in {year}")
+                return pl.DataFrame()
+
+            self.logger.debug(
+                f"CIK {cik} ({symbol}): {len(concepts_found)}/{len(concepts)} concepts available "
+                f"({len(concepts_missing)} missing)"
+            )
+
+            return pl.DataFrame(records)
+
+        except Exception as e:
+            self.logger.error(f"Failed to collect fundamental data for CIK {cik} ({symbol}) in {year}: {e}")
+            return pl.DataFrame()
+
+    def collect_ttm_long(
+        self,
+        cik: str,
+        year: int,
+        symbol: Optional[str] = None,
+        concepts: Optional[List[str]] = None,
+        config_path: Optional[Path] = None
+    ) -> pl.DataFrame:
+        """
+        Compute TTM long-format data in memory for a filing year.
+        """
+        try:
+            concepts = self._load_concepts(concepts, config_path)
+
+            # Use cached Fundamental object to avoid redundant API calls
+            fnd = self._get_or_create_fundamental(cik=cik, symbol=symbol)
+            start_limit = dt.date(year - 1, 1, 1)
+            end_limit = dt.date(year, 12, 31)
+
+            records = []
+            for concept in concepts:
+                try:
+                    dps = fnd.get_concept_data(concept)
+                    if not dps:
+                        continue
+                    for dp in dps:
+                        if dp.end_date < start_limit or dp.end_date > end_limit:
+                            continue
+                        records.append(
+                            {
+                                "symbol": symbol,
+                                "as_of_date": dp.timestamp.isoformat(),
+                                "accn": dp.accn,
+                                "form": dp.form,
+                                "concept": concept,
+                                "value": dp.value,
+                                "start": dp.start_date.isoformat() if dp.start_date else None,
+                                "end": dp.end_date.isoformat(),
+                                "fp": dp.fp,
+                            }
+                        )
+                except Exception as e:
+                    self.logger.debug(f"Failed to extract concept '{concept}' for CIK {cik}: {e}")
+
+            if not records:
+                self.logger.warning(f"No fundamental data found for CIK {cik} ({symbol}) in {year}")
+                return pl.DataFrame()
+
+            return compute_ttm_long(pl.DataFrame(records), logger=self.logger, symbol=symbol)
+
+        except Exception as e:
+            self.logger.error(f"Failed to compute TTM for CIK {cik} ({symbol}) in {year}: {e}")
+            return pl.DataFrame()
+
+    def collect_ttm_wide(
+        self,
+        cik: str,
+        year: int,
+        symbol: Optional[str] = None,
+        concepts: Optional[List[str]] = None,
+        config_path: Optional[Path] = None
+    ) -> pl.DataFrame:
+        """
+        Compute TTM wide-format data in memory for a filing year.
+        """
+        concepts_list = self._load_concepts(concepts, config_path)
+        expected_concepts = [c for c in concepts_list if c in DURATION_CONCEPTS]
+
+        ttm_df = self.collect_ttm_long(cik, year, symbol, concepts, config_path)
+        if len(ttm_df) == 0:
+            empty_cols = {
+                "symbol": [],
+                "as_of_date": [],
+                "ttm_period_end": [],
+                "start": [],
+                "end": [],
+            }
+            for concept in expected_concepts:
+                empty_cols[concept] = []
+            return pl.DataFrame(empty_cols)
+
+        wide_df = ttm_df.pivot(
+            values="value",
+            index=["symbol", "as_of_date", "ttm_period_end", "start", "end"],
+            columns="concept",
+            aggregate_function="first",
+        )
+        missing_cols = [c for c in expected_concepts if c not in wide_df.columns]
+        if missing_cols:
+            wide_df = wide_df.with_columns([pl.lit(None).alias(c) for c in missing_cols])
+
+        return wide_df
+
+    def collect_metrics_wide(
+        self,
+        cik: str,
+        year: int,
+        symbol: Optional[str] = None,
+        concepts: Optional[List[str]] = None,
+        config_path: Optional[Path] = None
+    ) -> pl.DataFrame:
+        """
+        Build metrics-wide inputs by combining TTM flows with latest balance-sheet values.
+        """
+        concepts_list = self._load_concepts(concepts, config_path)
+        stock_concepts = [c for c in concepts_list if c not in DURATION_CONCEPTS]
+        duration_concepts = [c for c in concepts_list if c in DURATION_CONCEPTS]
+
+        try:
+            fund = Fundamental(cik=cik, symbol=symbol)
+        except Exception as e:
+            self.logger.error(f"Failed to initialize Fundamental for CIK {cik} ({symbol}): {e}")
+            return pl.DataFrame()
+
+        ttm_start = dt.date(year - 1, 1, 1)
+        ttm_end = dt.date(year, 12, 31)
+        raw_start = dt.date(year, 1, 1)
+        raw_end = dt.date(year, 12, 31)
+
+        ttm_records = []
+        raw_records = []
+
+        for concept in concepts_list:
+            try:
+                dps = fund.get_concept_data(concept)
+            except Exception as e:
+                self.logger.debug(f"Failed to extract concept '{concept}' for CIK {cik}: {e}")
+                continue
+
+            if not dps:
+                continue
+
+            for dp in dps:
+                if raw_start <= dp.timestamp <= raw_end:
+                    raw_records.append(
+                        {
+                            "symbol": symbol,
+                            "as_of_date": dp.timestamp.isoformat(),
+                            "accn": dp.accn,
+                            "form": dp.form,
+                            "concept": concept,
+                            "value": dp.value,
+                            "start": dp.start_date.isoformat() if dp.start_date else None,
+                            "end": dp.end_date.isoformat(),
+                            "fp": dp.fp,
+                        }
+                    )
+
+                if concept in DURATION_CONCEPTS and ttm_start <= dp.end_date <= ttm_end:
+                    ttm_records.append(
+                        {
+                            "symbol": symbol,
+                            "as_of_date": dp.timestamp.isoformat(),
+                            "accn": dp.accn,
+                            "form": dp.form,
+                            "concept": concept,
+                            "value": dp.value,
+                            "start": dp.start_date.isoformat() if dp.start_date else None,
+                            "end": dp.end_date.isoformat(),
+                            "fp": dp.fp,
+                        }
+                    )
+
+        if not ttm_records:
+            empty_cols = {
+                "symbol": [],
+                "as_of_date": [],
+                "ttm_period_end": [],
+                "start": [],
+                "end": [],
+            }
+            for concept in duration_concepts + stock_concepts:
+                empty_cols[concept] = []
+            return pl.DataFrame(empty_cols)
+
+        ttm_df = compute_ttm_long(pl.DataFrame(ttm_records), logger=self.logger, symbol=symbol)
+        if len(ttm_df) == 0:
+            empty_cols = {
+                "symbol": [],
+                "as_of_date": [],
+                "ttm_period_end": [],
+                "start": [],
+                "end": [],
+            }
+            for concept in duration_concepts + stock_concepts:
+                empty_cols[concept] = []
+            return pl.DataFrame(empty_cols)
+
+        ttm_wide = ttm_df.pivot(
+            values="value",
+            index=["symbol", "as_of_date", "ttm_period_end", "start", "end"],
+            columns="concept",
+            aggregate_function="first",
+        )
+        missing_duration = [c for c in duration_concepts if c not in ttm_wide.columns]
+        if missing_duration:
+            ttm_wide = ttm_wide.with_columns([pl.lit(None).alias(c) for c in missing_duration])
+
+        base = ttm_wide.with_columns(
+            pl.col("as_of_date").str.strptime(pl.Date, "%Y-%m-%d")
+        ).sort("as_of_date")
+
+        if not raw_records:
+            for concept in stock_concepts:
+                if concept not in base.columns:
+                    base = base.with_columns(pl.lit(None).alias(concept))
+            return base.with_columns(pl.col("as_of_date").dt.strftime("%Y-%m-%d"))
+
+        raw_long = pl.DataFrame(raw_records)
+        stock_long = raw_long.filter(pl.col("concept").is_in(stock_concepts)).with_columns(
+            pl.col("as_of_date").str.strptime(pl.Date, "%Y-%m-%d")
+        ).sort("as_of_date")
+
+        if len(stock_long) > 0:
+            stock_wide = (
+                stock_long
+                .group_by(["as_of_date", "concept"])
+                .agg(pl.col("value").last())
+                .pivot(
+                    values="value",
+                    index="as_of_date",
+                    columns="concept",
+                    aggregate_function="first",
+                )
+                .sort("as_of_date")
+            )
+            base = base.join_asof(stock_wide, on="as_of_date", strategy="backward")
+
+        missing_cols = [c for c in stock_concepts if c not in base.columns]
+        if missing_cols:
+            base = base.with_columns([pl.lit(None).alias(c) for c in missing_cols])
+
+        return base.with_columns(pl.col("as_of_date").dt.strftime("%Y-%m-%d"))
 
     def collect_daily_ticks_year(self, sym: str, year: int) -> pl.DataFrame:
         """
@@ -270,8 +614,8 @@ class DataCollectors:
                     concepts = list(mappings.keys())
                     self.logger.debug(f"Loaded {len(concepts)} concepts from {config_path}")
 
-            # Create Fundamental instance
-            fund = Fundamental(cik=cik, symbol=symbol)
+            # Use cached Fundamental object to avoid redundant API calls
+            fund = self._get_or_create_fundamental(cik=cik, symbol=symbol)
 
             # Collect data for each concept
             fields_dict = {}

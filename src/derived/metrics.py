@@ -1,17 +1,12 @@
 """
-Derived Fundamental Data Computation
+Derived Fundamental Metrics Computation
 
-Computes derived fundamental metrics from raw fundamental data.
+Computes derived fundamental metrics from TTM wide-format data.
 
 This module provides in-memory computation for the storage pipeline.
 Derived data is stored separately from raw data:
-- Raw: data/raw/fundamental/{symbol}/{YYYY}/fundamental.parquet
-- Derived: data/derived/fundamental/{symbol}/{YYYY}/fundamental.parquet
-
-All formulas based on data/xbrl/fundamental.xlsx (Priority = 3 rows)
-
-Author: Data Pipeline
-Created: 2026-01-06
+- Input TTM: data/derived/features/fundamental/{symbol}/{ASOF_YEAR}/ttm_wide.parquet
+- Output metrics: data/derived/fundamental/{symbol}/{YYYY}/fundamental.parquet
 """
 
 import polars as pl
@@ -25,17 +20,18 @@ def compute_derived(
     symbol: Optional[str] = None
 ) -> pl.DataFrame:
     """
-    Compute derived fundamental metrics from raw fundamental data.
+    Compute derived fundamental metrics from TTM wide-format data.
 
-    Takes raw fundamental DataFrame and computes 24 derived metrics.
-    Returns ONLY derived columns (does not include raw columns).
+    Takes a TTM wide DataFrame and computes 24 derived metrics.
+    Returns keys plus derived columns.
 
     All formulas based on data/xbrl/fundamental.xlsx (Priority = 3 rows).
 
-    :param raw_df: Raw fundamental DataFrame with columns [timestamp, rev, cor, op_inc, ...]
+    :param raw_df: TTM wide DataFrame with columns
+                   [symbol, as_of_date, ttm_period_end, start, end, rev, cor, op_inc, ...]
     :param logger: Optional logger for debug messages
     :param symbol: Optional symbol for logging
-    :return: DataFrame with ONLY derived columns (timestamp + 24 derived metrics)
+    :return: DataFrame with keys and derived columns
              Returns empty DataFrame if input is empty
 
     Derived concepts (24 total):
@@ -47,10 +43,10 @@ def compute_derived(
     - Accruals: acc, wc_acc
 
     Example:
-        >>> raw_df = collect_fundamental_year(cik='0001819994', year=2024)
+        >>> raw_df = collect_ttm_wide(cik='0001819994', year=2024)
         >>> derived_df = compute_derived(raw_df, logger, symbol='RKLB')
         >>> # Store separately:
-        >>> # - raw_df → data/raw/fundamental/RKLB/2024/fundamental.parquet
+        >>> # - raw_df → data/derived/features/fundamental/RKLB/2024/ttm_wide.parquet
         >>> # - derived_df → data/derived/fundamental/RKLB/2024/fundamental.parquet
     """
     # Return empty DataFrame if input is empty
@@ -62,6 +58,18 @@ def compute_derived(
     log_prefix = f"{symbol}: " if symbol else ""
     try:
         df = raw_df.clone()
+        if "as_of_date" in df.columns:
+            df = df.sort("as_of_date")
+
+        required_inputs = [
+            "rev", "cor", "op_inc", "net_inc", "dna",
+            "std", "ltd", "cce", "ca", "cl",
+            "cfo", "capex", "ta", "te",
+            "inc_tax_exp", "ibt",
+        ]
+        missing_inputs = [col for col in required_inputs if col not in df.columns]
+        if missing_inputs:
+            df = df.with_columns([pl.lit(None).alias(col) for col in missing_inputs])
 
         # Helper functions for safe arithmetic
         def safe_divide(numerator: pl.Expr, denominator: pl.Expr) -> pl.Expr:
@@ -181,8 +189,10 @@ def compute_derived(
         ])
 
         # Extract ONLY derived columns (timestamp + 24 derived metrics)
+        key_columns = [
+            'symbol', 'as_of_date', 'ttm_period_end', 'start', 'end'
+        ]
         derived_columns = [
-            'timestamp',
             # Profitability (5)
             'grs_pft', 'grs_mgn', 'op_mgn', 'net_mgn', 'ebitda',
             # Balance Sheet (3)
@@ -197,12 +207,13 @@ def compute_derived(
             'acc', 'wc_acc'
         ]
 
-        derived_df = df.select(derived_columns)
+        select_cols = [col for col in key_columns if col in df.columns] + derived_columns
+        derived_df = df.select(select_cols)
 
         if logger:
             logger.debug(
                 f"{log_prefix}Derived computation complete: {derived_df.shape[0]} rows, "
-                f"{derived_df.shape[1]} columns (24 derived + timestamp)"
+                f"{derived_df.shape[1]} columns (keys + 24 derived)"
             )
 
         return derived_df

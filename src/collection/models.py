@@ -9,10 +9,12 @@ from enum import Enum
 class FndDataPoint:
     timestamp: datetime.date
     value: float
+    start_date: Optional[datetime.date]
     end_date: datetime.date
     fy: int
     fp: str
     form: str
+    accn: Optional[str]
 
 @dataclass
 class TickDataPoint:

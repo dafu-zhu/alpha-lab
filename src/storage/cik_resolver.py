@@ -87,6 +87,8 @@ class CIKResolver:
                     day=try_date,
                     auto_resolve=True  # Handle symbol changes automatically
                 )
+                if security_id is None:
+                    continue
 
                 # Query master table for CIK at this date
                 master_tb = self.security_master.master_tb

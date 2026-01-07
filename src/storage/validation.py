@@ -59,14 +59,18 @@ class Validator:
         For daily data, List all years we have for a symbol
 
         :param symbol: Stock to inspect
-        :param data_type: "ticks" or "fundamental"
+        :param data_type: "ticks", "fundamental", "ttm", or "ttm_wide"
         """
         if data_type == "ticks":
             prefix = f'data/raw/{data_type}/daily/{symbol}/'
         elif data_type == "fundamental":
             prefix = f'data/raw/{data_type}/{symbol}/'
+        elif data_type in {"ttm", "ttm_wide"}:
+            prefix = f'data/derived/features/fundamental/{symbol}/'
         else:
-            raise ValueError(f'Expected data_type is ticks or fundamental, get {data_type} instead')
+            raise ValueError(
+                f'Expected data_type is ticks, fundamental, ttm, or ttm_wide, get {data_type} instead'
+            )
 
         years = []
         continuation_token = None
@@ -144,8 +148,18 @@ class Validator:
                 s3_key = f'{base_prefix}/{data_type}/{symbol}/{year}/{data_type}.parquet'
             else:
                 raise ValueError('Expect input year')
+        elif data_type == 'ttm':
+            if year:
+                s3_key = f'data/derived/features/fundamental/{symbol}/{year}/ttm.parquet'
+            else:
+                raise ValueError('Expect input year')
+        elif data_type == 'ttm_wide':
+            if year:
+                s3_key = f'data/derived/features/fundamental/{symbol}/{year}/ttm_wide.parquet'
+            else:
+                raise ValueError('Expect input year')
         else:
-            raise ValueError(f'Expected data_type is ticks or fundamental, get {data_type} instead')
+            raise ValueError(f'Expected data_type is ticks, fundamental, ttm, or ttm_wide, get {data_type} instead')
         
         try:
             self.s3_client.head_object(
