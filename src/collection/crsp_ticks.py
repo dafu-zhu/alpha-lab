@@ -5,6 +5,7 @@ Fetches OHLCV data from CRSP and converts to Polars DataFrame format matching ti
 import wrds
 import pandas as pd
 import polars as pl
+from tqdm import tqdm
 from dotenv import load_dotenv
 import os
 from typing import Optional, List, Dict, Any
@@ -230,7 +231,8 @@ class CRSPDailyTicks:
         end_day: str,
         window: int = 90,
         adjusted: bool = True,
-        auto_resolve: bool = True
+        auto_resolve: bool = True,
+        chunk_size: int = 2000
     ) -> Dict[str, pl.DataFrame]:
         """
         Fetches recent daily data for a list of symbols from CRSP
@@ -240,6 +242,7 @@ class CRSPDailyTicks:
         :param window: Number of calendar days to fetch (default 90)
         :param adjusted: If True, apply split adjustments
         :param auto_resolve: Enable auto_resolve to handle symbol changes
+        :param chunk_size: Number of permnos per SQL query (default 2000)
         :return: Dictionary {symbol: DataFrame} with timestamp, close, volume data
         """
         # Calculate start date
@@ -254,15 +257,69 @@ class CRSPDailyTicks:
         symbol_to_permno = {}
         failed_symbols = []
 
-        for symbol in symbols:
+        # Pre-resolve security_id from master table for this date (fast path)
+        date_check = dt.datetime.strptime(end_day, '%Y-%m-%d').date()
+        crsp_keys = [symbol.replace('.', '').replace('-', '').upper() for symbol in symbols]
+        resolved_df = (
+            self.security_master.master_tb.filter(
+                pl.col('symbol').is_in(crsp_keys),
+                pl.col('start_date').le(date_check),
+                pl.col('end_date').ge(date_check)
+            )
+            .select(['symbol', 'security_id'])
+            .unique(subset=['symbol'], maintain_order=True)
+            .filter(pl.col('security_id').is_not_null())
+        )
+        resolved_map = dict(zip(resolved_df['symbol'].to_list(), resolved_df['security_id'].to_list()))
+
+        auto_resolved = 0
+        symbol_to_sid = {}
+        for symbol, crsp_key in tqdm(
+            list(zip(symbols, crsp_keys)),
+            desc="Resolving symbols",
+            unit="sym"
+        ):
             try:
-                crsp_key = symbol.replace('.', '').replace('-', '').upper()
-                sid = self.security_master.get_security_id(crsp_key, end_day, auto_resolve=auto_resolve)
-                permno = self.security_master.sid_to_permno(sid)
-                symbol_to_permno[symbol] = permno
+                sid = resolved_map.get(crsp_key)
+                if sid is None and auto_resolve:
+                    sid = self.security_master.get_security_id(
+                        crsp_key,
+                        end_day,
+                        auto_resolve=True
+                    )
+                    auto_resolved += 1
+                if sid is None:
+                    raise ValueError("security_id is None")
+                symbol_to_sid[symbol] = sid
             except Exception as e:
                 failed_symbols.append(symbol)
                 self.logger.warning(f"Failed to resolve {symbol}: {e}")
+
+        if auto_resolve:
+            self.logger.info(
+                f"Resolved {len(resolved_map)}/{len(symbols)} via fast lookup, "
+                f"auto_resolved {auto_resolved} symbols"
+            )
+
+        # Bulk map security_id -> permno
+        if symbol_to_sid:
+            unique_sids = list(set(symbol_to_sid.values()))
+            sid_permno_df = (
+                self.security_master.security_map()
+                .filter(pl.col('security_id').is_in(unique_sids))
+                .select(['security_id', 'permno'])
+                .unique(subset=['security_id'], maintain_order=True)
+            )
+            sid_to_permno = dict(
+                zip(sid_permno_df['security_id'].to_list(), sid_permno_df['permno'].to_list())
+            )
+            for symbol, sid in symbol_to_sid.items():
+                permno = sid_to_permno.get(sid)
+                if permno is None:
+                    failed_symbols.append(symbol)
+                    self.logger.warning(f"Failed to resolve permno for {symbol} (sid={sid})")
+                    continue
+                symbol_to_permno[symbol] = permno
 
         if not symbol_to_permno:
             self.logger.error("No symbols could be resolved to permnos")
@@ -270,53 +327,63 @@ class CRSPDailyTicks:
 
         self.logger.info(f"Resolved {len(symbol_to_permno)}/{len(symbols)} symbols to permnos")
 
-        # Step 2: Single bulk SQL query for all permnos
+        # Step 2: Bulk SQL query for all permnos (chunked)
         self.logger.info("Step 2/3: Executing bulk SQL query...")
         permnos = list(symbol_to_permno.values())
-        permno_list_str = ','.join(map(str, permnos))
+        if chunk_size <= 0:
+            chunk_size = len(permnos)
+        chunks = [permnos[i:i + chunk_size] for i in range(0, len(permnos), chunk_size)]
 
-        # Build bulk query
-        if adjusted:
-            query = f"""
-                SELECT
-                    permno,
-                    date,
-                    openprc / cfacpr as open,
-                    askhi / cfacpr as high,
-                    bidlo / cfacpr as low,
-                    abs(prc) / cfacpr as close,
-                    vol * cfacshr as volume
-                FROM crsp.dsf
-                WHERE permno IN ({permno_list_str})
-                    AND date >= '{start_day}'
-                    AND date <= '{end_day}'
-                    AND prc IS NOT NULL
-                    AND cfacpr IS NOT NULL
-                    AND cfacpr != 0
-                    AND cfacshr IS NOT NULL
-                    AND cfacshr != 0
-                ORDER BY permno, date ASC
-            """
+        frames = []
+        for chunk in tqdm(chunks, desc="Querying CRSP", unit="chunk"):
+            permno_list_str = ','.join(map(str, chunk))
+
+            if adjusted:
+                query = f"""
+                    SELECT
+                        permno,
+                        date,
+                        openprc / cfacpr as open,
+                        askhi / cfacpr as high,
+                        bidlo / cfacpr as low,
+                        abs(prc) / cfacpr as close,
+                        vol * cfacshr as volume
+                    FROM crsp.dsf
+                    WHERE permno IN ({permno_list_str})
+                        AND date >= '{start_day}'
+                        AND date <= '{end_day}'
+                        AND prc IS NOT NULL
+                        AND cfacpr IS NOT NULL
+                        AND cfacpr != 0
+                        AND cfacshr IS NOT NULL
+                        AND cfacshr != 0
+                    ORDER BY permno, date ASC
+                """
+            else:
+                query = f"""
+                    SELECT
+                        permno,
+                        date,
+                        openprc as open,
+                        askhi as high,
+                        bidlo as low,
+                        abs(prc) as close,
+                        vol as volume
+                    FROM crsp.dsf
+                    WHERE permno IN ({permno_list_str})
+                        AND date >= '{start_day}'
+                        AND date <= '{end_day}'
+                        AND prc IS NOT NULL
+                    ORDER BY permno, date ASC
+                """
+
+            frames.append(self.conn.raw_sql(query, date_cols=['date']))
+
+        if frames:
+            df_pandas = pd.concat(frames, ignore_index=True)
         else:
-            query = f"""
-                SELECT
-                    permno,
-                    date,
-                    openprc as open,
-                    askhi as high,
-                    bidlo as low,
-                    abs(prc) as close,
-                    vol as volume
-                FROM crsp.dsf
-                WHERE permno IN ({permno_list_str})
-                    AND date >= '{start_day}'
-                    AND date <= '{end_day}'
-                    AND prc IS NOT NULL
-                ORDER BY permno, date ASC
-            """
+            df_pandas = pd.DataFrame()
 
-        # Execute bulk query
-        df_pandas = self.conn.raw_sql(query, date_cols=['date'])
         self.logger.info(f"Fetched {len(df_pandas)} total rows from CRSP")
 
         # Step 3: Split results by symbol
