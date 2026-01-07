@@ -53,6 +53,17 @@ class CIKResolver:
         """
         # Convert SEC format to CRSP format (BRK-B -> BRKB)
         crsp_symbol = symbol.replace('.', '').replace('-', '')
+        date_year = int(date[:4])
+
+        # For 2025+, prefer SEC official mapping (current snapshot)
+        if (year is not None and year >= 2025) or date_year >= 2025:
+            try:
+                sec_map = self.security_master._fetch_sec_cik_mapping()
+                sec_match = sec_map.filter(pl.col('ticker') == crsp_symbol).select('cik').head(1)
+                if not sec_match.is_empty():
+                    return sec_match.item()
+            except Exception as e:
+                self.logger.debug(f"SEC mapping lookup failed for {symbol}: {e}")
 
         # Try primary date first, then fallback dates if year is provided
         dates_to_try = [date]

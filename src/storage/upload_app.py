@@ -652,6 +652,6 @@ if __name__ == "__main__":
     app = UploadApp()
     try:
         # Example: Run from 2010 to 2025 (yearly processing)
-        app.run(start_year=2026, end_year=2026, overwrite=False, run_top_3000=True)
+        app.run(start_year=2024, end_year=2024, overwrite=False, run_fundamental=True)
     finally:
         app.close()
