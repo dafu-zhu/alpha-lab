@@ -23,7 +23,7 @@ Usage examples:
     --concepts_xlsx data/xbrl/fundamental.xlsx \
     --tag_usage ./data/xbrl/tag_usage.csv \
     --tag_labels ./data/xbrl/tag_labels.csv \
-    --out_suggestions ./data/config/mapping_suggestions.yaml
+    --out_suggestions ./configs/mapping_suggestions.yaml
 
   # (Optional) Maintain an approved mapping file (human edits once)
   # Then your downstream extractor uses that mapping deterministically.
@@ -837,12 +837,16 @@ def suggest_mappings(
     min_score: int = 65,
 ) -> dict:
     """
-    Produce YAML suggestions:
+    Produce YAML suggestions ordered by usage frequency:
       concept:
-        gaap_candidates: [...]
-        extension_candidates: [...]
+        - most_common_tag
+        - second_most_common_tag
+        ...
     """
     labels = dict(zip(tag_labels["tag"].astype(str), tag_labels["label"].astype(str)))
+
+    # Create usage_count lookup for sorting
+    usage_lookup = dict(zip(tag_usage["tag"].astype(str), tag_usage["usage_count"]))
 
     tag_usage = tag_usage.sort_values("usage_count", ascending=False).head(top_k_tags).copy()
 
@@ -855,16 +859,17 @@ def suggest_mappings(
                 continue
             label = labels.get(tag)
             score = score_tag_for_concept(concept, tag, label)
-            scored.append((score, tag, bool(row.get("is_extension", False)), label))
+            usage_count = int(row["usage_count"])
+            scored.append((score, tag, usage_count))
 
-        scored.sort(reverse=True, key=lambda x: x[0])
-        gaap = [t for s, t, ext, _ in scored if (not ext and s >= min_score)][:per_concept]
-        extc = [t for s, t, ext, _ in scored if (ext and s >= min_score)][:per_concept]
+        # Filter by min_score, then sort by usage_count (descending)
+        filtered = [(s, t, u) for s, t, u in scored if s >= min_score]
+        filtered.sort(key=lambda x: x[2], reverse=True)
 
-        suggestions[concept] = {
-            "gaap_candidates": gaap,
-            "extension_candidates": extc,
-        }
+        # Take top candidates and extract just the tags
+        candidates = [t for _, t, _ in filtered[:per_concept]]
+
+        suggestions[concept] = candidates
     return suggestions
 
 # --------- Harvest pipeline ----------
