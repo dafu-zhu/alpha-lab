@@ -2,6 +2,7 @@ import os
 from typing import List, Optional, Dict
 from pathlib import Path
 import logging
+import datetime as dt
 import queue
 import threading
 import time
@@ -603,6 +604,14 @@ class UploadApp:
                 continue
 
             as_of = trading_days[-1]
+            as_of_date = dt.datetime.strptime(as_of, "%Y-%m-%d").date()
+            today = dt.date.today()
+            if as_of_date > today and (as_of_date.year, as_of_date.month) > (today.year, today.month):
+                self.logger.info(
+                    f"Stopping at {year}-{month:02d}: as_of {as_of} is in a future month"
+                )
+                break
+
             top_3000 = self.universe_manager.get_top_3000(
                 as_of,
                 symbols,
@@ -643,6 +652,6 @@ if __name__ == "__main__":
     app = UploadApp()
     try:
         # Example: Run from 2010 to 2025 (yearly processing)
-        app.run(start_year=2010, end_year=2026, overwrite=False, run_top_3000=True)
+        app.run(start_year=2026, end_year=2026, overwrite=False, run_top_3000=True)
     finally:
         app.close()

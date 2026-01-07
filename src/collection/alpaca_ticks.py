@@ -82,6 +82,10 @@ class Ticks:
         end_dt = dt.datetime.strptime(end_day, '%Y-%m-%d')
         start_dt = end_dt - dt.timedelta(days=int(window))
 
+        yesterday = dt.datetime.today() - dt.timedelta(days=1)
+        if end_dt > yesterday:
+            end_dt = yesterday
+
         # Convert to UTC timestamps for Alpaca API
         start_utc = dt.datetime.combine(start_dt.date(), dt.time(0, 0), tzinfo=dt.timezone.utc)
         end_utc = dt.datetime.combine(end_dt.date(), dt.time(23, 59, 59), tzinfo=dt.timezone.utc)
