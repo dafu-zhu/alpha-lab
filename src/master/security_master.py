@@ -525,9 +525,12 @@ class SecurityMaster:
         date_check = dt.datetime.strptime(day, '%Y-%m-%d').date()
 
         # Find all securities that ever used this symbol
-        candidates = self.master_tb.filter(
-            pl.col('symbol').eq(symbol)
-        ).select('security_id').unique()
+        candidates = (
+            self.master_tb.filter(pl.col('symbol').eq(symbol))
+            .select('security_id')
+            .unique()
+            .filter(pl.col('security_id').is_not_null())
+        )
 
         if candidates.is_empty():
             self.logger.debug(f"auto_resolve failed: symbol '{symbol}' never existed in security master")
@@ -535,7 +538,11 @@ class SecurityMaster:
 
         # For each candidate, check if it was active on target date (under ANY symbol)
         active_securities = []
+        null_candidates = 0
         for candidate_sid in candidates['security_id']:
+            if candidate_sid is None:
+                null_candidates += 1
+                continue
             was_active = self.master_tb.filter(
                 pl.col('security_id').eq(candidate_sid),
                 pl.col('start_date').le(date_check),
@@ -553,6 +560,10 @@ class SecurityMaster:
                     'symbol_start': symbol_usage['start_date'][0],
                     'symbol_end': symbol_usage['end_date'][0]
                 })
+        if null_candidates > 0:
+            self.logger.warning(
+                f"auto_resolve: filtered {null_candidates} null security_id values for symbol='{symbol}'"
+            )
 
         # Resolve ambiguity
         if len(active_securities) == 0:
@@ -640,7 +651,9 @@ class SecurityMaster:
 
         return isoformat_hist
     
-    def sid_to_permno(self, sid: int) -> int:
+    def sid_to_permno(self, sid: Optional[int]) -> int:
+        if sid is None:
+            raise ValueError("security_id is None")
         security_map = self.security_map()
         permno = (
             security_map.filter(
@@ -742,6 +755,20 @@ if __name__ == "__main__":
 
     print(f"\nWho was MSFT in 2024? ID: {sm.get_security_id('MSFT', '2024-01-01')}")
     print(f"Who was BRKB in 2022? ID: {sm.get_security_id('BRKB', '2022-01-01')}")
+
+    # Example 3b: Auto-resolve distinguishes FB and META
+    print("\n" + "-" * 70)
+    print("Auto-resolve FB vs META (same company, different symbols)")
+    print("-" * 70)
+    fb_2023 = sm.get_security_id('FB', '2023-01-03', auto_resolve=True)
+    meta_2023 = sm.get_security_id('META', '2023-01-03', auto_resolve=True)
+    meta_2021 = sm.get_security_id('META', '2021-01-04', auto_resolve=True)
+    fb_2021 = sm.get_security_id('FB', '2021-01-04', auto_resolve=True)
+    print(f"FB on 2023-01-03 -> security_id: {fb_2023}")
+    print(f"META on 2023-01-03 -> security_id: {meta_2023}")
+    print(f"META on 2021-01-04 -> security_id: {meta_2021}")
+    print(f"FB on 2021-01-04 -> security_id: {fb_2021}")
+    print("Expect: FB 2023 == META 2023, META 2021 == FB 2021")
 
     # Example 4: Edge Case - Preventing False Matches
     print("\n" + "=" * 70)
