@@ -32,13 +32,16 @@ class SymbolNormalizer:
         - ABC.D (2025+, active, security_id=2000)
         - Both normalize to "ABCD" but different security_id
         - Solution: Keep historical ABCD as-is, don't convert to ABC.D
+    
+    Note:
+        Nasdaq only covers currectly active stocks. If a stock is delisted, keep it in CRSP format as is. The symbol is for naming the storage folder. This is because the delisted stocks won't be updated, therefore they won't need to match the Nasdaq list.
 
     Examples:
         to_nasdaq_format('BRKB', '2024-01-01') -> 'BRK.B' (same security)
         to_nasdaq_format('ABCD', '2022-01-01') -> 'ABCD' (delisted, different from ABC.D)
     """
 
-    # CRSP data coverage end date (update as needed)
+    # CRSP data coverage end date
     CRSP_LATEST_DATE = '2024-12-31'
 
     def __init__(self, security_master: Optional['SecurityMaster'] = None):
@@ -161,6 +164,9 @@ class SymbolNormalizer:
 
 
 class SecurityMaster:
+    """
+    Map stock symbols, CIKs, CUSIPs across time horizon using WRDS
+    """
     def __init__(self, db: Optional[wrds.Connection] = None):
         if db is None:
             username = os.getenv('WRDS_USERNAME')
@@ -253,6 +259,8 @@ class SecurityMaster:
             a.comnam,
             a.ncusip,
             b.cik,
+            b.cikdate1,
+            b.cikdate2,
             a.namedt,
             a.nameenddt
         FROM
@@ -273,11 +281,32 @@ class SecurityMaster:
         map_df = self.db.raw_sql(query)
         map_df['namedt'] = pd.to_datetime(map_df['namedt'])
         map_df['nameenddt'] = pd.to_datetime(map_df['nameenddt'])
+        map_df['cikdate1'] = pd.to_datetime(map_df['cikdate1'])
+        map_df['cikdate2'] = pd.to_datetime(map_df['cikdate2'])
 
-        # Forward-fill CIK for records with NULL CIK (due to stale CIK mapping data)
-        map_df = map_df.sort_values(['kypermno', 'ncusip', 'namedt'])
-        map_df['cik'] = map_df.groupby(['kypermno', 'ncusip'])['cik'].ffill()
+        # Calculate CIK validity period (prefer longer validity = more reliable)
+        # Use total_seconds() / 86400 to get days (workaround for timedelta.days)
+        map_df['cik_validity_days'] = (
+            (map_df['cikdate2'] - map_df['cikdate1']).apply(
+                lambda x: x.total_seconds() / 86400 if pd.notnull(x) else -1
+            )
+        )
 
+        # Filter to keep only the most reliable CIK when multiple CIKs exist for same period
+        # Strategy: Keep CIK with longest validity period (cikdate2 - cikdate1)
+        map_df = map_df.sort_values(
+            ['kypermno', 'tsymbol', 'namedt', 'nameenddt', 'cik_validity_days'],
+            ascending=[True, True, True, True, False]  # Longest validity first
+        )
+
+        # Keep first (most reliable) CIK for each (permno, symbol, namedt, nameenddt)
+        map_df = map_df.drop_duplicates(
+            subset=['kypermno', 'tsymbol', 'namedt', 'nameenddt'],
+            keep='first'
+        )
+
+        # Group by unique combinations to get period ranges
+        # Note: dropna=False keeps NULL CIKs (will be handled by SEC fallback later)
         result = (
             map_df.groupby(
                 ['kypermno', 'cik', 'ticker', 'tsymbol', 'comnam', 'ncusip'],
@@ -378,28 +407,113 @@ class SecurityMaster:
     
     def security_map(self) -> pl.DataFrame:
         """
-        Maps security_id with unique permno, replacing permno
+        Maps security_id based on BUSINESS continuity.
 
-        Schema: (security_id, permno)
+        Rules:
+        1. If PERMNO changes → new security_id
+        2. If PERMNO stays same:
+           - If BOTH symbol AND CIK change (checking against adjacent period) → new security_id
+           - Otherwise (only one or neither changes) → same security_id
+
+        Note: Handles overlapping CIK periods by grouping records first.
+
+        Schema: (security_id, permno, symbol, cik, start_date, end_date)
         """
-        unique_permnos = self.cik_cusip.select('permno').unique(maintain_order=True)
-        result = pl.DataFrame({
-            'security_id': range(1000, 1000 + len(unique_permnos)),
-            'permno': unique_permnos
-        })
+        # Step 1: Group by (permno, symbol) to collect ALL CIKs for each symbol period
+        # This handles the case where the same symbol has multiple overlapping CIK records
+        period_groups = (
+            self.cik_cusip
+            .group_by(['permno', 'symbol'])
+            .agg([
+                pl.col('cik').unique().alias('ciks'),  # ALL CIKs for this symbol
+                pl.col('start_date').min().alias('start_date'),  # Earliest start
+                pl.col('end_date').max().alias('end_date'),  # Latest end
+                pl.col('company').first().alias('company'),
+                pl.col('cusip').first().alias('cusip')
+            ])
+            .sort(['permno', 'start_date'])
+        )
+
+        # Step 2: Track previous period's data within each PERMNO
+        period_groups = period_groups.with_columns([
+            pl.col('permno').shift(1).alias('prev_permno'),
+            pl.col('symbol').shift(1).alias('prev_symbol'),
+            pl.col('ciks').shift(1).alias('prev_ciks'),
+            pl.col('end_date').shift(1).alias('prev_end_date'),
+        ])
+
+        # Step 3: Determine if this period represents a new business
+        # We need to check if ANY CIK from current period overlaps with ANY CIK from previous period
+        def has_cik_overlap(row):
+            """Check if any CIK from current period exists in previous period's CIKs"""
+            if row['prev_ciks'] is None or row['ciks'] is None:
+                return False
+            curr_ciks = set(row['ciks'])
+            prev_ciks = set(row['prev_ciks'])
+            return len(curr_ciks & prev_ciks) > 0  # True if intersection is non-empty
+
+        # Convert to pandas temporarily for complex logic
+        pdf = period_groups.to_pandas()
+
+        # Check CIK overlap
+        pdf['cik_overlap'] = pdf.apply(has_cik_overlap, axis=1)
+
+        # Determine new_business flag
+        pdf['new_business'] = (
+            pdf['prev_permno'].isna() |  # First row
+            (pdf['permno'] != pdf['prev_permno']) |  # PERMNO changed
+            (
+                (pdf['permno'] == pdf['prev_permno']) &  # PERMNO same
+                (pdf['symbol'] != pdf['prev_symbol']) &  # Symbol changed
+                (~pdf['cik_overlap'])  # No CIK overlap (all CIKs different)
+            )
+        )
+
+        # Assign security_ids
+        pdf['security_id'] = (pdf['new_business'].cumsum() + 1000)
+
+        # Step 4: Join security_id back to original cik_cusip data
+        # This preserves the original start_date and end_date for each row
+        security_assignments = pl.from_pandas(
+            pdf[['permno', 'symbol', 'security_id']]
+        )
+
+        # Join back to original data based on (permno, symbol)
+        result = self.cik_cusip.join(
+            security_assignments,
+            on=['permno', 'symbol'],
+            how='left'
+        ).select([
+            'security_id', 'permno', 'symbol', 'cik', 'start_date', 'end_date'
+        ]).with_columns([
+            pl.col('security_id').cast(pl.Int64)
+        ])
+
+        # Log some statistics
+        n_securities = result['security_id'].n_unique()
+        n_permnos = result['permno'].n_unique()
+        self.logger.info(f"Created {n_securities} security_ids from {n_permnos} PERMNOs")
 
         return result
-    
+
     def master_table(self) -> pl.DataFrame:
         """
-        Create comprehensive table with security_id as master key, includes historically used symbols, cik, cusip
+        Create comprehensive table with security_id as master key, tracking business continuity.
 
         Schema: (security_id, symbol, company, cik, cusip, start_date, end_date)
         """
         security_map = self.security_map()
-        
-        full_history = self.cik_cusip.join(security_map, on='permno', how='left')
-        result = full_history[['security_id', 'symbol', 'company', 'cik', 'cusip', 'start_date', 'end_date']]
+
+        # Join with original cik_cusip to get company and cusip
+        full_history = self.cik_cusip.join(
+            security_map.select(['permno', 'symbol', 'cik', 'start_date', 'end_date', 'security_id']),
+            on=['permno', 'symbol', 'cik', 'start_date', 'end_date'],
+            how='left'
+        )
+
+        result = full_history.select([
+            'security_id', 'symbol', 'company', 'cik', 'cusip', 'start_date', 'end_date'
+        ])
 
         return result
     
