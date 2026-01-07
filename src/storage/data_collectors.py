@@ -238,7 +238,8 @@ class DataCollectors:
         year: int,
         symbol: Optional[str] = None,
         concepts: Optional[List[str]] = None,
-        config_path: Optional[Path] = None
+        config_path: Optional[Path] = None,
+        previous_row: Optional[pl.DataFrame] = None
     ) -> pl.DataFrame:
         """
         Fetch fundamental data for a specific year using approved_mapping.yaml concepts.
@@ -249,6 +250,7 @@ class DataCollectors:
         :param symbol: Optional symbol for logging (e.g., 'AAPL')
         :param concepts: Optional list of concepts to fetch. If None, fetches all concepts from config.
         :param config_path: Optional path to approved_mapping.yaml (defaults to configs/approved_mapping.yaml)
+        :param previous_row: Optional single-row DataFrame to prepend for shift-based metrics
         :return: Polars DataFrame with columns [timestamp, concept1, concept2, ...]
                  Returns empty DataFrame if no data available or error occurs
 
@@ -308,11 +310,25 @@ class DataCollectors:
             end_day = f"{year}-12-31"
             df = fund.collect_fields_raw(start_day, end_day, fields_dict)
 
-            # Convert timestamp to string for consistency
+            # Convert timestamp to string for consistency and sort
             if len(df) > 0 and 'timestamp' in df.columns:
                 df = df.with_columns(
                     pl.col('timestamp').dt.strftime('%Y-%m-%d')
-                )
+                ).sort('timestamp')
+
+            if (
+                previous_row is not None
+                and len(previous_row) > 0
+                and len(df) > 0
+                and 'timestamp' in df.columns
+            ):
+                prev_row = previous_row
+                if prev_row.columns != df.columns:
+                    prev_row = prev_row.select(df.columns)
+                prev_ts = prev_row['timestamp'][-1]
+                first_ts = df['timestamp'][0]
+                if prev_ts < first_ts:
+                    df = pl.concat([prev_row.tail(1), df], how="vertical")
 
             return df
 

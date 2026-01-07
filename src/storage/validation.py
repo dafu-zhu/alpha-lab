@@ -106,7 +106,8 @@ class Validator:
             symbol, 
             data_type: str, 
             year: Optional[int]=None,  
-            day: Optional[str]=None
+            day: Optional[str]=None,
+            data_tier: str = "raw"
         ) -> bool:
         """
         For both daily and minute data, check if data exists
@@ -116,25 +117,31 @@ class Validator:
         :param year: Daily data only, specify year
         :param month: Daily data only, use YYYY/MM to locate
         :param day: Minute data only, specify trade day. Format: YYYY-MM-DD
+        :param data_tier: "raw" or "derived" (default: "raw")
         """
         if year and day:
             raise ValueError(f'Specify year OR day, not both')
 
+        if data_tier not in {"raw", "derived"}:
+            raise ValueError(f'Expected data_tier is raw or derived, get {data_tier} instead')
+
+        base_prefix = f"data/{data_tier}"
+
         # Define Key based on year, day and data_type
         if data_type == 'ticks':
             if year:
-                s3_key = f'data/raw/{data_type}/daily/{symbol}/{year}/{data_type}.parquet'
+                s3_key = f'{base_prefix}/{data_type}/daily/{symbol}/{year}/{data_type}.parquet'
             elif day:
                 date = dt.datetime.strptime(day, '%Y-%m-%d').date()
                 year_str = date.strftime('%Y')
                 month_str = date.strftime('%m')
                 day_str = date.strftime('%d')
-                s3_key = f'data/raw/{data_type}/minute/{symbol}/{year_str}/{month_str}/{day_str}/{data_type}.parquet'
+                s3_key = f'{base_prefix}/{data_type}/minute/{symbol}/{year_str}/{month_str}/{day_str}/{data_type}.parquet'
             else:
                 raise ValueError(f'Must provide either year or day parameter. Got year={year}, day={day}')
         elif data_type == 'fundamental':
             if year:
-                s3_key = f'data/raw/{data_type}/{symbol}/{year}/{data_type}.parquet'
+                s3_key = f'{base_prefix}/{data_type}/{symbol}/{year}/{data_type}.parquet'
             else:
                 raise ValueError('Expect input year')
         else:

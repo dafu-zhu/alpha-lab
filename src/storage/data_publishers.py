@@ -382,6 +382,64 @@ class DataPublishers:
             self.logger.error(f'Unexpected error for {sym}{cik_str}: {e}', exc_info=True)
             return {'symbol': sym, 'status': 'failed', 'error': str(e), 'cik': cik}
 
+    def publish_derived_fundamental(
+        self,
+        sym: str,
+        year: int,
+        derived_df: pl.DataFrame
+    ) -> Dict[str, Optional[str]]:
+        """
+        Publish derived fundamental data for a single symbol for an entire year to S3.
+
+        Storage: data/derived/fundamental/{symbol}/{YYYY}/fundamental.parquet
+        Contains ONLY derived metrics (timestamp + 24 derived columns).
+
+        :param sym: Symbol in Alpaca format (e.g., 'BRK.B')
+        :param year: Year of data
+        :param derived_df: Derived DataFrame (from compute_derived)
+        :return: Dict with status info
+        """
+        try:
+            # Check if DataFrame is empty
+            if len(derived_df) == 0:
+                self.logger.info(f'No derived fundamental data for {sym} in {year}')
+                return {
+                    'symbol': sym,
+                    'status': 'skipped',
+                    'error': f'Empty derived DataFrame for {sym} in {year}'
+                }
+
+            # Setup S3 message
+            buffer = io.BytesIO()
+            derived_df.write_parquet(buffer)
+            buffer.seek(0)
+
+            s3_data = buffer
+            # Year-based storage: data/derived/fundamental/{symbol}/{YYYY}/fundamental.parquet
+            s3_key = f"data/derived/fundamental/{sym}/{year}/fundamental.parquet"
+            s3_metadata = {
+                'symbol': sym,
+                'year': str(year),
+                'data_type': 'derived_fundamental',
+                'quarters': str(len(derived_df)),
+                'columns': str(derived_df.shape[1])
+            }
+
+            # Allow list or dict as metadata value
+            s3_metadata_prepared = {
+                k: json.dumps(v) if isinstance(v, (list, dict)) else str(v)
+                for k, v in s3_metadata.items()
+            }
+
+            # Publish onto AWS S3
+            self.upload_fileobj(s3_data, s3_key, s3_metadata_prepared)
+
+            return {'symbol': sym, 'status': 'success', 'error': None}
+
+        except Exception as e:
+            self.logger.error(f'Unexpected error publishing derived for {sym}: {e}', exc_info=True)
+            return {'symbol': sym, 'status': 'failed', 'error': str(e)}
+
     def publish_top_3000(
         self,
         year: int,

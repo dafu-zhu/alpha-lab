@@ -24,6 +24,7 @@ from storage.data_publishers import DataPublishers
 from collection.alpaca_ticks import Ticks
 from collection.crsp_ticks import CRSPDailyTicks
 from stock_pool.universe_manager import UniverseManager
+from derived.fundamental import compute_derived
 
 load_dotenv()
 
@@ -84,6 +85,8 @@ class UploadApp:
             upload_config=self.config,
             logger=self.logger
         )
+
+        self._fundamental_prev_row: Dict[str, pl.DataFrame] = {}
 
     # ===========================
     # Upload ticks
@@ -515,6 +518,213 @@ class UploadApp:
 
             self.logger.info(f"{'='*80}\n")
 
+    # ===========================
+    # Upload derived fundamental
+    # ===========================
+    def _process_symbol_derived_fundamental(
+            self,
+            sym: str,
+            year: int,
+            overwrite: bool = False,
+            cik: Optional[str] = None
+        ) -> dict:
+        """
+        Process derived fundamental data for a single symbol for an entire year.
+
+        Workflow:
+        1. Collect raw fundamental data
+        2. Compute derived metrics
+        3. Publish derived data separately
+
+        Storage: data/derived/fundamental/{symbol}/{YYYY}/fundamental.parquet
+        Contains ONLY derived metrics (timestamp + 24 derived columns).
+
+        :param sym: Symbol in Alpaca format (e.g., 'BRK.B')
+        :param year: Year to fetch data for
+        :param overwrite: If True, skip existence check and overwrite existing data
+        :param cik: Pre-fetched CIK (if None, will look up)
+        """
+        # Validate: Check if derived data already exists
+        if not overwrite and self.validator.data_exists(sym, 'fundamental', year, data_tier='derived'):
+            return {
+                'symbol': sym,
+                'status': 'canceled',
+                'error': f'Derived fundamental for {sym} {year} already exists'
+            }
+
+        # Use CIKResolver if CIK not provided
+        if cik is None:
+            reference_date = f"{year}-06-30"  # Mid-year reference
+            cik = self.cik_resolver.get_cik(sym, reference_date, year=year)
+
+        if cik is None:
+            return {
+                'symbol': sym,
+                'cik': None,
+                'status': 'skipped',
+                'error': f'No CIK found for {sym}'
+            }
+
+        # Step 1: Collect raw fundamental data (in-memory)
+        self.sec_rate_limiter.acquire()
+        prev_row = self._fundamental_prev_row.get(sym)
+        raw_df = self.data_collectors.collect_fundamental_year(
+            cik=cik,
+            year=year,
+            symbol=sym,
+            previous_row=prev_row
+        )
+
+        if len(raw_df) == 0:
+            return {
+                'symbol': sym,
+                'cik': cik,
+                'status': 'skipped',
+                'error': f'No raw fundamental data found'
+            }
+
+        # Track whether we prepended a previous row for shift-based metrics
+        used_prev_row = (
+            prev_row is not None
+            and len(prev_row) > 0
+            and len(raw_df) > 0
+            and raw_df['timestamp'][0] == prev_row['timestamp'][-1]
+        )
+
+        # Step 2: Compute derived metrics (in-memory)
+        derived_df = compute_derived(raw_df, logger=self.logger, symbol=sym)
+
+        if used_prev_row and len(derived_df) > 0:
+            derived_df = derived_df.slice(1)
+
+        if len(derived_df) == 0:
+            return {
+                'symbol': sym,
+                'cik': cik,
+                'status': 'skipped',
+                'error': f'Failed to compute derived metrics'
+            }
+
+        if len(raw_df) > 0:
+            self._fundamental_prev_row[sym] = raw_df.tail(1)
+
+        # Step 3: Publish derived data (separate from raw)
+        return self.data_publishers.publish_derived_fundamental(
+            sym=sym,
+            year=year,
+            derived_df=derived_df
+        )
+
+    def upload_derived_fundamental(self, year: int, max_workers: int = 50, overwrite: bool = False):
+        """
+        Upload derived fundamental data for all symbols for an entire year.
+
+        Workflow for each symbol:
+        1. Collect raw fundamental data from SEC EDGAR
+        2. Compute 24 derived metrics
+        3. Store derived data separately from raw
+
+        Storage strategy:
+        - Raw: data/raw/fundamental/{symbol}/{YYYY}/fundamental.parquet (32 columns)
+        - Derived: data/derived/fundamental/{symbol}/{YYYY}/fundamental.parquet (25 columns: timestamp + 24 derived)
+
+        :param year: Year to fetch data for
+        :param max_workers: Number of concurrent threads (default: 50, rate limited to 9.5 req/sec)
+        :param overwrite: If True, overwrite existing data in S3 (default: False)
+        """
+        start_time = time.time()
+
+        # Load symbols for this year
+        alpaca_symbols = self.universe_manager.load_symbols_for_year(year, sym_type='alpaca')
+
+        total = len(alpaca_symbols)
+        self.logger.info(f"Starting {year} derived fundamental upload for {total} symbols with {max_workers} workers")
+        self.logger.info(f"Storage: data/derived/fundamental/{{symbol}}/{year}/fundamental.parquet")
+
+        # OPTIMIZATION: Batch pre-fetch all CIKs
+        self.logger.info(f"Step 1/3: Pre-fetching CIKs for {total} symbols...")
+        prefetch_start = time.time()
+        cik_map = self.cik_resolver.batch_prefetch_ciks(alpaca_symbols, year, batch_size=100)
+        prefetch_time = time.time() - prefetch_start
+        self.logger.info(f"CIK pre-fetch completed in {prefetch_time:.1f}s")
+
+        # Filter to only symbols with valid CIKs
+        self.logger.info(f"Step 2/3: Filtering symbols with valid CIKs...")
+        symbols_with_cik = [sym for sym in alpaca_symbols if cik_map.get(sym) is not None]
+        symbols_without_cik = [sym for sym in alpaca_symbols if cik_map.get(sym) is None]
+
+        self.logger.info(
+            f"Symbol filtering complete: {len(symbols_with_cik)}/{total} have CIKs, "
+            f"{len(symbols_without_cik)} are non-SEC filers (will be skipped)"
+        )
+
+        # Update total
+        total = len(symbols_with_cik)
+        if total == 0:
+            self.logger.warning(f"No symbols with CIKs found for {year}, skipping derived upload")
+            return
+
+        # Statistics
+        completed = 0
+        success = 0
+        failed = 0
+        canceled = 0
+        skipped = 0
+
+        self.logger.info(f"Step 3/3: Computing and uploading derived fundamentals for {total} symbols...")
+        fetch_start = time.time()
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks with pre-fetched CIKs
+            future_to_symbol = {
+                executor.submit(
+                    self._process_symbol_derived_fundamental,
+                    sym,
+                    year,
+                    overwrite,
+                    cik_map.get(sym)
+                ): sym
+                for sym in symbols_with_cik
+            }
+
+            # Process completed tasks
+            for future in as_completed(future_to_symbol):
+                result = future.result()
+                completed += 1
+
+                if result['status'] == 'success':
+                    success += 1
+                elif result['status'] == 'canceled':
+                    canceled += 1
+                elif result['status'] == 'skipped':
+                    skipped += 1
+                else:
+                    failed += 1
+
+                # Progress logging every 50 symbols
+                if completed % 50 == 0:
+                    elapsed = time.time() - fetch_start
+                    rate = completed / elapsed if elapsed > 0 else 0
+                    eta = (total - completed) / rate if rate > 0 else 0
+                    self.logger.info(
+                        f"Progress: {completed}/{total} ({success} success, {failed} failed, "
+                        f"{canceled} canceled, {skipped} skipped) | Rate: {rate:.1f} sym/sec | ETA: {eta:.0f}s"
+                    )
+
+        # Final statistics
+        total_time = time.time() - start_time
+        fetch_time = time.time() - fetch_start
+        avg_rate = completed / fetch_time if fetch_time > 0 else 0
+
+        self.logger.info(
+            f"Derived fundamental upload for {year} completed in {total_time:.1f}s: "
+            f"{success} success, {failed} failed, {canceled} canceled, {skipped} skipped out of {total} total"
+        )
+        self.logger.info(
+            f"Performance: CIK fetch={prefetch_time:.1f}s, Compute+Upload={fetch_time:.1f}s, "
+            f"Avg rate={avg_rate:.2f} sym/sec"
+        )
+
     def run(
             self,
             start_year: int,
@@ -524,6 +734,7 @@ class UploadApp:
             chunk_size: int=30,
             sleep_time: float=0.02,
             run_fundamental: bool=False,
+            run_derived_fundamental: bool=False,
             run_daily_ticks: bool=False,
             run_minute_ticks: bool=False,
             run_top_3000: bool=False
@@ -532,7 +743,8 @@ class UploadApp:
         Run the complete workflow, fetch and upload fundamental, daily ticks and minute ticks data within the period
 
         Storage strategy:
-        - Fundamental: Once per year -> data/raw/fundamental/{symbol}/{YYYY}/fundamental.parquet
+        - Raw Fundamental: Once per year -> data/raw/fundamental/{symbol}/{YYYY}/fundamental.parquet
+        - Derived Fundamental: Once per year -> data/derived/fundamental/{symbol}/{YYYY}/fundamental.parquet
         - Daily ticks: Once per year -> data/raw/ticks/daily/{symbol}/{YYYY}/ticks.parquet
         - Minute ticks: Monthly -> data/raw/ticks/minute/{symbol}/{YYYY}/{MM}/{DD}/ticks.parquet
 
@@ -542,7 +754,8 @@ class UploadApp:
         :param overwrite: If True, overwrite existing data
         :param chunk_size: Number of symbols to fetch at once for minute data
         :param sleep_time: Sleep time between API requests
-        :param run_fundamental: If True, upload fundamental data
+        :param run_fundamental: If True, upload raw fundamental data
+        :param run_derived_fundamental: If True, upload derived fundamental data
         :param run_daily_ticks: If True, upload daily ticks data
         :param run_minute_ticks: If True, upload minute ticks data (all months for each year)
         :param run_top_3000: If True, upload the 3000 most liquid stock list
@@ -551,8 +764,12 @@ class UploadApp:
             self.logger.info(f"Processing year {year}")
 
             if run_fundamental:
-                self.logger.info(f"Uploading fundamental data for {year} (year-based, all quarters)")
+                self.logger.info(f"Uploading raw fundamental data for {year} (year-based, all quarters)")
                 self.upload_fundamental(year, max_workers, overwrite)
+
+            if run_derived_fundamental:
+                self.logger.info(f"Uploading derived fundamental data for {year} (year-based)")
+                self.upload_derived_fundamental(year, max_workers, overwrite)
 
             if run_daily_ticks:
                 self.logger.info(f"Uploading daily ticks for {year} (year-based, all trading days)")
@@ -652,6 +869,6 @@ if __name__ == "__main__":
     app = UploadApp()
     try:
         # Example: Run from 2010 to 2025 (yearly processing)
-        app.run(start_year=2024, end_year=2024, overwrite=False, run_fundamental=True)
+        app.run(start_year=2024, end_year=2024, overwrite=False, run_fundamental=False, run_derived_fundamental=True)
     finally:
         app.close()
