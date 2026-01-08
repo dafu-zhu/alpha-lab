@@ -5,15 +5,19 @@ import datetime as dt
 import polars as pl
 import logging
 from typing import Dict, Optional
-from collection.crsp_ticks import CRSPDailyTicks
-from collection.alpaca_ticks import Ticks
-from stock_pool.universe import fetch_all_stocks
-from stock_pool.history_universe import get_hist_universe_nasdaq
-from master.security_master import SecurityMaster
-from utils.logger import setup_logger
+from quantdl.collection.crsp_ticks import CRSPDailyTicks
+from quantdl.collection.alpaca_ticks import Ticks
+from quantdl.stock_pool.universe import fetch_all_stocks
+from quantdl.stock_pool.history_universe import get_hist_universe_nasdaq
+from quantdl.master.security_master import SecurityMaster
+from quantdl.utils.logger import setup_logger
 
 class UniverseManager:
-    def __init__(self):
+    def __init__(
+        self,
+        crsp_fetcher: Optional[CRSPDailyTicks] = None,
+        security_master: Optional[SecurityMaster] = None
+    ):
         self.store_dir = Path("data/symbols")
         self.store_dir.mkdir(parents=True, exist_ok=True)
 
@@ -21,9 +25,20 @@ class UniverseManager:
         self.logger = setup_logger("symbols", log_dir, logging.INFO, console_output=True)
 
         # Initialize fetchers and security master once to reuse connections
-        self.crsp_fetcher = CRSPDailyTicks()
         self.alpaca_fetcher = Ticks()
-        self.security_master = SecurityMaster()  # Reuse WRDS connection
+        if crsp_fetcher is None:
+            if security_master is None:
+                self.crsp_fetcher = CRSPDailyTicks()
+                self.security_master = self.crsp_fetcher.security_master
+                self._owns_wrds_conn = True
+            else:
+                self.crsp_fetcher = CRSPDailyTicks(conn=security_master.db)
+                self.security_master = security_master
+                self._owns_wrds_conn = False
+        else:
+            self.crsp_fetcher = crsp_fetcher
+            self.security_master = security_master or crsp_fetcher.security_master
+            self._owns_wrds_conn = False
 
         # Cache for current symbols to avoid re-reading CSV
         self._current_symbols_cache: Optional[list[str]] = None
@@ -158,6 +173,13 @@ class UniverseManager:
         result = liquidity_df['symbol'].to_list()
 
         return result
+
+    def close(self) -> None:
+        """Close WRDS connection if this manager owns it."""
+        if self._owns_wrds_conn and hasattr(self, "crsp_fetcher"):
+            if hasattr(self.crsp_fetcher, "conn") and self.crsp_fetcher.conn is not None:
+                self.crsp_fetcher.conn.close()
+                self.logger.info("WRDS connection closed (UniverseManager)")
 
 if __name__ == "__main__":
     print("=" * 70)

@@ -22,7 +22,7 @@ from src.storage.data_collectors import DataCollectors
 from src.collection.alpaca_ticks import Ticks
 from src.collection.crsp_ticks import CRSPDailyTicks
 from src.storage.upload_app import UploadApp
-from utils.logger import setup_logger
+from quantdl.utils.logger import setup_logger
 
 
 def _init_collector() -> DataCollectors:

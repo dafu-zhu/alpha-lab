@@ -2,9 +2,9 @@ import datetime as dt
 from pathlib import Path
 import logging
 from botocore.exceptions import ClientError
-from storage.s3_client import S3Client
+from quantdl.storage.s3_client import S3Client
 from typing import Optional
-from utils.logger import setup_logger
+from quantdl.utils.logger import setup_logger
 
 
 class Validator:

@@ -10,8 +10,8 @@ from typing import List, Tuple, Optional
 from pathlib import Path
 import logging
 
-from utils.logger import setup_logger
-from stock_pool.universe import fetch_all_stocks
+from quantdl.utils.logger import setup_logger
+from quantdl.stock_pool.universe import fetch_all_stocks
 
 load_dotenv()
 

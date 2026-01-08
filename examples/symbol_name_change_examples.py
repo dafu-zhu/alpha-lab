@@ -5,7 +5,7 @@ Demonstrates how CRSPDailyTicks handles ticker symbol changes (e.g., FB -> META)
 Compares two modes: auto_resolve vs exact symbol matching
 """
 
-from collection.crsp_ticks import CRSPDailyTicks
+from quantdl.collection.crsp_ticks import CRSPDailyTicks
 
 # Initialize the data collector
 crsp = CRSPDailyTicks()

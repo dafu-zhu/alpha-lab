@@ -14,7 +14,7 @@ from ftplib import FTP
 from pathlib import Path
 import logging
 
-from utils.logger import setup_logger
+from quantdl.utils.logger import setup_logger
 
 
 def is_common_stock(name: str) -> bool:

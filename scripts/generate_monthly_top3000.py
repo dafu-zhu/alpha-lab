@@ -19,8 +19,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 src_path = Path(__file__).parent.parent / "src"
 sys.path.insert(0, str(src_path))
 
-from stock_pool.universe_manager import UniverseManager
-from utils.logger import setup_logger
+from quantdl.stock_pool.universe_manager import UniverseManager
+from quantdl.utils.logger import setup_logger
 
 
 def process_single_month(month_date, um, total_months, month_index):

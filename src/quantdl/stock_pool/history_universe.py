@@ -5,7 +5,7 @@ from typing import Optional
 import wrds
 import os
 from dotenv import load_dotenv
-from master.security_master import SymbolNormalizer, SecurityMaster
+from quantdl.master.security_master import SymbolNormalizer, SecurityMaster
 
 load_dotenv()
 

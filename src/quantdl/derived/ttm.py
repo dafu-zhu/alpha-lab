@@ -31,7 +31,7 @@ def compute_ttm_long(
 
     if duration_concepts is None:
         try:
-            from collection.fundamental import DURATION_CONCEPTS
+            from quantdl.collection.fundamental import DURATION_CONCEPTS
 
             duration_concepts = DURATION_CONCEPTS
         except Exception:

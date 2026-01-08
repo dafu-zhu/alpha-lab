@@ -3,7 +3,7 @@ from typing import Dict, Any
 from dotenv import load_dotenv
 import boto3
 from botocore.config import Config
-from storage.config_loader import UploadConfig
+from quantdl.storage.config_loader import UploadConfig
 
 load_dotenv()
 

@@ -10,16 +10,18 @@ This module handles fetching market data from various sources:
 import datetime as dt
 import time
 import logging
+import threading
+from collections import OrderedDict
 from typing import List, Dict, Optional
 from pathlib import Path
 import yaml
 import requests
 import polars as pl
 
-from collection.models import TickField
-from collection.fundamental import Fundamental, DURATION_CONCEPTS
-from derived.ttm import compute_ttm_long
-from derived.metrics import compute_derived
+from quantdl.collection.models import TickField
+from quantdl.collection.fundamental import Fundamental, DURATION_CONCEPTS
+from quantdl.derived.ttm import compute_ttm_long
+from quantdl.derived.metrics import compute_derived
 
 
 class DataCollectors:
@@ -33,7 +35,8 @@ class DataCollectors:
         alpaca_ticks,
         alpaca_headers: dict,
         logger: logging.Logger,
-        sec_rate_limiter=None
+        sec_rate_limiter=None,
+        fundamental_cache_size: int = 128
     ):
         """
         Initialize data collectors.
@@ -50,8 +53,10 @@ class DataCollectors:
         self.logger = logger
         self.sec_rate_limiter = sec_rate_limiter
 
-        # Cache for Fundamental objects to avoid redundant API calls
-        self._fundamental_cache: Dict[str, Fundamental] = {}
+        # LRU cache for Fundamental objects to reduce memory pressure
+        self._fundamental_cache_size = max(int(fundamental_cache_size), 0)
+        self._fundamental_cache: "OrderedDict[str, Fundamental]" = OrderedDict()
+        self._fundamental_cache_lock = threading.Lock()
 
     def _load_concepts(
         self,
@@ -80,13 +85,34 @@ class DataCollectors:
         :param symbol: Optional symbol for logging
         :return: Fundamental object (cached or newly created)
         """
-        if cik not in self._fundamental_cache:
-            self._fundamental_cache[cik] = Fundamental(
+        if self._fundamental_cache_size <= 0:
+            return Fundamental(
                 cik=cik,
                 symbol=symbol,
                 rate_limiter=self.sec_rate_limiter
             )
-        return self._fundamental_cache[cik]
+
+        with self._fundamental_cache_lock:
+            cached = self._fundamental_cache.get(cik)
+            if cached is not None:
+                self._fundamental_cache.move_to_end(cik)
+                return cached
+
+        created = Fundamental(
+            cik=cik,
+            symbol=symbol,
+            rate_limiter=self.sec_rate_limiter
+        )
+
+        with self._fundamental_cache_lock:
+            cached = self._fundamental_cache.get(cik)
+            if cached is not None:
+                self._fundamental_cache.move_to_end(cik)
+                return cached
+            self._fundamental_cache[cik] = created
+            if len(self._fundamental_cache) > self._fundamental_cache_size:
+                self._fundamental_cache.popitem(last=False)
+        return created
 
     def collect_fundamental_long(
         self,

@@ -12,9 +12,9 @@ import polars as pl
 from pathlib import Path
 from tqdm import tqdm
 
-from collection.models import TickField, TickDataPoint
-from utils.logger import LoggerFactory
-from utils.mapping import align_calendar
+from quantdl.collection.models import TickField, TickDataPoint
+from quantdl.utils.logger import LoggerFactory
+from quantdl.utils.mapping import align_calendar
 
 load_dotenv()
 

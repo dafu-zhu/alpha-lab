@@ -442,11 +442,11 @@ class DataPublishers:
         try:
             # Check if DataFrame is empty
             if len(derived_df) == 0:
-                self.logger.info(f'No derived fundamental data for {sym} in {year}')
+                self.logger.info(f'No derived fundamental data for {sym}')
                 return {
                     'symbol': sym,
                     'status': 'skipped',
-                    'error': f'Empty derived DataFrame for {sym} in {year}'
+                    'error': f'Empty derived DataFrame for {sym}'
                 }
 
             # Setup S3 message

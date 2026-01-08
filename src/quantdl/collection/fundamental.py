@@ -1,6 +1,6 @@
 import requests
 import time
-from collection.models import FndDataPoint, DataSource
+from quantdl.collection.models import FndDataPoint, DataSource
 import datetime as dt
 from typing import List, Optional, Tuple, Dict
 from pathlib import Path

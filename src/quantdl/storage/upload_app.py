@@ -12,18 +12,18 @@ from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 import polars as pl
 
-from utils.logger import setup_logger
-from utils.calendar import TradingCalendar
-from storage.config_loader import UploadConfig
-from storage.s3_client import S3Client
-from storage.validation import Validator
-from storage.rate_limiter import RateLimiter
-from storage.cik_resolver import CIKResolver
-from storage.data_collectors import DataCollectors
-from storage.data_publishers import DataPublishers
-from collection.alpaca_ticks import Ticks
-from collection.crsp_ticks import CRSPDailyTicks
-from stock_pool.universe_manager import UniverseManager
+from quantdl.utils.logger import setup_logger
+from quantdl.utils.calendar import TradingCalendar
+from quantdl.storage.config_loader import UploadConfig
+from quantdl.storage.s3_client import S3Client
+from quantdl.storage.validation import Validator
+from quantdl.storage.rate_limiter import RateLimiter
+from quantdl.storage.cik_resolver import CIKResolver
+from quantdl.storage.data_collectors import DataCollectors
+from quantdl.storage.data_publishers import DataPublishers
+from quantdl.collection.alpaca_ticks import Ticks
+from quantdl.collection.crsp_ticks import CRSPDailyTicks
+from quantdl.stock_pool.universe_manager import UniverseManager
 
 load_dotenv()
 
@@ -48,8 +48,11 @@ class UploadApp:
         self.alpaca_ticks = Ticks()
         self.crsp_ticks = CRSPDailyTicks()
 
-        # Initialize universe manager
-        self.universe_manager = UniverseManager()
+        # Initialize universe manager (reuse WRDS connection)
+        self.universe_manager = UniverseManager(
+            crsp_fetcher=self.crsp_ticks,
+            security_master=self.crsp_ticks.security_master
+        )
 
         # Initialize trading calendar
         self.calendar = TradingCalendar()
@@ -1102,6 +1105,8 @@ class UploadApp:
 
     def close(self):
         """Close WRDS database connections"""
+        if hasattr(self, 'universe_manager') and self.universe_manager is not None:
+            self.universe_manager.close()
         if hasattr(self, 'crsp_ticks') and self.crsp_ticks is not None:
             if hasattr(self.crsp_ticks, 'conn') and self.crsp_ticks.conn is not None:
                 self.crsp_ticks.conn.close()
