@@ -11,8 +11,8 @@ class FndDataPoint:
     value: float
     start_date: Optional[datetime.date]
     end_date: datetime.date
-    fy: int
-    fp: str
+    frame: Optional[str]
+    is_instant: bool
     form: str
     accn: Optional[str]
 

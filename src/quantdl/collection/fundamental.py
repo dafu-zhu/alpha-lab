@@ -132,6 +132,19 @@ class FundamentalExtractor:
         """
         Normalize duration metrics to per-quarter values using start/end dates.
         """
+        def _pick_frame(frames: Dict[str, dict], base: str) -> Optional[dict]:
+            exact = frames.get(base)
+            if exact is not None:
+                return exact
+            inst = frames.get(f"{base}I")
+            if inst is not None:
+                return inst
+            for key, item in frames.items():
+                if key.startswith(base):
+                    return item
+            return None
+
+        # Derive Q4 from the annual frame using that year’s Q1–Q3 only.
         by_frame_year: Dict[int, List[dict]] = defaultdict(list)
         for dp in raw_data:
             start = dp.get("start")
@@ -154,6 +167,7 @@ class FundamentalExtractor:
                     "end_date": end_date,
                     "filed_date": filed_date,
                     "duration_days": duration_days,
+                    "frame": frame,
                 }
             )
 
@@ -163,32 +177,31 @@ class FundamentalExtractor:
 
             latest_by_frame: Dict[str, dict] = {}
             for item in items:
-                frame = item["dp"]["frame"]
+                frame = item["frame"]
                 prev = latest_by_frame.get(frame)
                 if prev is None or item["filed_date"] > prev["filed_date"]:
                     latest_by_frame[frame] = item
 
+            # stores quarterly frames that are already standalone (Q1–Q4)
             standalone_frames: Dict[str, dict] = {}
+            # stores full‑year frames (used to derive Q4 for duration concepts)
             annual_frames: Dict[str, dict] = {}
             for frame, item in latest_by_frame.items():
-                if frame.endswith(("Q1", "Q2", "Q3", "Q4")):
+                if any (q in frame for q in ('Q1', 'Q2', 'Q3', 'Q4')):
                     standalone_frames[frame] = item
                 else:
                     annual_frames[frame] = item
 
             for frame, item in latest_by_frame.items():
                 dp = item["dp"]
-                if frame.endswith("Q4"):
-                    normalized.append(dp)
-                    continue
-                if frame.endswith(("Q1", "Q2", "Q3")):
+                if any (q in frame for q in ('Q1', 'Q2', 'Q3', 'Q4')):
                     normalized.append(dp)
                     continue
                 if frame in annual_frames:
                     year = frame[2:6]
-                    q1 = standalone_frames.get(f"CY{year}Q1")
-                    q2 = standalone_frames.get(f"CY{year}Q2")
-                    q3 = standalone_frames.get(f"CY{year}Q3")
+                    q1 = _pick_frame(standalone_frames, f"CY{year}Q1")
+                    q2 = _pick_frame(standalone_frames, f"CY{year}Q2")
+                    q3 = _pick_frame(standalone_frames, f"CY{year}Q3")
                     if q1 and q2 and q3:
                         adjusted = dict(dp)
                         adjusted["val"] = (
@@ -202,9 +215,12 @@ class FundamentalExtractor:
 
         deduped = {}
         for dp in normalized:
-            key = (dp.get("start"), dp.get("end"), dp.get("filed"))
-            if key not in deduped:
-                deduped[key] = dp
+            frame = dp.get("frame")
+            filed = dp.get("filed")
+            if not frame or not filed:
+                continue
+            key = (filed, frame)
+            deduped[key] = dp
 
         return list(deduped.values())
 
@@ -290,8 +306,8 @@ class FundamentalExtractor:
                 value=dp['val'],
                 start_date=start_date,
                 end_date=end_date,
-                fy=dp['fy'],
-                fp=dp['fp'],
+                frame=dp.get('frame'),
+                is_instant=bool(dp.get('frame') and 'I' in dp.get('frame', '')),
                 form=form,
                 accn=dp.get('accn')
             )
