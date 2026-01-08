@@ -830,6 +830,7 @@ class UploadApp:
         - Raw: data/raw/fundamental/{symbol}/fundamental.parquet (long format)
         - TTM: data/derived/features/fundamental/{symbol}/ttm.parquet (long format)
         - Derived: data/derived/features/fundamental/{symbol}/metrics.parquet (keys + 24 derived)
+        One file per symbol for the full requested date range.
 
         :param start_date: Start date (YYYY-MM-DD)
         :param end_date: End date (YYYY-MM-DD)
@@ -840,12 +841,45 @@ class UploadApp:
         start_year = int(start_date[:4])
         end_year = int(end_date[:4])
 
+        raw_symbols = None
+        try:
+            raw_keys = self.validator.list_files_under_prefix("data/raw/fundamental/")
+            raw_symbols = sorted({
+                parts[3]
+                for key in raw_keys
+                for parts in [key.split("/")]
+                if len(parts) >= 5
+                and parts[0] == "data"
+                and parts[1] == "raw"
+                and parts[2] == "fundamental"
+                and parts[-1] == "fundamental.parquet"
+            })
+            if raw_symbols:
+                self.logger.info(
+                    f"Using {len(raw_symbols)} symbols with existing raw fundamentals for derived upload"
+                )
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to load raw fundamental symbol list; falling back to year-based universe: {e}"
+            )
+
         symbol_reference_year = {}
-        for year in range(start_year, end_year + 1):
+        symbol_year_start = 2009 if raw_symbols else start_year
+        for year in range(symbol_year_start, end_year + 1):
             symbols = self.universe_manager.load_symbols_for_year(year, sym_type='alpaca')
             for sym in symbols:
+                if raw_symbols is not None and sym not in raw_symbols:
+                    continue
                 if sym not in symbol_reference_year:
                     symbol_reference_year[sym] = year
+
+        if raw_symbols is not None:
+            missing_raw = set(raw_symbols) - set(symbol_reference_year.keys())
+            if missing_raw:
+                self.logger.warning(
+                    f"{len(missing_raw)} raw symbols were not found in historical universes; "
+                    "they will be skipped for derived upload."
+                )
 
         alpaca_symbols = list(symbol_reference_year.keys())
 
@@ -857,7 +891,9 @@ class UploadApp:
         self.logger.info("Storage: data/derived/features/fundamental/{symbol}/metrics.parquet")
 
         # OPTIMIZATION: Batch pre-fetch all CIKs
-        self.logger.info(f"Step 1/3: Pre-fetching CIKs for {total} symbols...")
+        self.logger.info(
+            f"Step 1/3: Pre-fetching CIKs for {total} symbols across {start_year}-{end_year}..."
+        )
         prefetch_start = time.time()
         cik_map = {}
         for year in range(start_year, end_year + 1):
@@ -882,6 +918,15 @@ class UploadApp:
             f"Symbol filtering complete: {len(symbols_with_cik)}/{total} have CIKs, "
             f"{len(symbols_without_cik)} are non-SEC filers (will be skipped)"
         )
+
+        if len(symbols_without_cik) > 0:
+            if len(symbols_without_cik) <= 30:
+                self.logger.info(f"Non-SEC filers (skipped): {sorted(symbols_without_cik)}")
+            else:
+                self.logger.info(
+                    f"Non-SEC filers (skipped, showing first 30/{len(symbols_without_cik)}): "
+                    f"{sorted(symbols_without_cik)[:30]}"
+                )
 
         # Update total
         total = len(symbols_with_cik)

@@ -247,7 +247,7 @@ class DataPublishers:
         Returns dict with status for progress tracking.
 
         Storage: data/raw/fundamental/{symbol}/fundamental.parquet
-        Stored in long format with [symbol, as_of_date, accn, form, concept, value, start, end, fp].
+        Stored in long format with [symbol, as_of_date, accn, form, concept, value, start, end, frame, is_instant].
 
         :param sym: Symbol in Alpaca format (e.g., 'BRK.B') - used for storage path
         :param start_date: Start date (YYYY-MM-DD) for filing date filter

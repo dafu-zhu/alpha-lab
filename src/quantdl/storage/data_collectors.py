@@ -127,7 +127,7 @@ class DataCollectors:
         Fetch long-format fundamental data for a filing date range.
 
         Returns columns:
-        [symbol, as_of_date, accn, form, concept, value, start, end, fp]
+        [symbol, as_of_date, accn, form, concept, value, start, end, frame, is_instant]
         """
         try:
             concepts = self._load_concepts(concepts, config_path)
@@ -163,7 +163,8 @@ class DataCollectors:
                                     "value": dp.value,
                                     "start": dp.start_date.isoformat() if dp.start_date else None,
                                     "end": dp.end_date.isoformat(),
-                                    "fp": dp.fp,
+                                    "frame": dp.frame,
+                                    "is_instant": dp.is_instant,
                                 }
                             )
                     else:
@@ -231,7 +232,7 @@ class DataCollectors:
                                 "value": dp.value,
                                 "start": dp.start_date.isoformat() if dp.start_date else None,
                                 "end": dp.end_date.isoformat(),
-                                "fp": dp.fp,
+                                "frame": dp.frame,
                             }
                         )
                 except Exception as e:
@@ -309,7 +310,7 @@ class DataCollectors:
                             "value": dp.value,
                             "start": dp.start_date.isoformat() if dp.start_date else None,
                             "end": dp.end_date.isoformat(),
-                            "fp": dp.fp,
+                            "frame": dp.frame,
                         }
                     )
 
@@ -324,7 +325,7 @@ class DataCollectors:
                             "value": dp.value,
                             "start": dp.start_date.isoformat() if dp.start_date else None,
                             "end": dp.end_date.isoformat(),
-                            "fp": dp.fp,
+                            "frame": dp.frame,
                         }
                     )
 
@@ -425,7 +426,7 @@ class DataCollectors:
         """
         Compute derived metrics and return long-format data.
 
-        Returns columns: [symbol, as_of_date, start, end, accn, form, fp, concept, value]
+        Returns columns: [symbol, as_of_date, start, end, accn, form, frame, concept, value]
         """
         metrics_wide = self._build_metrics_wide(
             cik=cik,
@@ -447,7 +448,7 @@ class DataCollectors:
             value_name="value",
         ).drop_nulls(subset=["value"])
 
-        # Use TTM metadata for derived rows (accn/form/fp)
+        # Use TTM metadata for derived rows (accn/form/frame)
         ttm_df = self.collect_ttm_long_range(
             cik=cik,
             start_date=start_date,
@@ -459,9 +460,9 @@ class DataCollectors:
         metadata_df = None
         if len(ttm_df) > 0:
             metadata_df = (
-                ttm_df.select(["symbol", "as_of_date", "start", "end", "accn", "form", "fp"])
+                ttm_df.select(["symbol", "as_of_date", "start", "end", "accn", "form", "frame"])
                 .group_by(["symbol", "as_of_date", "start", "end"])
-                .agg([pl.col("accn").last(), pl.col("form").last(), pl.col("fp").last()])
+                .agg([pl.col("accn").last(), pl.col("form").last(), pl.col("frame").last()])
             )
 
         if metadata_df is not None:
@@ -474,6 +475,11 @@ class DataCollectors:
         derived_long = compute_derived(long_input, logger=self.logger, symbol=symbol)
         if len(derived_long) == 0:
             return pl.DataFrame()
+
+        if "frame" in derived_long.columns:
+            derived_long = derived_long.filter(pl.col("frame").is_not_null())
+            if len(derived_long) == 0:
+                return pl.DataFrame()
 
         start_dt = dt.datetime.strptime(start_date, "%Y-%m-%d").date()
         end_dt = dt.datetime.strptime(end_date, "%Y-%m-%d").date()

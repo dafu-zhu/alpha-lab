@@ -28,7 +28,7 @@ def compute_derived(
     All formulas based on data/xbrl/fundamental.xlsx (Priority = 3 rows).
 
     :param raw_df: TTM long DataFrame with columns
-                   [symbol, as_of_date, start, end, concept, value, accn, form, fp]
+                   [symbol, as_of_date, start, end, concept, value, accn, form, frame]
     :param logger: Optional logger for debug messages
     :param symbol: Optional symbol for logging
     :return: Long-format DataFrame with keys and derived columns
@@ -75,7 +75,7 @@ def compute_derived(
         if "as_of_date" in df.columns:
             df = df.sort("as_of_date")
 
-        metadata_cols = [col for col in ["accn", "form", "fp"] if col in df.columns]
+        metadata_cols = [col for col in ["accn", "form", "frame"] if col in df.columns]
         metadata_df = None
         if metadata_cols:
             metadata_df = (

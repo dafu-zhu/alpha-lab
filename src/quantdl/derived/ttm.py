@@ -22,7 +22,7 @@ def compute_ttm_long(
     Compute TTM values from long-format fundamental data.
 
     Expected columns:
-    [symbol, as_of_date, accn, form, concept, value, start, end, fp]
+    [symbol, as_of_date, accn, form, concept, value, start, end, frame]
     """
     if len(raw_df) == 0:
         if logger:
@@ -46,7 +46,7 @@ def compute_ttm_long(
         "value",
         "start",
         "end",
-        "fp",
+        "frame",
     }
     missing_cols = required_cols - set(raw_df.columns)
     if missing_cols:
@@ -67,6 +67,8 @@ def compute_ttm_long(
             continue
         if not row.get("as_of_date") or not row.get("end") or not row.get("start"):
             continue
+        if not row.get("frame"):
+            continue
         try:
             as_of_date = dt.datetime.strptime(row["as_of_date"], "%Y-%m-%d").date()
             end_date = dt.datetime.strptime(row["end"], "%Y-%m-%d").date()
@@ -84,6 +86,7 @@ def compute_ttm_long(
                 "value": float(row["value"]),
                 "start_date": start_date,
                 "end_date": end_date,
+                "frame": row.get("frame"),
             }
         )
 
@@ -101,6 +104,7 @@ def compute_ttm_long(
             end_values[end_date] = {
                 "value": row["value"],
                 "start_date": row["start_date"],
+                "frame": row.get("frame"),
             }
 
             if len(end_order) < 4:
@@ -125,7 +129,7 @@ def compute_ttm_long(
                     "value": ttm_value,
                     "start": ttm_start.isoformat(),
                     "end": last_four[-1].isoformat(),
-                    "fp": "TTM",
+                    "frame": end_values[last_four[-1]].get("frame"),
                 }
             )
 
