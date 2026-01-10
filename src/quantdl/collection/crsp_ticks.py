@@ -15,8 +15,42 @@ from quantdl.master.security_master import SecurityMaster
 from quantdl.utils.logger import setup_logger
 from quantdl.utils.mapping import align_calendar
 import logging
+import re
 
 load_dotenv()
+
+
+def validate_date_string(date_str: str) -> str:
+    """
+    Validate and sanitize date string to prevent SQL injection.
+
+    :param date_str: Date string in 'YYYY-MM-DD' format
+    :return: Validated date string
+    :raises ValueError: If date string is invalid
+    """
+    if not re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+        raise ValueError(f"Invalid date format: {date_str}. Expected YYYY-MM-DD")
+
+    # Also validate it's a valid date
+    try:
+        dt.datetime.strptime(date_str, '%Y-%m-%d')
+    except ValueError as e:
+        raise ValueError(f"Invalid date value: {date_str}. {e}")
+
+    return date_str
+
+
+def validate_permno(permno: int) -> int:
+    """
+    Validate permno to ensure it's a positive integer.
+
+    :param permno: CRSP permanent number
+    :return: Validated permno
+    :raises ValueError: If permno is invalid
+    """
+    if not isinstance(permno, int) or permno <= 0:
+        raise ValueError(f"Invalid permno: {permno}. Must be a positive integer")
+    return permno
 
 
 class CRSPDailyTicks:
@@ -60,7 +94,8 @@ class CRSPDailyTicks:
         - Fetch data using permno for that security
         """
         sid = self.security_master.get_security_id(symbol, day, auto_resolve=auto_resolve)
-        permno = self.security_master.sid_to_permno(sid)
+        permno = validate_permno(self.security_master.sid_to_permno(sid))
+        validated_day = validate_date_string(day)
 
         # Write query to access CRSP database
         # CRSP DSF fields:
@@ -84,7 +119,7 @@ class CRSPDailyTicks:
                     vol * cfacshr as volume
                 FROM crsp.dsf
                 WHERE permno = {permno}
-                    AND date = '{day}'
+                    AND date = '{validated_day}'
                     AND prc IS NOT NULL
                     AND cfacpr != 0
                     AND cfacshr != 0
@@ -101,7 +136,7 @@ class CRSPDailyTicks:
                     vol as volume
                 FROM crsp.dsf
                 WHERE permno = {permno}
-                    AND date = '{day}'
+                    AND date = '{validated_day}'
                     AND prc IS NOT NULL
             """
         
@@ -130,11 +165,11 @@ class CRSPDailyTicks:
         return result
 
     def get_daily_range(
-            self, 
-            symbol: str, 
-            start_day: str, 
-            end_day: str, 
-            adjusted: bool=True, 
+            self,
+            symbol: str,
+            start_day: str,
+            end_day: str,
+            adjusted: bool=True,
             auto_resolve: bool=True
         ) -> List[Dict[str, Any]]:
         """
@@ -156,7 +191,9 @@ class CRSPDailyTicks:
         """
         # Resolve symbol to security_id (use end_date as reference point)
         sid = self.security_master.get_security_id(symbol, end_day, auto_resolve=auto_resolve)
-        permno = self.security_master.sid_to_permno(sid)
+        permno = validate_permno(self.security_master.sid_to_permno(sid))
+        validated_start_day = validate_date_string(start_day)
+        validated_end_day = validate_date_string(end_day)
 
         # Build query for date range
         if adjusted:
@@ -170,8 +207,8 @@ class CRSPDailyTicks:
                     vol * cfacshr as volume
                 FROM crsp.dsf
                 WHERE permno = {permno}
-                    AND date >= '{start_day}'
-                    AND date <= '{end_day}'
+                    AND date >= '{validated_start_day}'
+                    AND date <= '{validated_end_day}'
                     AND prc IS NOT NULL
                     AND cfacpr != 0
                     AND cfacshr != 0
@@ -188,8 +225,8 @@ class CRSPDailyTicks:
                     vol as volume
                 FROM crsp.dsf
                 WHERE permno = {permno}
-                    AND date >= '{start_day}'
-                    AND date <= '{end_day}'
+                    AND date >= '{validated_start_day}'
+                    AND date <= '{validated_end_day}'
                     AND prc IS NOT NULL
                 ORDER BY date ASC
             """
@@ -334,9 +371,15 @@ class CRSPDailyTicks:
             chunk_size = len(permnos)
         chunks = [permnos[i:i + chunk_size] for i in range(0, len(permnos), chunk_size)]
 
+        # Validate dates
+        validated_start_day = validate_date_string(start_day)
+        validated_end_day = validate_date_string(end_day)
+
         frames = []
         for chunk in tqdm(chunks, desc="Querying CRSP", unit="chunk"):
-            permno_list_str = ','.join(map(str, chunk))
+            # Validate each permno in the chunk
+            validated_chunk = [validate_permno(p) for p in chunk]
+            permno_list_str = ','.join(map(str, validated_chunk))
 
             if adjusted:
                 query = f"""
@@ -350,8 +393,8 @@ class CRSPDailyTicks:
                         vol * cfacshr as volume
                     FROM crsp.dsf
                     WHERE permno IN ({permno_list_str})
-                        AND date >= '{start_day}'
-                        AND date <= '{end_day}'
+                        AND date >= '{validated_start_day}'
+                        AND date <= '{validated_end_day}'
                         AND prc IS NOT NULL
                         AND cfacpr IS NOT NULL
                         AND cfacpr != 0
@@ -371,8 +414,8 @@ class CRSPDailyTicks:
                         vol as volume
                     FROM crsp.dsf
                     WHERE permno IN ({permno_list_str})
-                        AND date >= '{start_day}'
-                        AND date <= '{end_day}'
+                        AND date >= '{validated_start_day}'
+                        AND date <= '{validated_end_day}'
                         AND prc IS NOT NULL
                     ORDER BY permno, date ASC
                 """

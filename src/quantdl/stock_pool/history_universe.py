@@ -4,10 +4,24 @@ from pathlib import Path
 from typing import Optional
 import wrds
 import os
+import re
 from dotenv import load_dotenv
 from quantdl.master.security_master import SymbolNormalizer, SecurityMaster
 
 load_dotenv()
+
+
+def validate_date_string(date_str: str) -> str:
+    """
+    Validate and sanitize date string to prevent SQL injection.
+
+    :param date_str: Date string in 'YYYY-MM-DD' format
+    :return: Validated date string
+    :raises ValueError: If date string is invalid
+    """
+    if not re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+        raise ValueError(f"Invalid date format: {date_str}. Expected YYYY-MM-DD")
+    return date_str
 
 
 def get_hist_universe_crsp(year: int, month: int, db: Optional[wrds.Connection] = None) -> pl.DataFrame:
@@ -32,14 +46,21 @@ def get_hist_universe_crsp(year: int, month: int, db: Optional[wrds.Connection] 
 
     try:
         # Use end-of-month as "as of" date
+        # Validate year and month to ensure they are integers within valid ranges
+        if not isinstance(year, int) or year < 1900 or year > 2100:
+            raise ValueError(f"Invalid year: {year}. Must be an integer between 1900 and 2100")
+        if not isinstance(month, int) or month < 1 or month > 12:
+            raise ValueError(f"Invalid month: {month}. Must be an integer between 1 and 12")
+
         asof = f"{year}-{month:02d}-28"
+        validated_asof = validate_date_string(asof)
 
         sql = f"""
         SELECT DISTINCT
             ticker, tsymbol, permno, comnam, shrcd, exchcd
         FROM crsp_a_stock.dsenames
-        WHERE namedt <= '{asof}'
-          AND nameendt >= '{asof}'
+        WHERE namedt <= '{validated_asof}'
+          AND nameendt >= '{validated_asof}'
           AND ticker IS NOT NULL
           AND shrcd IN (10, 11)
           AND exchcd IN (1, 2, 3)

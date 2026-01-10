@@ -1,16 +1,21 @@
 import datetime as dt
 from pathlib import Path
 import logging
+import os
+from dotenv import load_dotenv
 from botocore.exceptions import ClientError
 from quantdl.storage.s3_client import S3Client
 from typing import Optional
 from quantdl.utils.logger import setup_logger
 
+load_dotenv()
+
 
 class Validator:
-    def __init__(self, s3_client=None):
+    def __init__(self, s3_client=None, bucket_name: Optional[str] = None):
         self.s3_client = s3_client or S3Client().client
-        self.bucket_name = "us-equity-datalake"
+        # Allow bucket_name to be passed as parameter or from environment variable
+        self.bucket_name = bucket_name or os.getenv('S3_BUCKET_NAME', 'us-equity-datalake')
         self.log_dir = Path("data/logs/validation")
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.logger = setup_logger(

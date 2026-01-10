@@ -8,8 +8,14 @@ from collections import defaultdict
 import polars as pl
 import json
 import yaml
+import os
+from dotenv import load_dotenv
 
-HEADER = {'User-Agent': 'name@example.com'}
+load_dotenv()
+
+# SEC requires a valid User-Agent header (email or contact info)
+# Set via environment variable SEC_USER_AGENT or fallback to placeholder
+HEADER = {'User-Agent': os.getenv('SEC_USER_AGENT', 'your_name@example.com')}
 
 FIELD_CONFIG_PATH = Path("configs/approved_mapping.yaml")
 
