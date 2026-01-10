@@ -1,5 +1,8 @@
 # US Equity Data Lake
 
+[![Tests](https://github.com/dafu-zhu/us-equity-datalake/actions/workflows/tests.yml/badge.svg)](https://github.com/dafu-zhu/us-equity-datalake/actions/workflows/tests.yml)
+[![Coverage](https://codecov.io/gh/dafu-zhu/us-equity-datalake/branch/main/graph/badge.svg)](https://codecov.io/gh/dafu-zhu/us-equity-datalake)
+
 A self-hosted, automated market data infrastructure for US equities using official/authoritative sources, with daily updates and programmatic access via Python API.
 
 ## Overview

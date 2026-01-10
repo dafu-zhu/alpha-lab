@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.storage.data_collectors import DataCollectors
 from src.collection.alpaca_ticks import Ticks
 from src.collection.crsp_ticks import CRSPDailyTicks
-from src.storage.upload_app import UploadApp
+from src.storage.app import UploadApp
 from quantdl.utils.logger import setup_logger
 
 
@@ -208,7 +208,7 @@ def example_2_upload_fundamental():
         print("  Storage: data/raw/fundamental/{symbol}/fundamental.parquet\n")
 
         # CAUTION: This will upload data for ALL symbols in the universe!
-        # For testing, you may want to modify the universe in upload_app.py
+        # For testing, you may want to modify the universe in app.py
         # or test with a smaller year/subset
 
         app.upload_fundamental(
