@@ -157,7 +157,92 @@ This document provides comprehensive documentation for the test suite of the US 
 
 ---
 
+## Integration Tests (`tests/integration/`)
+
+### 1. S3 Storage Integration (`test_s3_storage.py`)
+
+**TestS3ClientIntegration** - S3Client configuration and initialization
+- ✅ Client initialization with config file
+- ✅ boto3 Config object creation
+- ✅ Retry settings configuration
+- ✅ S3-specific settings (addressing_style, payload signing)
+- ✅ boto3 client creation with credentials
+- ✅ Error handling for missing config
+
+**TestValidatorIntegration** - Validator with mocked S3
+- ✅ Validator initialization with custom bucket
+- ✅ Listing files under S3 prefix
+- ✅ S3 pagination handling
+- ✅ Data existence checks (daily ticks, minute ticks, fundamental, TTM)
+- ✅ Derived data tier support
+- ✅ 404 error handling
+- ✅ S3 error handling
+- ✅ Parameter validation
+- ✅ Top 3000 symbols file checks
+- ✅ Available years listing
+
+**TestS3ClientValidatorWorkflow** - End-to-end S3 workflows
+- ✅ S3Client → Validator → S3 operations workflow
+- ✅ Multiple validator operations in sequence
+
+**Coverage**: Full integration coverage of S3 operations
+**Test Count**: 30 tests
+
+---
+
+### 2. Universe Manager Integration (`test_universe_manager.py`)
+
+**TestUniverseManagerIntegration** - UniverseManager orchestration
+- ✅ Initialization with default parameters
+- ✅ Initialization with custom CRSP fetcher
+- ✅ Initialization with SecurityMaster
+- ✅ Getting current symbols from Nasdaq
+- ✅ Symbol caching and refresh
+- ✅ Loading symbols for future years (≥2025)
+- ✅ Loading symbols for historical years (<2025)
+- ✅ SEC format conversion (period → hyphen)
+- ✅ Top 3000 calculation with CRSP data
+- ✅ Top 3000 calculation with Alpaca data
+- ✅ Liquidity filtering
+- ✅ Limiting to 3000 stocks
+- ✅ Connection management and cleanup
+
+**TestUniverseManagerWorkflow** - Complete workflows
+- ✅ Current year workflow (get symbols → get top 3000)
+- ✅ Historical year workflow (load historical → get top 3000)
+- ✅ Symbol format conversion workflow
+- ✅ Error recovery and handling
+
+**Coverage**: Full orchestration and workflow coverage
+**Test Count**: 28 tests
+
+---
+
+### 3. Data Collection Workflows (`test_data_workflow.py`)
+
+**TestDataCollectionWorkflow** - End-to-end data pipelines
+- ✅ Tick data collection workflow (fetch → validate → upload)
+- ✅ Fundamental data collection workflow
+- ✅ TTM computation workflow
+- ✅ Derived metrics workflow
+- ✅ Multi-symbol batch processing
+- ✅ Error handling in workflows
+- ✅ Data validation workflow
+
+**TestDataStorageWorkflow** - Storage organization
+- ✅ S3 key generation for different data types
+- ✅ Parquet serialization/deserialization
+- ✅ Data tier organization (raw vs derived)
+- ✅ Batch upload workflow
+
+**Coverage**: Complete workflow coverage
+**Test Count**: 11 tests
+
+---
+
 ## Test Statistics Summary
+
+### Unit Tests
 
 | Module Category | Files Tested | Test Count | Estimated Coverage |
 |----------------|-------------|------------|-------------------|
@@ -165,7 +250,24 @@ This document provides comprehensive documentation for the test suite of the US 
 | Derived        | 2           | 24         | 95%               |
 | Universe       | 1           | 22         | 90%               |
 | Storage        | 2           | 23         | 100%              |
-| **TOTAL**      | **6**       | **84**     | **~96%**          |
+| **Unit Total** | **6**       | **84**     | **~96%**          |
+
+### Integration Tests
+
+| Module Category | Files Tested | Test Count | Estimated Coverage |
+|----------------|-------------|------------|-------------------|
+| S3 Storage     | 1           | 30         | 100%              |
+| Universe Mgr   | 1           | 28         | 100%              |
+| Data Workflows | 1           | 11         | 90%               |
+| **Integration Total** | **3** | **69** | **~97%**        |
+
+### Overall Summary
+
+| Test Type | Test Files | Test Count | Coverage |
+|-----------|-----------|------------|----------|
+| Unit Tests | 6 | 84 | ~96% |
+| Integration Tests | 3 | 69 | ~97% |
+| **GRAND TOTAL** | **9** | **153** | **~96%** |
 
 ## Test Infrastructure
 
