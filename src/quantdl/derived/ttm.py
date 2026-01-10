@@ -34,7 +34,10 @@ def compute_ttm_long(
             from quantdl.collection.fundamental import DURATION_CONCEPTS
 
             duration_concepts = DURATION_CONCEPTS
-        except Exception:
+        except (ImportError, AttributeError) as e:
+            # Fallback if DURATION_CONCEPTS is not available
+            if logger:
+                logger.debug(f"Could not import DURATION_CONCEPTS: {e}. Using empty set.")
             duration_concepts = set()
 
     required_cols = {

@@ -14,12 +14,15 @@ import datetime as dt
 import logging
 import queue
 import threading
+import os
 from pathlib import Path
 from typing import Dict, List, Optional, Callable, Any, cast
 import requests
 import polars as pl
 from boto3.s3.transfer import TransferConfig
+from dotenv import load_dotenv
 
+load_dotenv()
 
 
 class DataPublishers:
@@ -32,7 +35,8 @@ class DataPublishers:
         s3_client,
         upload_config,
         logger: logging.Logger,
-        data_collectors
+        data_collectors,
+        bucket_name: Optional[str] = None
     ):
         """
         Initialize data publishers.
@@ -40,11 +44,15 @@ class DataPublishers:
         :param s3_client: Boto3 S3 client instance
         :param upload_config: UploadConfig instance with transfer settings
         :param logger: Logger instance
+        :param data_collectors: Data collectors instance
+        :param bucket_name: S3 bucket name (defaults to environment variable or 'us-equity-datalake')
         """
         self.s3_client = s3_client
         self.upload_config = upload_config
         self.logger = logger
         self.data_collectors = data_collectors
+        # Allow bucket_name to be passed as parameter or from environment variable
+        self.bucket_name = bucket_name or os.getenv('S3_BUCKET_NAME', 'us-equity-datalake')
 
     def upload_fileobj(
         self,
@@ -87,7 +95,7 @@ class DataPublishers:
         # Upload
         self.s3_client.upload_fileobj(
             Fileobj=data,
-            Bucket='us-equity-datalake',
+            Bucket=self.bucket_name,
             Key=key,
             Config=transfer_config,
             ExtraArgs=extra_args

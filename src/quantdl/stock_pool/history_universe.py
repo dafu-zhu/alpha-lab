@@ -6,6 +6,7 @@ import wrds
 import os
 from dotenv import load_dotenv
 from quantdl.master.security_master import SymbolNormalizer, SecurityMaster
+from quantdl.utils.validation import validate_date_string, validate_year, validate_month
 
 load_dotenv()
 
@@ -32,14 +33,19 @@ def get_hist_universe_crsp(year: int, month: int, db: Optional[wrds.Connection] 
 
     try:
         # Use end-of-month as "as of" date
-        asof = f"{year}-{month:02d}-28"
+        # Validate year and month to ensure they are integers within valid ranges
+        validated_year = validate_year(year)
+        validated_month = validate_month(month)
+
+        asof = f"{validated_year}-{validated_month:02d}-28"
+        validated_asof = validate_date_string(asof)
 
         sql = f"""
         SELECT DISTINCT
             ticker, tsymbol, permno, comnam, shrcd, exchcd
         FROM crsp_a_stock.dsenames
-        WHERE namedt <= '{asof}'
-          AND nameendt >= '{asof}'
+        WHERE namedt <= '{validated_asof}'
+          AND nameendt >= '{validated_asof}'
           AND ticker IS NOT NULL
           AND shrcd IN (10, 11)
           AND exchcd IN (1, 2, 3)
