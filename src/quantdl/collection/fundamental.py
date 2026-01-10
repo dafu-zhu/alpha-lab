@@ -46,7 +46,9 @@ def extract_concept(facts: dict, concept: str) -> Optional[dict]:
     """
     Extract a financial concept from SEC XBRL facts using mapping candidates.
 
-    Searches through candidate tags in priority order and returns the first available field.
+    Searches through ALL candidate tags and merges data from all available fields.
+    This handles cases where companies switch from deprecated to new XBRL tags
+    (e.g., SalesRevenueNet -> Revenues in 2018).
 
     Supports two mapping formats:
     - New format: concept: [tag1, tag2, ...]
@@ -54,7 +56,7 @@ def extract_concept(facts: dict, concept: str) -> Optional[dict]:
 
     :param facts: Complete facts dictionary from SEC EDGAR API response
     :param concept: Concept name as defined in MAPPINGS (e.g., 'revenue', 'total assets')
-    :return: Field data with units structure, or None if concept not found
+    :return: Field data with merged units from all matching tags, or None if no tags found
     :raises KeyError: If concept not defined in MAPPINGS
     :raises ValueError: If tag format is invalid
     """
@@ -73,22 +75,55 @@ def extract_concept(facts: dict, concept: str) -> Optional[dict]:
     else:
         raise ValueError(f"Invalid mapping format for concept '{concept}': expected dict or list")
 
+    # Collect all matching fields' data
+    all_field_data = []
     for tag in tags:
         if ':' in tag:
             prefix, local = tag.split(':', 1)  # Use maxsplit=1 in case local name has ':'
         else:
             raise ValueError(f'Tag must include prefix: {tag}')
 
-        # Check if prefix exists in facts
-        if prefix not in facts:
+        # Check if this tag exists
+        if prefix in facts and local in facts[prefix]:
+            all_field_data.append(facts[prefix][local])
+
+    if not all_field_data:
+        return None
+
+    # If only one field found, return it directly
+    if len(all_field_data) == 1:
+        return all_field_data[0]
+
+    # Merge data from multiple fields (handles deprecated tag transitions)
+    # Structure: {label: "...", description: "...", units: {USD: [...], shares: [...]}}
+    merged = {
+        'label': all_field_data[0].get('label', ''),
+        'description': all_field_data[0].get('description', ''),
+        'units': {}
+    }
+
+    # Merge units from all matching fields
+    for field_data in all_field_data:
+        if 'units' not in field_data:
             continue
+        for unit_type, unit_data in field_data['units'].items():
+            if unit_type not in merged['units']:
+                merged['units'][unit_type] = []
+            merged['units'][unit_type].extend(unit_data)
 
-        # Check if local tag exists in the prefix namespace
-        if local in facts[prefix]:
-            return facts[prefix][local]
+    # Deduplicate data points by (accn, frame, filed) to avoid double-counting
+    # This handles edge cases where the same data might appear under multiple tags
+    for unit_type in merged['units']:
+        seen = {}
+        for dp in merged['units'][unit_type]:
+            # Use accn (filing accession number) + frame + filed as unique key
+            key = (dp.get('accn'), dp.get('frame'), dp.get('filed'))
+            # Keep the first occurrence (or could use latest filed date if needed)
+            if key not in seen:
+                seen[key] = dp
+        merged['units'][unit_type] = list(seen.values())
 
-    # No matching tag found for this concept
-    return None
+    return merged
 
 
 class SECClient:
