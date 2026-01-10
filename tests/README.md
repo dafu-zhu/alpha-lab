@@ -235,11 +235,8 @@ export PYTHONPATH=/path/to/us-equity-datalake/src:$PYTHONPATH
 ### Missing Test Dependencies
 
 ```bash
-# Install test dependencies
-uv pip install -r requirements-test.txt
-
-# Or add them to pyproject.toml dev dependencies
-uv add --dev pytest pytest-cov pytest-xdist pytest-mock
+# Install with dev dependencies
+uv sync --group dev
 ```
 
 ### Fixture Not Found
