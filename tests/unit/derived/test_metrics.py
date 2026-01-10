@@ -4,6 +4,7 @@ Tests computation of derived fundamental metrics
 """
 import pytest
 import polars as pl
+from unittest.mock import Mock
 from quantdl.derived.metrics import compute_derived
 
 
@@ -31,51 +32,51 @@ class TestComputeDerived:
     @pytest.fixture
     def sample_ttm_data(self):
         """Create sample TTM data for testing"""
-        # Create 2 quarters of data with all required concepts
-        dates = ['2024-06-30', '2024-09-30']
+        # Create 5 quarters of data with all required concepts
+        dates = ['2023-09-30', '2023-12-31', '2024-03-31', '2024-06-30', '2024-09-30']
 
         data = {
-            'symbol': ['AAPL'] * 32,  # 16 concepts × 2 quarters
+            'symbol': ['AAPL'] * 80,  # 16 concepts × 5 quarters
             'as_of_date': dates * 16,
             'concept': (
-                ['rev'] * 2 + ['cor'] * 2 + ['op_inc'] * 2 + ['net_inc'] * 2 +
-                ['dna'] * 2 + ['std'] * 2 + ['ltd'] * 2 + ['cce'] * 2 +
-                ['ca'] * 2 + ['cl'] * 2 + ['cfo'] * 2 + ['capex'] * 2 +
-                ['ta'] * 2 + ['te'] * 2 + ['inc_tax_exp'] * 2 + ['ibt'] * 2
+                ['rev'] * 5 + ['cor'] * 5 + ['op_inc'] * 5 + ['net_inc'] * 5 +
+                ['dna'] * 5 + ['std'] * 5 + ['ltd'] * 5 + ['cce'] * 5 +
+                ['ca'] * 5 + ['cl'] * 5 + ['cfo'] * 5 + ['capex'] * 5 +
+                ['ta'] * 5 + ['te'] * 5 + ['inc_tax_exp'] * 5 + ['ibt'] * 5
             ),
             'value': [
                 # Revenue
-                100000.0, 110000.0,
+                90000.0, 95000.0, 98000.0, 100000.0, 110000.0,
                 # Cost of revenue
-                60000.0, 65000.0,
+                54000.0, 57000.0, 59000.0, 60000.0, 65000.0,
                 # Operating income
-                30000.0, 35000.0,
+                27000.0, 28500.0, 29500.0, 30000.0, 35000.0,
                 # Net income
-                25000.0, 28000.0,
+                22500.0, 24000.0, 24500.0, 25000.0, 28000.0,
                 # Depreciation and amortization
-                5000.0, 5500.0,
+                4500.0, 4800.0, 4900.0, 5000.0, 5500.0,
                 # Short-term debt
-                10000.0, 11000.0,
+                9000.0, 9500.0, 9800.0, 10000.0, 11000.0,
                 # Long-term debt
-                50000.0, 52000.0,
+                48000.0, 49000.0, 49500.0, 50000.0, 52000.0,
                 # Cash and cash equivalents
-                20000.0, 22000.0,
+                18000.0, 19000.0, 19500.0, 20000.0, 22000.0,
                 # Current assets
-                80000.0, 85000.0,
+                76000.0, 78000.0, 79000.0, 80000.0, 85000.0,
                 # Current liabilities
-                50000.0, 52000.0,
+                47000.0, 48000.0, 49000.0, 50000.0, 52000.0,
                 # Cash from operations
-                35000.0, 38000.0,
+                33000.0, 34000.0, 34500.0, 35000.0, 38000.0,
                 # CapEx
-                15000.0, 16000.0,
+                14000.0, 14500.0, 14800.0, 15000.0, 16000.0,
                 # Total assets
-                200000.0, 210000.0,
+                180000.0, 185000.0, 190000.0, 200000.0, 210000.0,
                 # Total equity
-                120000.0, 125000.0,
+                110000.0, 113000.0, 116000.0, 120000.0, 125000.0,
                 # Income tax expense
-                8000.0, 9000.0,
+                7000.0, 7500.0, 7800.0, 8000.0, 9000.0,
                 # Income before tax
-                33000.0, 37000.0
+                30000.0, 32000.0, 34000.0, 33000.0, 37000.0
             ]
         }
 
@@ -169,13 +170,13 @@ class TestComputeDerived:
         # Test average assets (should use shift, so Q2 only)
         avg_ast = q2.filter(pl.col('metric') == 'avg_ast')
         assert len(avg_ast) == 1
-        expected_avg_ast = (210000.0 + 200000.0) / 2  # Current + previous
+        expected_avg_ast = (210000.0 + 180000.0) / 2  # Current + 1Y ago
         assert avg_ast['value'][0] == pytest.approx(expected_avg_ast)
 
         # Test average equity (should use shift, so Q2 only)
         avg_eqt = q2.filter(pl.col('metric') == 'avg_eqt')
         assert len(avg_eqt) == 1
-        expected_avg_eqt = (125000.0 + 120000.0) / 2
+        expected_avg_eqt = (125000.0 + 110000.0) / 2
         assert avg_eqt['value'][0] == pytest.approx(expected_avg_eqt)
 
         # Test ROA = net income / avg assets
@@ -352,3 +353,23 @@ class TestComputeDerived:
         # EBITDA shouldn't work (missing op_inc and dna)
         ebitda = result.filter(pl.col('metric') == 'ebitda')
         assert ebitda.is_empty()
+
+    def test_compute_derived_logs_error_on_exception(self, monkeypatch):
+        """Test that compute_derived logs and returns empty on unexpected errors"""
+        df = pl.DataFrame({
+            'symbol': ['AAPL'],
+            'as_of_date': ['2024-06-30'],
+            'concept': ['rev'],
+            'value': [100000.0]
+        })
+        logger = Mock()
+
+        def _raise_pivot(*args, **kwargs):
+            raise RuntimeError("pivot failed")
+
+        monkeypatch.setattr(pl.DataFrame, "pivot", _raise_pivot)
+
+        result = compute_derived(df, logger=logger, symbol="AAPL")
+
+        assert result.is_empty()
+        logger.error.assert_called()

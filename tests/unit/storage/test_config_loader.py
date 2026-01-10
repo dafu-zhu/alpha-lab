@@ -5,6 +5,7 @@ Tests configuration loading from YAML files
 import pytest
 import tempfile
 import yaml
+from unittest.mock import patch
 from pathlib import Path
 from quantdl.storage.config_loader import UploadConfig
 
@@ -197,3 +198,50 @@ class TestUploadConfig:
                     _ = config.transfer
         finally:
             Path(temp_path).unlink(missing_ok=True)
+
+    def test_properties_do_not_reload_when_config_cached(self):
+        """If config already loaded, properties should not call load."""
+        config = UploadConfig(config_path="configs/storage.yaml")
+        config._config = {'client': {'region_name': 'us-east-1'}, 'transfer': {'max_concurrency': 5}}
+
+        with patch.object(config, "load", side_effect=AssertionError("load called")):
+            _ = config.client
+            _ = config.transfer
+
+    def test_path_conversion_to_path_object(self):
+        """Test that config_path is converted to Path object"""
+        config = UploadConfig(config_path="configs/storage.yaml")
+        assert isinstance(config.config_path, Path)
+
+    def test_client_property_lazy_load(self, sample_config_file):
+        """Test that client property triggers lazy load"""
+        config = UploadConfig(config_path=sample_config_file)
+        assert config._config is None
+
+        client = config.client
+        assert config._config is not None
+        assert 'region_name' in client
+
+    def test_transfer_property_lazy_load(self, sample_config_file):
+        """Test that transfer property triggers lazy load"""
+        config = UploadConfig(config_path=sample_config_file)
+        assert config._config is None
+
+        transfer = config.transfer
+        assert config._config is not None
+        assert 'multipart_threshold' in transfer
+
+    def test_config_caching_after_load(self, sample_config_file):
+        """Test that config is cached after first load"""
+        config = UploadConfig(config_path=sample_config_file)
+
+        # First access loads config
+        client1 = config.client
+        first_config = config._config
+
+        # Second access uses cached config
+        client2 = config.client
+        second_config = config._config
+
+        assert first_config is second_config
+        assert client1 == client2

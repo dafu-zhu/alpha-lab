@@ -104,12 +104,12 @@ class TestRateLimiter:
 
         # Make 10 requests
         num_requests = 10
-        start = time.time()
+        start = time.perf_counter()
 
         for _ in range(num_requests):
             limiter.acquire()
 
-        elapsed = time.time() - start
+        elapsed = time.perf_counter() - start
 
         # Expected: ~0.95 seconds for 10 requests at 9.5 req/sec
         expected_min_time = (num_requests - 1) / 9.5
