@@ -50,12 +50,11 @@ def extract_concept(facts: dict, concept: str) -> Optional[dict]:
     This handles cases where companies switch from deprecated to new XBRL tags
     (e.g., SalesRevenueNet -> Revenues in 2018).
 
-    Supports two mapping formats:
-    - New format: concept: [tag1, tag2, ...]
-    - Old format: concept: {gaap_candidates: [tag1, tag2, ...]}
+    Mapping format in approved_mapping.yaml:
+        concept: [tag1, tag2, ...]
 
     :param facts: Complete facts dictionary from SEC EDGAR API response
-    :param concept: Concept name as defined in MAPPINGS (e.g., 'revenue', 'total assets')
+    :param concept: Concept name as defined in MAPPINGS (e.g., 'rev', 'ta')
     :return: Field data with merged units from all matching tags, or None if no tags found
     :raises KeyError: If concept not defined in MAPPINGS
     :raises ValueError: If tag format is invalid
@@ -63,17 +62,10 @@ def extract_concept(facts: dict, concept: str) -> Optional[dict]:
     if concept not in MAPPINGS:
         raise KeyError(f"Concept '{concept}' not defined in MAPPINGS")
 
-    mapping = MAPPINGS[concept]
+    tags = MAPPINGS[concept]
 
-    # Support both old format {gaap_candidates: [...]} and new format [...]
-    if isinstance(mapping, dict):
-        # Old format: concept: {gaap_candidates: [...]}
-        tags = mapping.get('gaap_candidates', [])
-    elif isinstance(mapping, list):
-        # New format: concept: [...]
-        tags = mapping
-    else:
-        raise ValueError(f"Invalid mapping format for concept '{concept}': expected dict or list")
+    if not isinstance(tags, list):
+        raise ValueError(f"Invalid mapping format for concept '{concept}': expected list of tags")
 
     # Collect all matching fields' data
     all_field_data = []
