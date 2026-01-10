@@ -55,6 +55,13 @@ def get_hist_universe_crsp(year: int, month: int, db: Optional[wrds.Connection] 
         # Execute query
         df = db.raw_sql(sql)
 
+        if df.empty:
+            return pl.DataFrame({
+                'Ticker': [],
+                'Name': [],
+                'PERMNO': []
+            })
+
         # Convert to Polars DataFrame with proper schema
         result = pl.DataFrame({
             'Ticker': df['tsymbol'].str.upper().tolist(),  # Ensure uppercase

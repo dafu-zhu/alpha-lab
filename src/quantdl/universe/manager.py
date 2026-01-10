@@ -103,7 +103,7 @@ class UniverseManager:
 
             self.logger.info(f"Loaded {len(symbols)} symbols for {year} (format={sym_type})")
             return symbols
-
+        
         except Exception as e:
             self.logger.error(f"Failed to load symbols for {year}: {e}", exc_info=True)
             return []

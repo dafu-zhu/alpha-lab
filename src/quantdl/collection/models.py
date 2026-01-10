@@ -4,6 +4,7 @@ from typing import Optional, List
 import datetime
 from typing import Dict
 from enum import Enum
+import logging
 
 @dataclass
 class FndDataPoint:
@@ -54,3 +55,16 @@ class DataSource(ABC):
     def get_coverage_period(self) -> tuple[str, str]:
         """Return (start_date, end_date) of coverage"""
         pass
+
+
+class DataCollector(ABC):
+    """Abstract base class for market data collectors.
+
+    All data collectors should inherit from this to ensure consistent
+    interface for fetching market data from different sources.
+    """
+
+    @abstractmethod
+    def __init__(self, logger: logging.Logger, **kwargs):
+        """Initialize collector with logger and optional dependencies."""
+        self.logger = logger

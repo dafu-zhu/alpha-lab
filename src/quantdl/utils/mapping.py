@@ -35,12 +35,33 @@ def align_calendar(
         .lazy()
     )
 
-    # Create DataFrame and conditionally drop optional columns
+    # Handle the case when empty data is passed
+    if not data:
+        result = (
+            calendar_lf.collect()
+            .with_columns([
+                pl.col('timestamp').dt.strftime('%Y-%m-%d'),
+                pl.lit(None, dtype=pl.Float64).alias('open'),
+                pl.lit(None, dtype=pl.Float64).alias('high'),
+                pl.lit(None, dtype=pl.Float64).alias('low'),
+                pl.lit(None, dtype=pl.Float64).alias('close'),
+                pl.lit(None, dtype=pl.Int64).alias('volume'),
+            ])
+            .to_dicts()
+        )
+        return result
+
+    # Parse different formats of timestamp
     ticks_df = pl.DataFrame(data).with_columns([
-        pl.coalesce(
-            pl.col('timestamp').str.to_datetime(format='%Y-%m-%dT%H:%M:%S', strict=False),
-            pl.col('timestamp').str.to_date(strict=False).cast(pl.Datetime),
-        ).dt.date(),
+        pl.when(pl.col('timestamp').str.contains('T'))
+        .then(pl.col('timestamp').str.to_datetime(format='%Y-%m-%dT%H:%M:%S', strict=False))
+        .otherwise(
+            pl.col('timestamp')
+            .str.to_date(format='%Y-%m-%d', strict=False)
+            .cast(pl.Datetime)
+        )
+        .dt.date()
+        .alias('timestamp'),
         pl.col('open').cast(pl.Float64),
         pl.col('high').cast(pl.Float64),
         pl.col('low').cast(pl.Float64),
@@ -55,7 +76,7 @@ def align_calendar(
         ticks_df = ticks_df.drop(cols_to_drop)
 
     ticks_lf = ticks_df.sort('timestamp').lazy()
-    calendar_lf = calendar_lf.join_asof(ticks_lf, on='timestamp')
+    calendar_lf = calendar_lf.join(ticks_lf, on='timestamp', how='left')
 
     # Collect, convert timestamp to string, and return as list of dicts
     result = (

@@ -23,7 +23,7 @@ def is_common_stock(name: str) -> bool:
 
     :return: True if the security is a common stock, False otherwise.
     """
-    if pd.isna(name) or not isinstance(name, str):
+    if pd.isna(name) or not isinstance(name, str) or not name.strip():
         return False
 
     # Direct exclusions (simple substring matching)

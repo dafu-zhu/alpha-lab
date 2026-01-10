@@ -1,4 +1,4 @@
-from quantdl.storage.upload_app import UploadApp
+from quantdl.storage.app import UploadApp
 
 def main() -> None:
     app = UploadApp()
