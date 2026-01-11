@@ -647,7 +647,9 @@ class TestSecurityMaster:
             'security_id': [101],
             'permno': [1],
             'symbol': ['AAA'],
+            'company': ['AAA Corp'],
             'cik': ['0001'],
+            'cusip': ['11111111'],
             'start_date': [dt.date(2020, 1, 1)],
             'end_date': [dt.date(2020, 12, 31)]
         }))
@@ -655,4 +657,30 @@ class TestSecurityMaster:
         result = sm.master_table()
 
         assert 'security_id' in result.columns
+        assert result.select('security_id').item() == 101
+
+    def test_master_table_preserves_security_id_with_null_cik(self):
+        sm = SecurityMaster.__new__(SecurityMaster)
+        sm.cik_cusip = pl.DataFrame({
+            'permno': [1],
+            'symbol': ['AAC'],
+            'company': ['AAC Corp'],
+            'cik': [None],
+            'cusip': ['12345678'],
+            'start_date': [dt.date(2009, 1, 1)],
+            'end_date': [dt.date(2009, 12, 31)]
+        })
+        sm.security_map = Mock(return_value=pl.DataFrame({
+            'security_id': [101],
+            'permno': [1],
+            'symbol': ['AAC'],
+            'company': ['AAC Corp'],
+            'cik': [None],
+            'cusip': ['12345678'],
+            'start_date': [dt.date(2009, 1, 1)],
+            'end_date': [dt.date(2009, 12, 31)]
+        }))
+
+        result = sm.master_table()
+
         assert result.select('security_id').item() == 101

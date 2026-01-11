@@ -5,6 +5,7 @@ Tests WRDS CRSP daily tick data collection functionality
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 import pandas as pd
+from pathlib import Path
 from quantdl.collection.crsp_ticks import CRSPDailyTicks
 
 
@@ -55,8 +56,8 @@ class TestCRSPDailyTicks:
         crsp = CRSPDailyTicks(conn=mock_conn)
 
         # Verify calendar paths
-        assert str(crsp.calendar_dir).endswith('data/calendar')
-        assert str(crsp.calendar_path).endswith('data/calendar/master.parquet')
+        assert crsp.calendar_dir == Path("data/calendar")
+        assert crsp.calendar_path == Path("data/calendar/master.parquet")
 
     @patch('quantdl.collection.crsp_ticks.SecurityMaster')
     @patch('quantdl.collection.crsp_ticks.setup_logger')

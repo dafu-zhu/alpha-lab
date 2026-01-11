@@ -232,6 +232,219 @@ class TestTicksDataCollector:
         assert result[("AAPL", "2024-06-03")].is_empty()
         mock_logger.error.assert_called()
 
+    def test_collect_daily_ticks_month_filters_correctly(self):
+        """Test that collect_daily_ticks_month calls month-specific API for Alpaca (2025+)"""
+        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.collection.models import TickDataPoint
+
+        mock_crsp = Mock()
+        mock_alpaca = Mock()
+
+        # Mock Alpaca's get_daily() to return June data only
+        june_bars = [
+            {
+                "t": "2025-06-30T04:00:00Z",
+                "o": 103.0,
+                "h": 108.0,
+                "l": 102.0,
+                "c": 107.0,
+                "v": 1300000,
+                "n": 1000,
+                "vw": 105.5
+            }
+        ]
+        mock_alpaca.get_daily.return_value = june_bars
+        mock_alpaca.parse_ticks.return_value = [
+            TickDataPoint(
+                timestamp="2025-06-30T00:00:00",
+                open=103.0,
+                high=108.0,
+                low=102.0,
+                close=107.0,
+                volume=1300000,
+                num_trades=1000,
+                vwap=105.5
+            )
+        ]
+
+        collector = TicksDataCollector(
+            crsp_ticks=mock_crsp,
+            alpaca_ticks=mock_alpaca,
+            alpaca_headers={},
+            logger=Mock(spec=logging.Logger)
+        )
+
+        # Test June (month=6) for year 2025 (uses Alpaca)
+        result = collector.collect_daily_ticks_month("AAPL", 2025, 6)
+
+        # Verify get_daily() was called with month parameter (not get_daily_year())
+        mock_alpaca.get_daily.assert_called_once_with(
+            symbol="AAPL",
+            year=2025,
+            month=6,
+            adjusted=True
+        )
+        mock_alpaca.parse_ticks.assert_called_once_with(june_bars)
+
+        assert len(result) == 1
+        assert result["timestamp"][0] == "2025-06-30"
+        assert result["close"][0] == 107.0
+
+    def test_collect_daily_ticks_month_uses_year_df(self):
+        """Test that collect_daily_ticks_month filters from provided year_df."""
+        from quantdl.storage.data_collectors import TicksDataCollector
+
+        mock_crsp = Mock()
+        mock_alpaca = Mock()
+
+        collector = TicksDataCollector(
+            crsp_ticks=mock_crsp,
+            alpaca_ticks=mock_alpaca,
+            alpaca_headers={},
+            logger=Mock(spec=logging.Logger)
+        )
+
+        year_df = pl.DataFrame({
+            "timestamp": ["2024-06-30", "2024-07-01"],
+            "open": [190.0, 191.0],
+            "high": [195.0, 196.0],
+            "low": [189.0, 190.0],
+            "close": [193.0, 194.0],
+            "volume": [50000000, 51000000]
+        })
+
+        result = collector.collect_daily_ticks_month("AAPL", 2024, 6, year_df=year_df)
+
+        assert len(result) == 1
+        assert result["timestamp"][0] == "2024-06-30"
+        mock_crsp.collect_daily_ticks.assert_not_called()
+        mock_alpaca.get_daily.assert_not_called()
+
+    def test_collect_daily_ticks_month_empty_when_no_data(self):
+        """Test that collect_daily_ticks_month returns empty when month has no data (Alpaca)"""
+        from quantdl.storage.data_collectors import TicksDataCollector
+
+        mock_crsp = Mock()
+        mock_alpaca = Mock()
+
+        # Mock Alpaca's get_daily() to return empty data for requested month
+        mock_alpaca.get_daily.return_value = []
+
+        collector = TicksDataCollector(
+            crsp_ticks=mock_crsp,
+            alpaca_ticks=mock_alpaca,
+            alpaca_headers={},
+            logger=Mock(spec=logging.Logger)
+        )
+
+        # Test June (month=6) for year 2025 which has no data
+        result = collector.collect_daily_ticks_month("AAPL", 2025, 6)
+
+        # Verify get_daily() was called with month parameter
+        mock_alpaca.get_daily.assert_called_once_with(
+            symbol="AAPL",
+            year=2025,
+            month=6,
+            adjusted=True
+        )
+
+        assert result.is_empty()
+
+    def test_collect_daily_ticks_month_crsp(self):
+        """Test that collect_daily_ticks_month calls CRSP API for years < 2025"""
+        from quantdl.storage.data_collectors import TicksDataCollector
+
+        mock_crsp = Mock()
+        mock_alpaca = Mock()
+
+        # Mock CRSP's collect_daily_ticks() to return month data
+        june_data = [
+            {
+                "timestamp": "2024-06-30",
+                "open": 190.0,
+                "high": 195.0,
+                "low": 189.0,
+                "close": 193.0,
+                "volume": 50000000
+            }
+        ]
+        mock_crsp.collect_daily_ticks.return_value = june_data
+
+        collector = TicksDataCollector(
+            crsp_ticks=mock_crsp,
+            alpaca_ticks=mock_alpaca,
+            alpaca_headers={},
+            logger=Mock(spec=logging.Logger)
+        )
+
+        # Test June (month=6) for year 2024 (uses CRSP)
+        result = collector.collect_daily_ticks_month("AAPL", 2024, 6)
+
+        # Verify collect_daily_ticks() was called with month parameter
+        mock_crsp.collect_daily_ticks.assert_called_once_with(
+            symbol="AAPL",
+            year=2024,
+            month=6,
+            adjusted=True,
+            auto_resolve=True
+        )
+
+        assert len(result) == 1
+        assert result["timestamp"][0] == "2024-06-30"
+
+    def test_collect_daily_ticks_month_crsp_empty(self):
+        """Test that collect_daily_ticks_month returns empty when CRSP has no data"""
+        from quantdl.storage.data_collectors import TicksDataCollector
+
+        mock_crsp = Mock()
+        mock_alpaca = Mock()
+
+        # Mock CRSP's collect_daily_ticks() to return empty data
+        mock_crsp.collect_daily_ticks.return_value = []
+
+        collector = TicksDataCollector(
+            crsp_ticks=mock_crsp,
+            alpaca_ticks=mock_alpaca,
+            alpaca_headers={},
+            logger=Mock(spec=logging.Logger)
+        )
+
+        # Test June (month=6) for year 2024 which has no data
+        result = collector.collect_daily_ticks_month("AAPL", 2024, 6)
+
+        # Verify collect_daily_ticks() was called with month parameter
+        mock_crsp.collect_daily_ticks.assert_called_once_with(
+            symbol="AAPL",
+            year=2024,
+            month=6,
+            adjusted=True,
+            auto_resolve=True
+        )
+
+        assert result.is_empty()
+
+    def test_collect_daily_ticks_month_crsp_not_active(self):
+        """Test that collect_daily_ticks_month handles 'not active' errors from CRSP"""
+        from quantdl.storage.data_collectors import TicksDataCollector
+
+        mock_crsp = Mock()
+        mock_alpaca = Mock()
+
+        # Mock CRSP to raise ValueError with "not active on" message
+        mock_crsp.collect_daily_ticks.side_effect = ValueError("AAPL not active on 2024-06")
+
+        collector = TicksDataCollector(
+            crsp_ticks=mock_crsp,
+            alpaca_ticks=mock_alpaca,
+            alpaca_headers={},
+            logger=Mock(spec=logging.Logger)
+        )
+
+        # Should return empty DataFrame without raising error
+        result = collector.collect_daily_ticks_month("AAPL", 2024, 6)
+
+        assert result.is_empty()
+
 
 class TestFundamentalDataCollector:
     """Test FundamentalDataCollector class (refactored)"""

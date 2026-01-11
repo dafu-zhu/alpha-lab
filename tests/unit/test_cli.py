@@ -36,9 +36,11 @@ class TestCLI:
             max_workers=50,
             sleep_time=0.03,
             overwrite=True,
+            run_daily_ticks=True,
+            run_minute_ticks=False,
             run_fundamental=False,
             run_derived_fundamental=False,
-            run_ttm_fundamental=True,
+            run_ttm_fundamental=False,
         )
 
     @patch('quantdl.cli.UploadApp')

@@ -25,7 +25,35 @@ def _make_app():
 
 
 class TestUploadApp:
-    def test_upload_daily_ticks_success(self):
+    def test_upload_daily_ticks_success_monthly(self):
+        """Test upload with monthly partitions (default behavior)"""
+        app = _make_app()
+        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT"]
+        app.validator.data_exists.return_value = False
+
+        df = pl.DataFrame({
+            "timestamp": ["2024-06-30"],
+            "open": [190.0],
+            "high": [195.0],
+            "low": [189.0],
+            "close": [193.0],
+            "volume": [50000000]
+        })
+        app.data_collectors.collect_daily_ticks_month.return_value = df
+        app.data_publishers.publish_daily_ticks.return_value = {
+            "status": "success",
+            "error": None
+        }
+
+        result = app.upload_daily_ticks(2024, use_monthly_partitions=True)
+
+        assert result is None
+        # Should be called for 2 symbols × 12 months = 24 times
+        assert app.data_collectors.collect_daily_ticks_month.call_count == 24
+        assert app.data_publishers.publish_daily_ticks.call_count == 24
+
+    def test_upload_daily_ticks_success_yearly(self):
+        """Test upload with yearly partitions (legacy)"""
         app = _make_app()
         app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT"]
         app.validator.data_exists.return_value = False
@@ -44,18 +72,38 @@ class TestUploadApp:
             "error": None
         }
 
-        result = app.upload_daily_ticks(2024)
+        result = app.upload_daily_ticks(2024, use_monthly_partitions=False)
 
         assert result is None
         assert app.data_collectors.collect_daily_ticks_year.call_count == 2
         assert app.data_publishers.publish_daily_ticks.call_count == 2
 
-    def test_upload_daily_ticks_skips_existing(self):
+    def test_upload_daily_ticks_by_year(self):
+        """Test upload with monthly partitions using by_year publishing."""
+        app = _make_app()
+        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT"]
+        app.validator.data_exists.return_value = False
+        app.data_collectors.collect_daily_ticks_year_bulk.return_value = {}
+        app.data_publishers.publish_daily_ticks.return_value = {
+            "status": "success",
+            "error": None
+        }
+
+        result = app.upload_daily_ticks(2024, use_monthly_partitions=True, by_year=True)
+
+        assert result is None
+        app.data_collectors.collect_daily_ticks_year_bulk.assert_called_once_with(["AAPL", "MSFT"], 2024)
+        assert app.data_publishers.publish_daily_ticks.call_count == 2
+        app.data_collectors.collect_daily_ticks_month.assert_not_called()
+        app.data_collectors.collect_daily_ticks_year.assert_not_called()
+
+    def test_upload_daily_ticks_skips_existing_yearly(self):
+        """Test that existing data is skipped for yearly partitions"""
         app = _make_app()
         app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
         app.validator.data_exists.return_value = True
 
-        result = app.upload_daily_ticks(2024)
+        result = app.upload_daily_ticks(2024, use_monthly_partitions=False)
 
         assert result is None
         app.data_collectors.collect_daily_ticks_year.assert_not_called()
@@ -95,17 +143,30 @@ class TestUploadApp:
         except Exception:
             pass
 
-    def test_publish_single_daily_ticks_skips_existing(self):
+    def test_publish_single_daily_ticks_skips_existing_yearly(self):
+        """Test that existing data is skipped for yearly partitions"""
         app = _make_app()
         app.validator.data_exists.return_value = True
 
-        result = app._publish_single_daily_ticks("AAPL", 2024, overwrite=False)
+        result = app._publish_single_daily_ticks("AAPL", 2024, overwrite=False, use_monthly_partitions=False)
 
         assert result["status"] == "canceled"
         app.data_collectors.collect_daily_ticks_year.assert_not_called()
         app.data_publishers.publish_daily_ticks.assert_not_called()
 
-    def test_publish_single_daily_ticks_success(self):
+    def test_publish_single_daily_ticks_skips_existing_monthly(self):
+        """Test that existing data is skipped for monthly partitions"""
+        app = _make_app()
+        app.validator.data_exists.return_value = True
+
+        result = app._publish_single_daily_ticks("AAPL", 2024, month=6, overwrite=False, use_monthly_partitions=True)
+
+        assert result["status"] == "canceled"
+        app.data_collectors.collect_daily_ticks_month.assert_not_called()
+        app.data_publishers.publish_daily_ticks.assert_not_called()
+
+    def test_publish_single_daily_ticks_success_yearly(self):
+        """Test successful publish with yearly partition"""
         app = _make_app()
         app.validator.data_exists.return_value = False
         df = pl.DataFrame({
@@ -119,13 +180,35 @@ class TestUploadApp:
         app.data_collectors.collect_daily_ticks_year.return_value = df
         app.data_publishers.publish_daily_ticks.return_value = {"status": "success"}
 
-        result = app._publish_single_daily_ticks("AAPL", 2024, overwrite=False)
+        result = app._publish_single_daily_ticks("AAPL", 2024, overwrite=False, use_monthly_partitions=False)
 
         assert result["status"] == "success"
         app.data_collectors.collect_daily_ticks_year.assert_called_once()
-        app.data_publishers.publish_daily_ticks.assert_called_once()
+        app.data_publishers.publish_daily_ticks.assert_called_once_with("AAPL", 2024, df, by_year=False)
+
+    def test_publish_single_daily_ticks_success_monthly(self):
+        """Test successful publish with monthly partition"""
+        app = _make_app()
+        app.validator.data_exists.return_value = False
+        df = pl.DataFrame({
+            "timestamp": ["2024-06-30"],
+            "open": [190.0],
+            "high": [195.0],
+            "low": [189.0],
+            "close": [193.0],
+            "volume": [50000000]
+        })
+        app.data_collectors.collect_daily_ticks_month.return_value = df
+        app.data_publishers.publish_daily_ticks.return_value = {"status": "success"}
+
+        result = app._publish_single_daily_ticks("AAPL", 2024, month=6, overwrite=False, use_monthly_partitions=True)
+
+        assert result["status"] == "success"
+        app.data_collectors.collect_daily_ticks_month.assert_called_once_with("AAPL", 2024, 6)
+        app.data_publishers.publish_daily_ticks.assert_called_once_with("AAPL", 2024, df, month=6, by_year=False)
 
     def test_publish_single_daily_ticks_overwrite_ignores_existing(self):
+        """Test that overwrite ignores existing check"""
         app = _make_app()
         app.validator.data_exists.return_value = True
         df = pl.DataFrame({
@@ -139,7 +222,7 @@ class TestUploadApp:
         app.data_collectors.collect_daily_ticks_year.return_value = df
         app.data_publishers.publish_daily_ticks.return_value = {"status": "success"}
 
-        result = app._publish_single_daily_ticks("AAPL", 2024, overwrite=True)
+        result = app._publish_single_daily_ticks("AAPL", 2024, overwrite=True, use_monthly_partitions=False)
 
         assert result["status"] == "success"
         app.data_collectors.collect_daily_ticks_year.assert_called_once()
