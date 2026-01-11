@@ -62,7 +62,7 @@ class TestDailyUpdateAppInitialization:
         mock_logger.assert_called_once_with(
             name="daily_update",
             log_dir=Path("data/logs/update"),
-            level=20,  # logging.DEBUG = 20
+            level=10,  # logging.DEBUG = 10
             console_output=True
         )
 
