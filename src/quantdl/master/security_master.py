@@ -12,6 +12,7 @@ import logging
 
 from quantdl.utils.logger import setup_logger
 from quantdl.universe.current import fetch_all_stocks
+from quantdl.utils.wrds import raw_sql_with_retry
 
 load_dotenv()
 
@@ -278,7 +279,7 @@ class SecurityMaster:
 
         # Execute and load into a DataFrame
         self.logger.info("Fetching CIK-CUSIP mapping from WRDS...")
-        map_df = self.db.raw_sql(query)
+        map_df = raw_sql_with_retry(self.db, query)
         map_df['namedt'] = pd.to_datetime(map_df['namedt'])
         map_df['nameenddt'] = pd.to_datetime(map_df['nameenddt'])
         map_df['cikdate1'] = pd.to_datetime(map_df['cikdate1'])

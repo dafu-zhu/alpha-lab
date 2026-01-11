@@ -252,7 +252,7 @@ class UploadApp:
                                 )
 
                     self.logger.info(
-                        f"{year}-{month:02d} completed: {success} success, {failed} failed, "
+                        f"{year}-{month:02d} completed: {failed} failed, {success} success, "
                         f"{canceled} canceled, {skipped} skipped out of {total_symbols} total"
                     )
                 return
@@ -311,7 +311,7 @@ class UploadApp:
                         )
 
                 self.logger.info(
-                    f"{year} completed: {success} success, {failed} failed, "
+                    f"{year} completed: {failed} failed, {success} success, "
                     f"{canceled} canceled, {skipped} skipped out of {total_symbols} total"
                 )
             else:
@@ -349,10 +349,10 @@ class UploadApp:
                                 f"({success} success, {failed} failed, {canceled} canceled, {skipped} skipped)"
                             )
 
-                    self.logger.info(
-                        f"{year}-{month:02d} completed: {success} success, {failed} failed, "
-                        f"{canceled} canceled, {skipped} skipped out of {total_symbols} total"
-                    )
+                        self.logger.info(
+                            f"{year}-{month:02d} completed: {failed} failed, {success} success, "
+                            f"{canceled} canceled, {skipped} skipped out of {total_symbols} total"
+                        )
 
         else:
             # Legacy yearly partitions
@@ -571,7 +571,7 @@ class UploadApp:
                 worker.join()
 
         self.logger.info(
-            f"Minute ticks upload completed: {stats['success']} success, {stats['failed']} failed, "
+            f"Minute ticks upload completed: {stats['failed']} failed, {stats['success']} success, "
             f"{stats['canceled']} canceled, {stats['skipped']} skipped out of {total_tasks} total"
         )
 
@@ -1266,7 +1266,8 @@ class UploadApp:
             run_ttm_fundamental: bool=False,
             run_daily_ticks: bool=False,
             run_minute_ticks: bool=False,
-            run_top_3000: bool=False
+            run_top_3000: bool=False,
+            run_all: bool=False
         ) -> None:
         """
         Run the complete workflow, fetch and upload fundamental, daily ticks and minute ticks data within the period
@@ -1293,6 +1294,14 @@ class UploadApp:
         """
         start_date = f"{start_year}-01-01"
         end_date = f"{end_year}-12-31"
+
+        if run_all:
+            run_fundamental = True
+            run_derived_fundamental = True
+            run_ttm_fundamental = True
+            run_daily_ticks = True
+            run_minute_ticks = True
+            run_top_3000 = True
 
         if run_fundamental:
             self.logger.info(

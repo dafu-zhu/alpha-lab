@@ -5,7 +5,7 @@ from quantdl.storage.app import UploadApp
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run data lake upload workflows")
-    parser.add_argument("--start-year", type=int, default=2010)
+    parser.add_argument("--start-year", type=int, default=2009)
     parser.add_argument("--end-year", type=int, default=2025)
     parser.add_argument("--overwrite", action="store_true")
 
@@ -15,6 +15,7 @@ def main() -> None:
     parser.add_argument("--run-daily-ticks", action="store_true")
     parser.add_argument("--run-minute-ticks", action="store_true")
     parser.add_argument("--run-top-3000", action="store_true")
+    parser.add_argument("--run-all", action="store_true")
 
     parser.add_argument("--alpaca-start-year", type=int, default=2025)
     parser.add_argument("--minute-start-year", type=int, default=2017)
@@ -47,7 +48,8 @@ def main() -> None:
             run_ttm_fundamental=args.run_ttm_fundamental,
             run_daily_ticks=args.run_daily_ticks,
             run_minute_ticks=args.run_minute_ticks,
-            run_top_3000=args.run_top_3000
+            run_top_3000=args.run_top_3000,
+            run_all=args.run_all
         )
     finally:
         app.close()

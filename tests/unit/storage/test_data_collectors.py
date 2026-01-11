@@ -60,6 +60,43 @@ class TestTicksDataCollector:
         assert mock_crsp.collect_daily_ticks.called
         assert not mock_alpaca.fetch_daily_year_bulk.called
 
+    def test_collect_daily_ticks_year_crsp_raises_on_other_errors(self):
+        """CRSP path re-raises unexpected errors."""
+        from quantdl.storage.data_collectors import TicksDataCollector
+
+        mock_crsp = Mock()
+        mock_crsp.collect_daily_ticks.side_effect = ValueError("boom")
+        mock_logger = Mock(spec=logging.Logger)
+
+        collector = TicksDataCollector(
+            crsp_ticks=mock_crsp,
+            alpaca_ticks=Mock(),
+            alpaca_headers={},
+            logger=mock_logger
+        )
+
+        with pytest.raises(ValueError, match="boom"):
+            collector.collect_daily_ticks_year("AAPL", 2024)
+
+    def test_collect_daily_ticks_year_crsp_empty_returns_empty(self):
+        """CRSP path returns empty DataFrame when no months return data."""
+        from quantdl.storage.data_collectors import TicksDataCollector
+
+        mock_crsp = Mock()
+        mock_crsp.collect_daily_ticks.side_effect = [[] for _ in range(12)]
+        mock_logger = Mock(spec=logging.Logger)
+
+        collector = TicksDataCollector(
+            crsp_ticks=mock_crsp,
+            alpaca_ticks=Mock(),
+            alpaca_headers={},
+            logger=mock_logger
+        )
+
+        result = collector.collect_daily_ticks_year("AAPL", 2024)
+
+        assert result.is_empty()
+
     def test_collect_daily_ticks_year_alpaca(self):
         """Test collecting daily ticks for year >= 2025 (uses Alpaca)"""
         from quantdl.storage.data_collectors import TicksDataCollector
@@ -134,6 +171,26 @@ class TestTicksDataCollector:
         mock_alpaca.fetch_minute_month_bulk.assert_called_once_with(['AAPL'], 2024, 1, 0.2)
         assert 'AAPL' in result
 
+    def test_fetch_minute_day(self):
+        """Test fetching minute data for day."""
+        from quantdl.storage.data_collectors import TicksDataCollector
+
+        mock_alpaca = Mock()
+        mock_alpaca.fetch_minute_day_bulk.return_value = {"AAPL": []}
+        mock_logger = Mock(spec=logging.Logger)
+
+        collector = TicksDataCollector(
+            crsp_ticks=Mock(),
+            alpaca_ticks=mock_alpaca,
+            alpaca_headers={},
+            logger=mock_logger
+        )
+
+        result = collector.fetch_minute_day(["AAPL"], "2024-01-02", sleep_time=0.1)
+
+        mock_alpaca.fetch_minute_day_bulk.assert_called_once_with(["AAPL"], "2024-01-02", 0.1)
+        assert "AAPL" in result
+
     def test_collect_daily_ticks_year_crsp_skips_inactive_months(self):
         """CRSP path skips inactive months and formats output."""
         from quantdl.storage.data_collectors import TicksDataCollector
@@ -180,6 +237,28 @@ class TestTicksDataCollector:
         result = collector.collect_daily_ticks_year("AAPL", 2025)
 
         assert result.is_empty()
+
+    def test_collect_daily_ticks_year_bulk_crsp_delegates(self):
+        """CRSP bulk year fetch delegates and returns mapping."""
+        from quantdl.storage.data_collectors import TicksDataCollector
+
+        mock_crsp = Mock()
+        mock_crsp.collect_daily_ticks_year_bulk.return_value = {"AAPL": pl.DataFrame()}
+        mock_logger = Mock(spec=logging.Logger)
+
+        collector = TicksDataCollector(
+            crsp_ticks=mock_crsp,
+            alpaca_ticks=Mock(),
+            alpaca_headers={},
+            logger=mock_logger
+        )
+
+        result = collector.collect_daily_ticks_year_bulk(["AAPL"], 2024)
+
+        mock_crsp.collect_daily_ticks_year_bulk.assert_called_once_with(
+            ["AAPL"], 2024, adjusted=True, auto_resolve=True
+        )
+        assert "AAPL" in result
 
     def test_collect_daily_ticks_year_bulk_alpaca(self):
         """Bulk Alpaca year fetch returns normalized DataFrames."""
@@ -281,6 +360,35 @@ class TestTicksDataCollector:
 
         assert len(result[("AAPL", "2024-06-03")]) == 1
         assert len(result[("AAPL", "2024-06-04")]) == 1
+
+    def test_parse_minute_bars_to_daily_missing_day_empty(self):
+        """Days without data return empty DataFrames."""
+        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.collection.models import TickField
+
+        collector = TicksDataCollector(
+            crsp_ticks=Mock(),
+            alpaca_ticks=Mock(),
+            alpaca_headers={},
+            logger=Mock(spec=logging.Logger)
+        )
+        bars = [
+            {
+                TickField.TIMESTAMP.value: "2024-06-03T14:30:00Z",
+                TickField.OPEN.value: 1.0,
+                TickField.HIGH.value: 1.1,
+                TickField.LOW.value: 0.9,
+                TickField.CLOSE.value: 1.0,
+                TickField.VOLUME.value: 100,
+                TickField.NUM_TRADES.value: 5,
+                TickField.VWAP.value: 1.02
+            }
+        ]
+
+        result = collector.parse_minute_bars_to_daily({"AAPL": bars}, ["2024-06-03", "2024-06-04"])
+
+        assert len(result[("AAPL", "2024-06-03")]) == 1
+        assert result[("AAPL", "2024-06-04")].is_empty()
 
     def test_parse_minute_bars_to_daily_error(self):
         """Invalid bars return empty frames and log error."""
@@ -385,6 +493,45 @@ class TestTicksDataCollector:
         assert result["timestamp"][0] == "2024-06-30"
         mock_crsp.collect_daily_ticks.assert_not_called()
         mock_alpaca.fetch_daily_month_bulk.assert_not_called()
+
+    def test_collect_daily_ticks_month_year_df_empty(self):
+        """Year DF empty returns empty."""
+        from quantdl.storage.data_collectors import TicksDataCollector
+
+        collector = TicksDataCollector(
+            crsp_ticks=Mock(),
+            alpaca_ticks=Mock(),
+            alpaca_headers={},
+            logger=Mock(spec=logging.Logger)
+        )
+
+        result = collector.collect_daily_ticks_month("AAPL", 2024, 6, year_df=pl.DataFrame())
+
+        assert result.is_empty()
+
+    def test_collect_daily_ticks_month_year_df_filtered_empty(self):
+        """Year DF with other months returns empty."""
+        from quantdl.storage.data_collectors import TicksDataCollector
+
+        collector = TicksDataCollector(
+            crsp_ticks=Mock(),
+            alpaca_ticks=Mock(),
+            alpaca_headers={},
+            logger=Mock(spec=logging.Logger)
+        )
+
+        year_df = pl.DataFrame({
+            "timestamp": ["2024-07-01"],
+            "open": [1.0],
+            "high": [1.1],
+            "low": [0.9],
+            "close": [1.0],
+            "volume": [100]
+        })
+
+        result = collector.collect_daily_ticks_month("AAPL", 2024, 6, year_df=year_df)
+
+        assert result.is_empty()
 
     def test_collect_daily_ticks_month_empty_when_no_data(self):
         """Test that collect_daily_ticks_month returns empty when month has no data (Alpaca)"""
@@ -563,6 +710,23 @@ class TestTicksDataCollector:
 
         assert result.is_empty()
 
+    def test_collect_daily_ticks_month_crsp_other_error_raises(self):
+        """Unexpected CRSP errors are re-raised."""
+        from quantdl.storage.data_collectors import TicksDataCollector
+
+        mock_crsp = Mock()
+        mock_crsp.collect_daily_ticks.side_effect = ValueError("boom")
+
+        collector = TicksDataCollector(
+            crsp_ticks=mock_crsp,
+            alpaca_ticks=Mock(),
+            alpaca_headers={},
+            logger=Mock(spec=logging.Logger)
+        )
+
+        with pytest.raises(ValueError, match="boom"):
+            collector.collect_daily_ticks_month("AAPL", 2024, 6)
+
     def test_collect_daily_ticks_month_alpaca_exception(self):
         """Alpaca path returns empty and logs warning on exception."""
         from quantdl.storage.data_collectors import TicksDataCollector
@@ -624,6 +788,37 @@ class TestTicksDataCollector:
         assert result["timestamp"][0] == "2024-06-30"
         mock_align.assert_called()
 
+    def test_collect_daily_ticks_month_year_df_aligns_december_end(self, tmp_path):
+        """Calendar alignment uses December 31 as end date."""
+        from quantdl.storage.data_collectors import TicksDataCollector
+
+        mock_crsp = Mock()
+        mock_crsp.calendar_path = str(tmp_path / "calendar.csv")
+        (tmp_path / "calendar.csv").write_text("date\n")
+
+        collector = TicksDataCollector(
+            crsp_ticks=mock_crsp,
+            alpaca_ticks=Mock(),
+            alpaca_headers={},
+            logger=Mock(spec=logging.Logger)
+        )
+
+        year_df = pl.DataFrame({
+            "timestamp": ["2024-12-15"],
+            "open": [1.0],
+            "high": [1.1],
+            "low": [0.9],
+            "close": [1.0],
+            "volume": [100]
+        })
+
+        with patch('quantdl.storage.data_collectors.align_calendar', return_value=year_df.to_dicts()) as mock_align:
+            collector.collect_daily_ticks_month("AAPL", 2024, 12, year_df=year_df)
+
+        call_args = mock_align.call_args[0]
+        assert call_args[1] == dt.date(2024, 12, 1)
+        assert call_args[2] == dt.date(2024, 12, 31)
+
     def test_collect_daily_ticks_month_bulk_crsp(self):
         """Bulk month fetch uses per-symbol CRSP path for years < 2025."""
         from quantdl.storage.data_collectors import TicksDataCollector
@@ -653,6 +848,28 @@ class TestTicksDataCollector:
         assert result["MSFT"]["close"][0] == 193.0
         assert collector.collect_daily_ticks_month.call_count == 2
         mock_alpaca.fetch_daily_month_bulk.assert_not_called()
+
+    def test_normalize_daily_df_adds_missing_columns(self):
+        """Missing columns are added and types normalized."""
+        from quantdl.storage.data_collectors import TicksDataCollector
+
+        collector = TicksDataCollector(
+            crsp_ticks=Mock(),
+            alpaca_ticks=Mock(),
+            alpaca_headers={},
+            logger=Mock(spec=logging.Logger)
+        )
+
+        df = pl.DataFrame({
+            "timestamp": ["2024-01-02"],
+            "close": [101.123456]
+        })
+
+        result = collector._normalize_daily_df(df)
+
+        for col in ["open", "high", "low", "volume"]:
+            assert col in result.columns
+        assert result["close"][0] == 101.1235
 
 
 class TestFundamentalDataCollector:
@@ -768,6 +985,37 @@ class TestFundamentalDataCollector:
         assert two is f2
         assert len(collector._fundamental_cache) == 0
 
+    def test_get_or_create_fundamental_cache_hit(self):
+        """Cache hit returns existing instance without creating new one."""
+        from quantdl.storage import data_collectors as dc
+
+        collector = dc.FundamentalDataCollector(logger=Mock(spec=logging.Logger))
+        cached = Mock()
+        collector._fundamental_cache = OrderedDict([("0001", cached)])
+
+        with patch('quantdl.storage.data_collectors.Fundamental') as mock_fundamental:
+            result = collector._get_or_create_fundamental("0001")
+
+        assert result is cached
+        mock_fundamental.assert_not_called()
+
+    def test_get_or_create_fundamental_evicts_oldest(self):
+        """Cache evicts oldest when capacity exceeded."""
+        from quantdl.storage import data_collectors as dc
+
+        collector = dc.FundamentalDataCollector(logger=Mock(spec=logging.Logger), fundamental_cache_size=1)
+
+        with patch('quantdl.storage.data_collectors.Fundamental') as mock_fundamental:
+            f1 = Mock()
+            f2 = Mock()
+            mock_fundamental.side_effect = [f1, f2]
+
+            collector._get_or_create_fundamental("0001")
+            collector._get_or_create_fundamental("0002")
+
+        assert "0001" not in collector._fundamental_cache
+        assert "0002" in collector._fundamental_cache
+
     def test_collect_fundamental_long_records(self):
         """Builds records from concept data within date range."""
         from quantdl.storage.data_collectors import FundamentalDataCollector
@@ -828,6 +1076,45 @@ class TestFundamentalDataCollector:
         assert len(result) == 1
         assert result.select("concept").item() == "rev"
 
+    def test_collect_fundamental_long_no_records(self):
+        """No records returns empty and logs warning."""
+        from quantdl.storage.data_collectors import FundamentalDataCollector
+
+        mock_logger = Mock(spec=logging.Logger)
+        collector = FundamentalDataCollector(logger=mock_logger)
+        fund = Mock()
+        fund.get_concept_data.return_value = []
+        collector._get_or_create_fundamental = Mock(return_value=fund)
+
+        result = collector.collect_fundamental_long(
+            cik="0001",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            symbol="AAPL",
+            concepts=["rev"]
+        )
+
+        assert result.is_empty()
+        mock_logger.warning.assert_called_once()
+
+    def test_collect_fundamental_long_outer_exception(self):
+        """Outer exception returns empty and logs error."""
+        from quantdl.storage.data_collectors import FundamentalDataCollector
+
+        mock_logger = Mock(spec=logging.Logger)
+        collector = FundamentalDataCollector(logger=mock_logger)
+        collector._load_concepts = Mock(side_effect=ValueError("bad"))
+
+        result = collector.collect_fundamental_long(
+            cik="0001",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            symbol="AAPL"
+        )
+
+        assert result.is_empty()
+        mock_logger.error.assert_called_once()
+
     def test_collect_ttm_long_range_filters_dates(self):
         """TTM data is filtered to date range."""
         from quantdl.storage import data_collectors as dc
@@ -864,6 +1151,104 @@ class TestFundamentalDataCollector:
 
         assert len(result) == 1
 
+    def test_collect_ttm_long_range_skips_after_end_date(self):
+        """Records after end_date are skipped leading to empty output."""
+        from quantdl.storage.data_collectors import FundamentalDataCollector
+
+        mock_logger = Mock(spec=logging.Logger)
+        collector = FundamentalDataCollector(logger=mock_logger)
+        dp = Mock()
+        dp.timestamp = dt.date(2025, 1, 1)
+        dp.accn = "0001"
+        dp.form = "10-Q"
+        dp.value = 123.0
+        dp.start_date = dt.date(2024, 10, 1)
+        dp.end_date = dt.date(2024, 12, 31)
+        dp.frame = "CY2024Q4"
+
+        fund = Mock()
+        fund.get_concept_data.return_value = [dp]
+        collector._get_or_create_fundamental = Mock(return_value=fund)
+
+        result = collector.collect_ttm_long_range(
+            cik="0001",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            symbol="AAPL",
+            concepts=["rev"]
+        )
+
+        assert result.is_empty()
+        mock_logger.warning.assert_called_once()
+
+    def test_collect_ttm_long_range_concept_error(self):
+        """Concept extraction errors are logged and skipped."""
+        from quantdl.storage.data_collectors import FundamentalDataCollector
+
+        mock_logger = Mock(spec=logging.Logger)
+        collector = FundamentalDataCollector(logger=mock_logger)
+        fund = Mock()
+        fund.get_concept_data.side_effect = Exception("bad")
+        collector._get_or_create_fundamental = Mock(return_value=fund)
+
+        result = collector.collect_ttm_long_range(
+            cik="0001",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            symbol="AAPL",
+            concepts=["rev"]
+        )
+
+        assert result.is_empty()
+        mock_logger.debug.assert_called()
+
+    def test_collect_ttm_long_range_empty_ttm_df(self):
+        """Empty TTM result returns empty DataFrame."""
+        from quantdl.storage.data_collectors import FundamentalDataCollector
+
+        collector = FundamentalDataCollector(logger=Mock(spec=logging.Logger))
+        dp = Mock()
+        dp.timestamp = dt.date(2024, 6, 30)
+        dp.accn = "0001"
+        dp.form = "10-Q"
+        dp.value = 123.0
+        dp.start_date = dt.date(2024, 4, 1)
+        dp.end_date = dt.date(2024, 6, 30)
+        dp.frame = "CY2024Q2"
+
+        fund = Mock()
+        fund.get_concept_data.return_value = [dp]
+        collector._get_or_create_fundamental = Mock(return_value=fund)
+
+        with patch('quantdl.storage.data_collectors.compute_ttm_long', return_value=pl.DataFrame()):
+            result = collector.collect_ttm_long_range(
+                cik="0001",
+                start_date="2024-01-01",
+                end_date="2024-12-31",
+                symbol="AAPL",
+                concepts=["rev"]
+            )
+
+        assert result.is_empty()
+
+    def test_collect_ttm_long_range_outer_exception(self):
+        """Outer exception returns empty and logs error."""
+        from quantdl.storage.data_collectors import FundamentalDataCollector
+
+        mock_logger = Mock(spec=logging.Logger)
+        collector = FundamentalDataCollector(logger=mock_logger)
+        collector._load_concepts = Mock(side_effect=ValueError("bad"))
+
+        result = collector.collect_ttm_long_range(
+            cik="0001",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            symbol="AAPL"
+        )
+
+        assert result.is_empty()
+        mock_logger.error.assert_called_once()
+
     def test_build_metrics_wide_no_ttm_records(self):
         """No duration concept records returns empty output."""
         from quantdl.storage import data_collectors as dc
@@ -882,6 +1267,120 @@ class TestFundamentalDataCollector:
                 symbol="AAPL",
                 concepts=["rev"]
             )
+
+        assert metrics_df.is_empty()
+        assert metadata is None
+
+    def test_build_metrics_wide_fundamental_init_error(self):
+        """Initialization failure returns empty output and None metadata."""
+        from quantdl.storage import data_collectors as dc
+
+        mock_logger = Mock(spec=logging.Logger)
+        collector = dc.FundamentalDataCollector(logger=mock_logger)
+        collector._get_or_create_fundamental = Mock(side_effect=RuntimeError("boom"))
+
+        metrics_df, metadata = collector._build_metrics_wide(
+            cik="0001",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            symbol="AAPL",
+            concepts=["rev"]
+        )
+
+        assert metrics_df.is_empty()
+        assert metadata is None
+        mock_logger.error.assert_called_once()
+
+    def test_build_metrics_wide_handles_concept_error(self):
+        """Concept errors are logged and skipped."""
+        from quantdl.storage import data_collectors as dc
+
+        mock_logger = Mock(spec=logging.Logger)
+        collector = dc.FundamentalDataCollector(logger=mock_logger)
+        fund = Mock()
+        fund.get_concept_data.side_effect = Exception("bad")
+        collector._get_or_create_fundamental = Mock(return_value=fund)
+
+        metrics_df, metadata = collector._build_metrics_wide(
+            cik="0001",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            symbol="AAPL",
+            concepts=["rev"]
+        )
+
+        assert metrics_df.is_empty()
+        assert metadata is None
+        mock_logger.debug.assert_called()
+
+    def test_build_metrics_wide_empty_ttm_df(self):
+        """Empty TTM output returns empty metrics."""
+        from quantdl.storage import data_collectors as dc
+
+        collector = dc.FundamentalDataCollector(logger=Mock(spec=logging.Logger))
+        dp = Mock()
+        dp.timestamp = dt.date(2024, 6, 30)
+        dp.accn = "0001"
+        dp.form = "10-Q"
+        dp.value = 123.0
+        dp.start_date = dt.date(2024, 4, 1)
+        dp.end_date = dt.date(2024, 6, 30)
+        dp.frame = "CY2024Q2"
+
+        fund = Mock()
+        fund.get_concept_data.return_value = [dp]
+        collector._get_or_create_fundamental = Mock(return_value=fund)
+
+        with patch('quantdl.storage.data_collectors.DURATION_CONCEPTS', ["rev"]):
+            with patch('quantdl.storage.data_collectors.compute_ttm_long', return_value=pl.DataFrame()):
+                metrics_df, metadata = collector._build_metrics_wide(
+                    cik="0001",
+                    start_date="2024-01-01",
+                    end_date="2024-12-31",
+                    symbol="AAPL",
+                    concepts=["rev"]
+                )
+
+        assert metrics_df.is_empty()
+        assert metadata is None
+
+    def test_build_metrics_wide_filters_out_of_range(self):
+        """TTM data outside date range returns empty."""
+        from quantdl.storage import data_collectors as dc
+
+        collector = dc.FundamentalDataCollector(logger=Mock(spec=logging.Logger))
+        dp = Mock()
+        dp.timestamp = dt.date(2023, 12, 31)
+        dp.accn = "0001"
+        dp.form = "10-K"
+        dp.value = 123.0
+        dp.start_date = dt.date(2023, 1, 1)
+        dp.end_date = dt.date(2023, 12, 31)
+        dp.frame = "CY2023"
+
+        fund = Mock()
+        fund.get_concept_data.return_value = [dp]
+        collector._get_or_create_fundamental = Mock(return_value=fund)
+
+        ttm_df = pl.DataFrame({
+            "symbol": ["AAPL"],
+            "as_of_date": ["2023-12-31"],
+            "concept": ["rev"],
+            "value": [123.0],
+            "accn": ["0001"],
+            "form": ["10-K"],
+            "frame": ["CY2023"]
+        })
+
+        with patch('quantdl.storage.data_collectors.DURATION_CONCEPTS', ["rev"]):
+            with patch('quantdl.storage.data_collectors.compute_ttm_long', return_value=ttm_df):
+                metrics_df, metadata = collector._build_metrics_wide(
+                    cik="0001",
+                    start_date="2024-01-01",
+                    end_date="2024-12-31",
+                    symbol="AAPL",
+                    concepts=["rev"]
+                )
 
         assert metrics_df.is_empty()
         assert metadata is None
@@ -927,6 +1426,102 @@ class TestFundamentalDataCollector:
         assert "rev" in metrics_df.columns
         assert "eps" in metrics_df.columns
 
+    def test_build_metrics_wide_missing_duration_columns(self):
+        """Missing duration columns are added with nulls."""
+        from quantdl.storage import data_collectors as dc
+
+        collector = dc.FundamentalDataCollector(logger=Mock(spec=logging.Logger))
+        dp = Mock()
+        dp.timestamp = dt.date(2024, 6, 30)
+        dp.accn = "0001"
+        dp.form = "10-Q"
+        dp.value = 123.0
+        dp.start_date = dt.date(2024, 4, 1)
+        dp.end_date = dt.date(2024, 6, 30)
+        dp.frame = "CY2024Q2"
+
+        fund = Mock()
+        fund.get_concept_data.return_value = [dp]
+        collector._get_or_create_fundamental = Mock(return_value=fund)
+
+        ttm_df = pl.DataFrame({
+            "symbol": ["AAPL"],
+            "as_of_date": ["2024-06-30"],
+            "concept": ["rev"],
+            "value": [123.0],
+            "accn": ["0001"],
+            "form": ["10-Q"],
+            "frame": ["CY2024Q2"]
+        })
+
+        with patch('quantdl.storage.data_collectors.DURATION_CONCEPTS', ["rev", "eps"]):
+            with patch('quantdl.storage.data_collectors.compute_ttm_long', return_value=ttm_df):
+                metrics_df, metadata = collector._build_metrics_wide(
+                    cik="0001",
+                    start_date="2024-01-01",
+                    end_date="2024-12-31",
+                    symbol="AAPL",
+                    concepts=["rev", "eps"]
+                )
+
+        assert "eps" in metrics_df.columns
+
+    def test_build_metrics_wide_missing_stock_columns_added(self):
+        """Missing stock columns are added when not present after join."""
+        from quantdl.storage import data_collectors as dc
+
+        collector = dc.FundamentalDataCollector(logger=Mock(spec=logging.Logger))
+        dp_duration = Mock()
+        dp_duration.timestamp = dt.date(2024, 6, 30)
+        dp_duration.accn = "0001"
+        dp_duration.form = "10-Q"
+        dp_duration.value = 123.0
+        dp_duration.start_date = dt.date(2024, 4, 1)
+        dp_duration.end_date = dt.date(2024, 6, 30)
+        dp_duration.frame = "CY2024Q2"
+
+        dp_stock = Mock()
+        dp_stock.timestamp = dt.date(2024, 6, 30)
+        dp_stock.accn = "0001"
+        dp_stock.form = "10-Q"
+        dp_stock.value = 5.0
+        dp_stock.start_date = None
+        dp_stock.end_date = dt.date(2024, 6, 30)
+        dp_stock.frame = "CY2024Q2"
+
+        def _concept_data(concept):
+            if concept == "rev":
+                return [dp_duration]
+            if concept == "eps":
+                return [dp_stock]
+            return []
+
+        fund = Mock()
+        fund.get_concept_data.side_effect = _concept_data
+        collector._get_or_create_fundamental = Mock(return_value=fund)
+
+        ttm_df = pl.DataFrame({
+            "symbol": ["AAPL"],
+            "as_of_date": ["2024-06-30"],
+            "concept": ["rev"],
+            "value": [123.0],
+            "accn": ["0001"],
+            "form": ["10-Q"],
+            "frame": ["CY2024Q2"]
+        })
+
+        with patch('quantdl.storage.data_collectors.DURATION_CONCEPTS', ["rev"]):
+            with patch('quantdl.storage.data_collectors.compute_ttm_long', return_value=ttm_df):
+                metrics_df, metadata = collector._build_metrics_wide(
+                    cik="0001",
+                    start_date="2024-01-01",
+                    end_date="2024-12-31",
+                    symbol="AAPL",
+                    concepts=["rev", "eps", "pe"]
+                )
+
+        assert "pe" in metrics_df.columns
+
     def test_collect_derived_long_derived_empty(self):
         """Derived empty returns reason."""
         from quantdl.storage import data_collectors as dc
@@ -967,6 +1562,36 @@ class TestFundamentalDataCollector:
 
         assert result.is_empty()
         assert reason == "metrics_wide_empty"
+
+    def test_collect_derived_long_filters_dates(self):
+        """Derived output is filtered to date range."""
+        from quantdl.storage.data_collectors import FundamentalDataCollector
+
+        collector = FundamentalDataCollector(logger=Mock(spec=logging.Logger))
+        collector._build_metrics_wide = Mock(return_value=(pl.DataFrame({
+            "symbol": ["AAPL", "AAPL"],
+            "as_of_date": ["2024-01-01", "2024-12-31"],
+            "rev": [1.0, 2.0]
+        }), None))
+
+        derived_df = pl.DataFrame({
+            "symbol": ["AAPL", "AAPL"],
+            "as_of_date": ["2024-01-01", "2025-01-01"],
+            "metric": ["m1", "m2"],
+            "value": [1.0, 2.0]
+        })
+
+        with patch('quantdl.storage.data_collectors.compute_derived', return_value=derived_df):
+            result, reason = collector.collect_derived_long(
+                cik="0001",
+                start_date="2024-01-01",
+                end_date="2024-12-31",
+                symbol="AAPL",
+                concepts=["rev"]
+            )
+
+        assert reason is None
+        assert len(result) == 1
 
 
 class TestUniverseDataCollector:

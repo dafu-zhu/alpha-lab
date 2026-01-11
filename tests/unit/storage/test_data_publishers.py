@@ -2,8 +2,9 @@
 Unit tests for storage.data_publishers module
 Tests DataPublishers functionality with dependency injection
 """
+import pytest
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 import queue
 import threading
 import polars as pl
@@ -58,6 +59,13 @@ class TestDataPublishers:
         # Verify yearly partition path
         call_args = s3_client.upload_fileobj.call_args
         assert "data/raw/ticks/daily/AAPL/2024/ticks.parquet" in call_args.kwargs["Key"]
+
+    def test_publish_daily_ticks_requires_df(self):
+        """df is required when by_year is False."""
+        publisher, _, _ = _make_publisher()
+
+        with pytest.raises(ValueError, match="df is required"):
+            publisher.publish_daily_ticks("AAPL", 2024, df=None, by_year=False)
 
     def test_publish_daily_ticks_success_monthly(self):
         """Test publishing daily ticks with monthly partition (recommended)"""
@@ -150,6 +158,17 @@ class TestDataPublishers:
         assert 'month' not in metadata or metadata.get('month') is None
         assert metadata.get('partition_type') == 'yearly'
 
+    def test_publish_daily_ticks_by_year_skips_empty_year(self):
+        """by_year returns skipped when year_df is empty."""
+        publisher, _, data_collectors = _make_publisher()
+
+        data_collectors.collect_daily_ticks_year.return_value = pl.DataFrame()
+
+        result = publisher.publish_daily_ticks("AAPL", 2024, df=None, by_year=True)
+
+        assert result["status"] == "skipped"
+        data_collectors.collect_daily_ticks_year.assert_called_once_with("AAPL", 2024)
+
     def test_publish_daily_ticks_by_year(self):
         """Test by_year publishing uses year data and uploads monthly in parallel."""
         publisher, s3_client, data_collectors = _make_publisher()
@@ -184,6 +203,46 @@ class TestDataPublishers:
         assert s3_client.upload_fileobj.call_count == 12
         assert result["status"] == "success"
 
+    def test_publish_daily_ticks_by_year_failed_months(self):
+        """by_year returns failed when any month publish fails."""
+        publisher, _, data_collectors = _make_publisher()
+
+        year_df = pl.DataFrame({
+            "timestamp": ["2024-06-30"],
+            "open": [190.0],
+            "high": [195.0],
+            "low": [189.0],
+            "close": [193.0],
+            "volume": [50000000]
+        })
+        data_collectors.collect_daily_ticks_year.return_value = year_df
+        data_collectors.collect_daily_ticks_month.return_value = year_df
+
+        with patch.object(publisher, "_publish_daily_ticks_df", return_value={"status": "failed"}):
+            result = publisher.publish_daily_ticks("AAPL", 2024, df=None, by_year=True)
+
+        assert result["status"] == "failed"
+
+    def test_publish_daily_ticks_by_year_all_skipped(self):
+        """by_year returns skipped when all months are skipped."""
+        publisher, _, data_collectors = _make_publisher()
+
+        year_df = pl.DataFrame({
+            "timestamp": ["2024-06-30"],
+            "open": [190.0],
+            "high": [195.0],
+            "low": [189.0],
+            "close": [193.0],
+            "volume": [50000000]
+        })
+        data_collectors.collect_daily_ticks_year.return_value = year_df
+        data_collectors.collect_daily_ticks_month.return_value = year_df
+
+        with patch.object(publisher, "_publish_daily_ticks_df", return_value={"status": "skipped"}):
+            result = publisher.publish_daily_ticks("AAPL", 2024, df=None, by_year=True)
+
+        assert result["status"] == "skipped"
+
     def test_publish_fundamental_skips_without_cik(self):
         publisher, _, data_collectors = _make_publisher()
 
@@ -217,6 +276,23 @@ class TestDataPublishers:
 
         assert result["status"] == "skipped"
 
+    def test_publish_daily_ticks_request_exception(self):
+        publisher, _, _ = _make_publisher()
+        publisher.upload_fileobj = Mock(side_effect=requests.RequestException("boom"))
+
+        df = pl.DataFrame({
+            "timestamp": ["2024-06-30"],
+            "open": [190.0],
+            "high": [195.0],
+            "low": [189.0],
+            "close": [193.0],
+            "volume": [50000000]
+        })
+
+        result = publisher.publish_daily_ticks("AAPL", 2024, df, by_year=False)
+
+        assert result["status"] == "failed"
+
     def test_publish_daily_ticks_unexpected_error(self):
         publisher, _, _ = _make_publisher()
         publisher.upload_fileobj = Mock(side_effect=RuntimeError("boom"))
@@ -233,6 +309,22 @@ class TestDataPublishers:
         result = publisher.publish_daily_ticks("AAPL", 2024, df, by_year=False)
 
         assert result["status"] == "failed"
+
+    def test_publish_fundamental_empty(self):
+        publisher, _, data_collectors = _make_publisher()
+        data_collectors.collect_fundamental_long.return_value = pl.DataFrame()
+
+        sec_rate_limiter = Mock()
+
+        result = publisher.publish_fundamental(
+            sym="AAPL",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            cik="0000320193",
+            sec_rate_limiter=sec_rate_limiter
+        )
+
+        assert result["status"] == "skipped"
 
     def test_publish_fundamental_success(self):
         publisher, _, data_collectors = _make_publisher()
@@ -296,6 +388,22 @@ class TestDataPublishers:
 
         assert result["status"] == "failed"
 
+    def test_publish_fundamental_unexpected_exception(self):
+        publisher, _, data_collectors = _make_publisher()
+        data_collectors.collect_fundamental_long.side_effect = RuntimeError("boom")
+
+        sec_rate_limiter = Mock()
+
+        result = publisher.publish_fundamental(
+            sym="AAPL",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            cik="0000320193",
+            sec_rate_limiter=sec_rate_limiter
+        )
+
+        assert result["status"] == "failed"
+
     def test_publish_ttm_fundamental_success(self):
         publisher, _, data_collectors = _make_publisher()
         publisher.upload_fileobj = Mock()
@@ -320,6 +428,22 @@ class TestDataPublishers:
         assert result["status"] == "success"
         publisher.upload_fileobj.assert_called_once()
 
+    def test_publish_ttm_fundamental_skips_without_cik(self):
+        publisher, _, data_collectors = _make_publisher()
+
+        sec_rate_limiter = Mock()
+
+        result = publisher.publish_ttm_fundamental(
+            sym="AAPL",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            cik=None,
+            sec_rate_limiter=sec_rate_limiter
+        )
+
+        assert result["status"] == "skipped"
+        data_collectors.collect_ttm_long_range.assert_not_called()
+
     def test_publish_ttm_fundamental_empty(self):
         publisher, _, data_collectors = _make_publisher()
         data_collectors._load_concepts.return_value = ["rev"]
@@ -341,6 +465,40 @@ class TestDataPublishers:
         publisher, _, data_collectors = _make_publisher()
         data_collectors._load_concepts.return_value = ["rev"]
         data_collectors.collect_ttm_long_range.side_effect = requests.RequestException("boom")
+
+        sec_rate_limiter = Mock()
+
+        result = publisher.publish_ttm_fundamental(
+            sym="AAPL",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            cik="0000320193",
+            sec_rate_limiter=sec_rate_limiter
+        )
+
+        assert result["status"] == "failed"
+
+    def test_publish_ttm_fundamental_value_error(self):
+        publisher, _, data_collectors = _make_publisher()
+        data_collectors._load_concepts.return_value = ["rev"]
+        data_collectors.collect_ttm_long_range.side_effect = ValueError("bad data")
+
+        sec_rate_limiter = Mock()
+
+        result = publisher.publish_ttm_fundamental(
+            sym="AAPL",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            cik="0000320193",
+            sec_rate_limiter=sec_rate_limiter
+        )
+
+        assert result["status"] == "failed"
+
+    def test_publish_ttm_fundamental_unexpected_exception(self):
+        publisher, _, data_collectors = _make_publisher()
+        data_collectors._load_concepts.return_value = ["rev"]
+        data_collectors.collect_ttm_long_range.side_effect = RuntimeError("boom")
 
         sec_rate_limiter = Mock()
 
@@ -471,6 +629,29 @@ class TestDataPublishers:
 
         assert stats["success"] == 1
         publisher.upload_fileobj.assert_called_once()
+
+    def test_minute_ticks_worker_upload_error(self):
+        publisher, _, _ = _make_publisher()
+        publisher.upload_fileobj = Mock(side_effect=RuntimeError("boom"))
+        stats = {"success": 0, "failed": 0, "skipped": 0, "completed": 0}
+        lock = threading.Lock()
+        q = queue.Queue()
+        df = pl.DataFrame({
+            "timestamp": ["2024-06-30T09:30:00"],
+            "open": [1.0],
+            "high": [1.1],
+            "low": [0.9],
+            "close": [1.0],
+            "volume": [100]
+        })
+        q.put(("AAPL", "2024-06-30", df))
+        q.put(None)
+
+        t = threading.Thread(target=publisher.minute_ticks_worker, args=(q, stats, lock))
+        t.start()
+        t.join()
+
+        assert stats["failed"] == 1
 
     def test_minute_ticks_worker_skips_empty(self):
         publisher, _, _ = _make_publisher()

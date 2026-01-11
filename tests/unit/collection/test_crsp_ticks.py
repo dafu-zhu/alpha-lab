@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 import pandas as pd
 from pathlib import Path
+from sqlalchemy.exc import PendingRollbackError
 from quantdl.collection.crsp_ticks import CRSPDailyTicks
 
 
@@ -208,6 +209,48 @@ class TestCRSPDailyTicks:
 
         # Verify validation was attempted
         mock_validate_permno.assert_called_once()
+
+    @patch('quantdl.collection.crsp_ticks.validate_date_string')
+    @patch('quantdl.collection.crsp_ticks.validate_permno')
+    @patch('quantdl.collection.crsp_ticks.SecurityMaster')
+    @patch('quantdl.collection.crsp_ticks.setup_logger')
+    def test_get_daily_retries_on_pending_rollback(
+        self,
+        mock_logger,
+        mock_security_master,
+        mock_validate_permno,
+        mock_validate_date
+    ):
+        """Retry and rollback when WRDS connection is in pending rollback state."""
+        mock_conn = Mock()
+        mock_conn.connection = Mock()
+
+        mock_sm_instance = Mock()
+        mock_sm_instance.get_security_id.return_value = 'sid_123'
+        mock_sm_instance.sid_to_permno.return_value = 10516
+        mock_security_master.return_value = mock_sm_instance
+
+        mock_validate_permno.return_value = 10516
+        mock_validate_date.return_value = '2024-06-30'
+
+        mock_df = pd.DataFrame({
+            'date': ['2024-06-30'],
+            'open': [100.0],
+            'high': [105.0],
+            'low': [99.0],
+            'close': [103.0],
+            'volume': [1000000]
+        })
+        mock_conn.raw_sql.side_effect = [
+            PendingRollbackError("pending rollback"),
+            mock_df
+        ]
+
+        crsp = CRSPDailyTicks(conn=mock_conn)
+        result = crsp.get_daily(symbol='AAPL', day='2024-06-30', adjusted=True)
+
+        assert result['close'] == 103.0
+        mock_conn.connection.rollback.assert_called_once()
 
 
 class TestCRSPDailyTicksEdgeCases:

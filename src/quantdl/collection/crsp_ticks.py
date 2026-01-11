@@ -15,6 +15,7 @@ from quantdl.master.security_master import SecurityMaster
 from quantdl.utils.logger import setup_logger
 from quantdl.utils.mapping import align_calendar
 from quantdl.utils.validation import validate_date_string, validate_permno
+from quantdl.utils.wrds import raw_sql_with_retry
 import logging
 
 load_dotenv()
@@ -107,7 +108,7 @@ class CRSPDailyTicks:
                     AND prc IS NOT NULL
             """
         
-        df_pandas = self.conn.raw_sql(query, date_cols=['date'])
+        df_pandas = raw_sql_with_retry(self.conn, query, date_cols=['date'])
 
         # Handle empty data case
         if df_pandas.empty:
@@ -207,7 +208,7 @@ class CRSPDailyTicks:
             """
 
         # Execute query
-        df_pandas = self.conn.raw_sql(query, date_cols=['date'])
+        df_pandas = raw_sql_with_retry(self.conn, query, date_cols=['date'])
 
         # Handle empty data case
         if df_pandas.empty:
@@ -395,7 +396,7 @@ class CRSPDailyTicks:
                     ORDER BY permno, date ASC
                 """
 
-            frames.append(self.conn.raw_sql(query, date_cols=['date']))
+            frames.append(raw_sql_with_retry(self.conn, query, date_cols=['date']))
 
         if frames:
             df_pandas = pd.concat(frames, ignore_index=True)
@@ -586,7 +587,7 @@ class CRSPDailyTicks:
                     ORDER BY permno, date ASC
                 """
 
-            frames.append(self.conn.raw_sql(query, date_cols=['date']))
+            frames.append(raw_sql_with_retry(self.conn, query, date_cols=['date']))
 
         if frames:
             df_pandas = pd.concat(frames, ignore_index=True)

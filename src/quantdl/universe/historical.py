@@ -6,10 +6,10 @@ import wrds
 import os
 from dotenv import load_dotenv
 from quantdl.master.security_master import SymbolNormalizer, SecurityMaster
+from quantdl.utils.wrds import raw_sql_with_retry
 from quantdl.utils.validation import validate_date_string, validate_year, validate_month
 
 load_dotenv()
-
 
 def get_hist_universe_crsp(year: int, month: int, db: Optional[wrds.Connection] = None) -> pl.DataFrame:
     """
@@ -53,7 +53,7 @@ def get_hist_universe_crsp(year: int, month: int, db: Optional[wrds.Connection] 
         """
 
         # Execute query
-        df = db.raw_sql(sql)
+        df = raw_sql_with_retry(db, sql)
 
         if df.empty:
             return pl.DataFrame({

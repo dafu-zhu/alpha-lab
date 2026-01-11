@@ -2,6 +2,7 @@
 Unit tests for storage.app module
 Focus on upload flows with injected dependencies
 """
+import pytest
 from unittest.mock import Mock, patch
 from itertools import cycle
 from pathlib import Path
@@ -168,6 +169,150 @@ class TestUploadApp:
         assert app.data_publishers.publish_daily_ticks.call_count == 2
         app.data_collectors.collect_daily_ticks_month.assert_not_called()
         app.data_collectors.collect_daily_ticks_year.assert_not_called()
+
+    def test_upload_daily_ticks_monthly_alpaca_progress_logging(self):
+        """Progress logs every 100 symbols for monthly Alpaca uploads."""
+        app = _make_app()
+        symbols = [f"SYM{i:03d}" for i in range(100)]
+        app.universe_manager.load_symbols_for_year.return_value = symbols
+        app.validator.data_exists.return_value = False
+
+        df = pl.DataFrame({
+            "timestamp": ["2025-06-30"],
+            "open": [1.0],
+            "high": [1.1],
+            "low": [0.9],
+            "close": [1.0],
+            "volume": [100]
+        })
+        app.data_collectors.collect_daily_ticks_month_bulk.return_value = {sym: df for sym in symbols}
+        app.data_publishers.publish_daily_ticks.return_value = {"status": "success"}
+
+        app.upload_daily_ticks(2025, use_monthly_partitions=True, by_year=False, chunk_size=100, sleep_time=0.0)
+
+        info_calls = [str(call) for call in app.logger.info.call_args_list]
+        progress_logs = [c for c in info_calls if "Progress: 100/100" in c]
+        assert len(progress_logs) > 0
+
+    def test_upload_daily_ticks_by_year_progress_logging(self):
+        """Progress logs every 100 symbols for by_year uploads."""
+        app = _make_app()
+        symbols = [f"SYM{i:03d}" for i in range(100)]
+        app.universe_manager.load_symbols_for_year.return_value = symbols
+        app.validator.data_exists.return_value = False
+        app.data_collectors.collect_daily_ticks_year_bulk.return_value = {sym: pl.DataFrame() for sym in symbols}
+        app.data_publishers.publish_daily_ticks.return_value = {"status": "success"}
+
+        app.upload_daily_ticks(2024, use_monthly_partitions=True, by_year=True)
+
+        info_calls = [str(call) for call in app.logger.info.call_args_list]
+        progress_logs = [c for c in info_calls if "Progress: 100/100" in c]
+        assert len(progress_logs) > 0
+
+    def test_upload_daily_ticks_yearly_alpaca_progress_logging(self):
+        """Progress logs every 50 symbols for yearly Alpaca uploads."""
+        app = _make_app()
+        symbols = [f"SYM{i:03d}" for i in range(50)]
+        app.universe_manager.load_symbols_for_year.return_value = symbols
+        app.validator.data_exists.return_value = False
+
+        df = pl.DataFrame({
+            "timestamp": ["2025-06-30"],
+            "open": [1.0],
+            "high": [1.1],
+            "low": [0.9],
+            "close": [1.0],
+            "volume": [100]
+        })
+        app.data_collectors.collect_daily_ticks_year_bulk.return_value = {sym: df for sym in symbols}
+        app.data_publishers.publish_daily_ticks.return_value = {"status": "success"}
+
+        app.upload_daily_ticks(2025, use_monthly_partitions=False, chunk_size=50)
+
+        info_calls = [str(call) for call in app.logger.info.call_args_list]
+        progress_logs = [c for c in info_calls if "Progress: 50/50" in c]
+        assert len(progress_logs) > 0
+
+    def test_upload_daily_ticks_yearly_crsp_failed_status_counts(self):
+        """Yearly CRSP path handles failed status branch."""
+        app = _make_app()
+        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
+        app.data_collectors.ticks_collector.alpaca_start_year = 2025
+        app.validator.data_exists.return_value = False
+        app._publish_single_daily_ticks = Mock(return_value={"status": "failed"})
+
+        app.upload_daily_ticks(2024, use_monthly_partitions=False)
+
+        assert app._publish_single_daily_ticks.called
+
+    def test_upload_daily_ticks_monthly_alpaca_calls_bulk_with_sleep(self):
+        """Monthly Alpaca path calls bulk fetch with sleep_time."""
+        app = _make_app()
+        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
+        app.validator.data_exists.return_value = False
+
+        df = pl.DataFrame({
+            "timestamp": ["2025-06-30"],
+            "open": [1.0],
+            "high": [1.1],
+            "low": [0.9],
+            "close": [1.0],
+            "volume": [100]
+        })
+        app.data_collectors.collect_daily_ticks_month_bulk.return_value = {"AAPL": df}
+        app.data_publishers.publish_daily_ticks.return_value = {"status": "failed"}
+
+        app.upload_daily_ticks(2025, use_monthly_partitions=True, by_year=False, chunk_size=1, sleep_time=0.25)
+
+        calls = app.data_collectors.collect_daily_ticks_month_bulk.call_args_list
+        assert any(
+            call.args[0] == ["AAPL"]
+            and call.args[1] == 2025
+            and call.args[2] == 1
+            and call.kwargs.get("sleep_time") == 0.25
+            for call in calls
+        )
+
+    def test_upload_daily_ticks_monthly_alpaca_failed_status_counts(self):
+        """Failed status increments failed counter in monthly Alpaca path."""
+        app = _make_app()
+        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
+        app.validator.data_exists.return_value = False
+
+        df = pl.DataFrame({
+            "timestamp": ["2025-06-30"],
+            "open": [1.0],
+            "high": [1.1],
+            "low": [0.9],
+            "close": [1.0],
+            "volume": [100]
+        })
+        app.data_collectors.collect_daily_ticks_month_bulk.return_value = {"AAPL": df}
+        app.data_publishers.publish_daily_ticks.return_value = {"status": "failed"}
+
+        app.upload_daily_ticks(2025, use_monthly_partitions=True, by_year=False, chunk_size=1)
+
+        info_calls = [str(call) for call in app.logger.info.call_args_list]
+        completed_logs = [
+            c for c in info_calls
+            if "completed:" in c and "1 failed" in c and "0 success" in c
+        ]
+        assert len(completed_logs) > 0
+
+    def test_upload_daily_ticks_uses_alpaca_start_year_from_collectors(self):
+        """Data source selection respects ticks_collector.alpaca_start_year."""
+        app = _make_app()
+        app.data_collectors.ticks_collector.alpaca_start_year = 2030
+        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
+        app.validator.data_exists.return_value = False
+        app.data_collectors.collect_daily_ticks_year_bulk.return_value = {}
+        app.data_publishers.publish_daily_ticks.return_value = {"status": "success"}
+
+        app.upload_daily_ticks(2025, use_monthly_partitions=True, by_year=True)
+
+        info_calls = [str(call) for call in app.logger.info.call_args_list]
+        source_logs = [c for c in info_calls if "source=crsp" in c]
+        assert len(source_logs) > 0
 
     def test_upload_daily_ticks_skips_existing_yearly(self):
         """Test that existing data is skipped for yearly partitions"""

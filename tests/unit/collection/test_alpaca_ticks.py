@@ -410,6 +410,26 @@ class TestGetTicks:
         assert result == []
         mock_logger.error.assert_called()
 
+    @patch.dict('os.environ', {'ALPACA_API_KEY': 'test_key', 'ALPACA_API_SECRET': 'test_secret'})
+    @patch('quantdl.collection.alpaca_ticks.LoggerFactory')
+    @patch('quantdl.collection.alpaca_ticks.requests.get')
+    def test_get_ticks_missing_bars(self, mock_get, mock_logger_factory):
+        """Test get_ticks when the response lacks bar entries"""
+        mock_logger = Mock()
+        mock_logger_factory.return_value.get_logger.return_value = mock_logger
+
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {'meta': 'value'}
+        mock_get.return_value = mock_response
+
+        ticks = Ticks()
+        result = ticks.get_ticks('AAPL', '2024-01-03T00:00:00Z', '2024-01-03T23:59:59Z')
+
+        assert result == []
+        mock_logger.error.assert_called()
+        assert any("No bars in json response" in call[0][0] for call in mock_logger.error.call_args_list)
+
 
 class TestGetMonthRange:
     """Test _get_month_range method"""
@@ -561,6 +581,52 @@ class TestGetDailyYear:
 
         assert isinstance(result, pl.DataFrame)
         assert len(result) == 0
+
+
+class TestFetchDailyDayBulk:
+    """Test fetch_daily_day_bulk method"""
+
+    @patch.dict('os.environ', {'ALPACA_API_KEY': 'test_key', 'ALPACA_API_SECRET': 'test_secret'})
+    @patch('quantdl.collection.alpaca_ticks.LoggerFactory')
+    @patch('quantdl.collection.alpaca_ticks.requests.Session')
+    def test_fetch_daily_day_bulk_params(self, mock_session_class, mock_logger_factory):
+        """Ensure day-specific params are constructed correctly"""
+        mock_logger = Mock()
+        mock_logger_factory.return_value.get_logger.return_value = mock_logger
+
+        mock_session = Mock()
+        mock_session_class.return_value = mock_session
+
+        with patch.object(Ticks, '_fetch_with_pagination', return_value={'AAPL': []}) as mock_fetch:
+            ticks = Ticks()
+            result = ticks.fetch_daily_day_bulk(['AAPL'], '2024-06-15')
+
+        assert result == {'AAPL': []}
+
+        called_params = mock_fetch.call_args.kwargs['params']
+        assert called_params['start'] == '2024-06-15T00:00:00Z'
+        assert called_params['end'] == '2024-06-15T23:59:59Z'
+        assert called_params['timeframe'] == '1Day'
+        assert called_params['adjustment'] == 'split'
+        assert called_params['symbols'] == 'AAPL'
+
+    @patch.dict('os.environ', {'ALPACA_API_KEY': 'test_key', 'ALPACA_API_SECRET': 'test_secret'})
+    @patch('quantdl.collection.alpaca_ticks.LoggerFactory')
+    @patch('quantdl.collection.alpaca_ticks.requests.Session')
+    def test_fetch_daily_day_bulk_session_closed_on_error(self, mock_session_class, mock_logger_factory):
+        """Ensure session is closed even when pagination call fails"""
+        mock_logger = Mock()
+        mock_logger_factory.return_value.get_logger.return_value = mock_logger
+
+        mock_session = Mock()
+        mock_session_class.return_value = mock_session
+
+        with patch.object(Ticks, '_fetch_with_pagination', side_effect=RuntimeError("boom")):
+            ticks = Ticks()
+            with pytest.raises(RuntimeError):
+                ticks.fetch_daily_day_bulk(['AAPL'], '2024-06-15')
+
+        mock_session.close.assert_called_once()
 
 
 class TestFetchMinuteDayBulk:
@@ -785,6 +851,23 @@ class TestRecentDailyTicks:
         # Should handle error gracefully
         mock_logger.error.assert_called()
 
+    @patch.dict('os.environ', {'ALPACA_API_KEY': 'test_key', 'ALPACA_API_SECRET': 'test_secret'})
+    @patch('quantdl.collection.alpaca_ticks.LoggerFactory')
+    @patch('quantdl.collection.alpaca_ticks.requests.get')
+    def test_recent_daily_ticks_request_exception(self, mock_get, mock_logger_factory):
+        """Test recent_daily_ticks handles request exceptions"""
+        mock_logger = Mock()
+        mock_logger_factory.return_value.get_logger.return_value = mock_logger
+
+        mock_get.side_effect = Exception("network failure")
+
+        ticks = Ticks()
+        result = ticks.recent_daily_ticks(['AAPL'], '2024-06-30', window=90)
+
+        assert result == {}
+        mock_logger.error.assert_called()
+        assert any("Request failed on page" in call[0][0] for call in mock_logger.error.call_args_list)
+
 
 class TestFetchWithPagination:
     """Test _fetch_with_pagination method"""
@@ -932,6 +1015,57 @@ class TestFetchMinuteBulkWithRetry:
 
         assert 'AAPL' in result
         assert len(result['AAPL']) == 1
+
+    @patch.dict('os.environ', {'ALPACA_API_KEY': 'test_key', 'ALPACA_API_SECRET': 'test_secret'})
+    @patch('quantdl.collection.alpaca_ticks.LoggerFactory')
+    @patch('quantdl.collection.alpaca_ticks.requests.Session')
+    @patch('quantdl.collection.alpaca_ticks.time.sleep')
+    def test_fetch_minute_bulk_with_retry_resets_page_token(self, mock_sleep, mock_session_class, mock_logger_factory):
+        """Ensure page_token is cleared before retrying"""
+        mock_logger = Mock()
+        mock_logger_factory.return_value.get_logger.return_value = mock_logger
+
+        mock_session = Mock()
+        mock_session_class.return_value = mock_session
+
+        call_params = []
+
+        def get_side_effect(_, params):
+            call_params.append(params.copy())
+            response = Mock()
+            idx = len(call_params)
+            if idx == 1:
+                response.status_code = 200
+                response.json.return_value = {
+                    'bars': {'AAPL': [{'t': '2024-01-03T14:30:00Z', 'o': 100, 'h': 101, 'l': 99, 'c': 100.5, 'v': 1000, 'n': 50, 'vw': 100.25}]},
+                    'next_page_token': 'token'
+                }
+            elif idx == 2:
+                raise RuntimeError("paging failure")
+            else:
+                response.status_code = 200
+                response.json.return_value = {
+                    'bars': {'AAPL': []},
+                    'next_page_token': None
+                }
+            return response
+
+        mock_session.get.side_effect = get_side_effect
+
+        ticks = Ticks()
+        result = ticks._fetch_minute_bulk_with_retry(
+            symbols=['AAPL'],
+            start_str='2024-01-03T00:00:00Z',
+            end_str='2024-01-03T23:59:59Z',
+            period_desc='2024-01-03',
+            sleep_time=0.01
+        )
+
+        assert 'AAPL' in result
+        assert len(call_params) == 3
+        assert call_params[1].get('page_token') == 'token'
+        assert 'page_token' not in call_params[2]
+        assert mock_logger.error.called
 
     @patch.dict('os.environ', {'ALPACA_API_KEY': 'test_key', 'ALPACA_API_SECRET': 'test_secret'})
     @patch('quantdl.collection.alpaca_ticks.LoggerFactory')
@@ -1180,3 +1314,35 @@ class TestFetchMinuteMonthBulkFallback:
         assert len(result['AAPL']) > 0
         # Verify fallback was logged
         mock_logger.info.assert_any_call('Bulk fetch returned no data, fetching symbols individually')
+
+    @patch.dict('os.environ', {'ALPACA_API_KEY': 'test_key', 'ALPACA_API_SECRET': 'test_secret'})
+    @patch('quantdl.collection.alpaca_ticks.LoggerFactory')
+    def test_fetch_minute_month_bulk_individual_returns_empty_logs_info(self, mock_logger_factory):
+        """Ensure info is logged when individual fetch returns no bars"""
+        mock_logger = Mock()
+        mock_logger_factory.return_value.get_logger.return_value = mock_logger
+
+        with patch.object(Ticks, '_fetch_minute_bulk_with_retry', return_value={'AAPL': []}):
+            with patch.object(Ticks, 'fetch_minute_month_single', return_value=[]):
+                ticks = Ticks()
+                result = ticks.fetch_minute_month_bulk(['AAPL'], 2024, 1, sleep_time=0.01)
+
+        assert 'AAPL' in result
+        mock_logger.info.assert_any_call('No data returned for AAPL')
+
+    @patch.dict('os.environ', {'ALPACA_API_KEY': 'test_key', 'ALPACA_API_SECRET': 'test_secret'})
+    @patch('quantdl.collection.alpaca_ticks.LoggerFactory')
+    def test_fetch_minute_month_bulk_individual_failure_logs_warning(self, mock_logger_factory):
+        """Ensure warning is logged when individual retries all fail"""
+        mock_logger = Mock()
+        mock_logger_factory.return_value.get_logger.return_value = mock_logger
+
+        with patch.object(Ticks, '_fetch_minute_bulk_with_retry', return_value={'AAPL': []}):
+            with patch.object(Ticks, 'fetch_minute_month_single', side_effect=RuntimeError("boom")):
+                ticks = Ticks()
+                result = ticks.fetch_minute_month_bulk(['AAPL'], 2024, 1, sleep_time=0.01)
+
+        assert 'AAPL' in result
+        mock_logger.warning.assert_called()
+        assert 'AAPL' in mock_logger.warning.call_args[0][0]
+        mock_logger.error.assert_called()
