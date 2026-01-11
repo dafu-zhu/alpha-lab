@@ -56,7 +56,7 @@ class DailyUpdateApp:
         self.logger = setup_logger(
             name="daily_update",
             log_dir=Path("data/logs/update"),
-            level=logging.INFO,
+            level=logging.DEBUG,
             console_output=True
         )
 
@@ -72,6 +72,7 @@ class DailyUpdateApp:
             crsp_fetcher=self.crsp_ticks,
             security_master=self.crsp_ticks.security_master
         )
+        self._symbols_cache: Dict[int, List[str]] = {}
 
         # Load Alpaca credentials
         ALPACA_KEY = os.getenv("ALPACA_API_KEY")
@@ -120,6 +121,13 @@ class DailyUpdateApp:
         is_open = self.calendar.is_trading_day(date)
         self.logger.info(f"Market {'was' if is_open else 'was NOT'} open on {date}")
         return is_open
+
+    def _get_symbols_for_year(self, year: int) -> List[str]:
+        if year in self._symbols_cache:
+            return self._symbols_cache[year]
+        symbols = self.universe_manager.load_symbols_for_year(year, sym_type='alpaca')
+        self._symbols_cache[year] = symbols
+        return symbols
 
     def get_recent_edgar_filings(self, cik: str, lookback_days: int = 7) -> List[Dict]:
         """
@@ -177,12 +185,14 @@ class DailyUpdateApp:
 
     def get_symbols_with_recent_filings(
         self,
+        update_date: dt.date,
         symbols: List[str],
         lookback_days: int = 7
     ) -> Set[str]:
         """
         Identify symbols that have new EDGAR filings.
 
+        :param update_date: Date to update (typically yesterday)
         :param symbols: List of symbols to check
         :param lookback_days: Number of days to look back
         :return: Set of symbols with recent filings
@@ -194,7 +204,7 @@ class DailyUpdateApp:
         # Resolve symbols to CIKs
         symbol_to_cik = {}
         for sym in symbols:
-            cik = self.cik_resolver.resolve_symbol_to_cik(sym)
+            cik = self.cik_resolver.get_cik(sym, update_date.strftime('%Y-%m-%d'))
             if cik:
                 symbol_to_cik[sym] = cik
 
@@ -232,7 +242,7 @@ class DailyUpdateApp:
         """
         Update daily ticks for a specific date.
 
-        Efficiently appends new daily data without downloading existing files.
+        Directly replace daily data without downloading existing files.
         Uses monthly partitioning to avoid large file downloads/uploads.
 
         Storage: data/raw/ticks/daily/{symbol}/{YYYY}/{MM}/ticks.parquet
@@ -247,7 +257,13 @@ class DailyUpdateApp:
 
         # Load symbols if not provided
         if symbols is None:
-            symbols = self.universe_manager.load_symbols_for_year(year, sym_type='alpaca')
+            symbols = self._get_symbols_for_year(year)
+
+        symbol_bars = self.alpaca_ticks.fetch_daily_day_bulk(
+            symbols=symbols,
+            trade_day=update_date.isoformat(),
+            sleep_time=0.2
+        )
 
         self.logger.info(
             f"Updating daily ticks for {len(symbols)} symbols for {update_date} "
@@ -264,19 +280,10 @@ class DailyUpdateApp:
         def process_symbol(sym: str) -> Dict[str, Optional[str]]:
             """Process single symbol update"""
             try:
-                # Fetch data for this single date
-                start_date = update_date.isoformat()
-                end_date = update_date.isoformat()
-
-                # Use Alpaca to fetch single day
-                start_dt = dt.datetime.combine(update_date, dt.time(0, 0), tzinfo=dt.timezone.utc)
-                end_dt = dt.datetime.combine(update_date, dt.time(23, 59, 59), tzinfo=dt.timezone.utc)
-                start_str = start_dt.isoformat().replace("+00:00", "Z")
-                end_str = end_dt.isoformat().replace("+00:00", "Z")
-
-                ticks = self.alpaca_ticks.get_ticks(sym, start_str, end_str, "1Day", adjusted=True)
+                ticks = symbol_bars.get(sym, [])
 
                 if not ticks:
+                    self.logger.debug(f"Skipping {sym} daily ticks: no data from Alpaca")
                     return {'symbol': sym, 'status': 'skipped', 'error': 'No data from Alpaca'}
 
                 # Parse ticks to DataFrame
@@ -294,6 +301,7 @@ class DailyUpdateApp:
                 ]).select(['timestamp', 'open', 'high', 'low', 'close', 'volume'])
 
                 if len(new_df) == 0:
+                    self.logger.debug(f"Skipping {sym} daily ticks: empty DataFrame after parsing")
                     return {'symbol': sym, 'status': 'skipped', 'error': 'Empty DataFrame after parsing'}
 
                 # Check if monthly file exists
@@ -319,6 +327,16 @@ class DailyUpdateApp:
                     # Other S3 errors, log and use new data only
                     self.logger.debug(f"Could not read existing file for {sym}: {e}, creating new file")
                     updated_df = new_df
+
+                # Drop rows that only have timestamp (all other fields null)
+                null_row = (
+                    pl.col('open').is_null()
+                    & pl.col('high').is_null()
+                    & pl.col('low').is_null()
+                    & pl.col('close').is_null()
+                    & pl.col('volume').is_null()
+                )
+                updated_df = updated_df.filter(~null_row)
 
                 # Upload to S3
                 buffer = io.BytesIO()
@@ -396,7 +414,7 @@ class DailyUpdateApp:
 
         # Load symbols if not provided
         if symbols is None:
-            symbols = self.universe_manager.load_symbols_for_year(year, sym_type='alpaca')
+            symbols = self._get_symbols_for_year(year)
 
         self.logger.info(
             f"Updating minute ticks for {len(symbols)} symbols for {trade_day_str}"
@@ -423,6 +441,7 @@ class DailyUpdateApp:
         for (sym, day), minute_df in parsed_data.items():
             try:
                 if len(minute_df) == 0:
+                    self.logger.debug(f"Skipping {sym} minute ticks for {day}: empty DataFrame")
                     stats['skipped'] += 1
                     continue
 
@@ -486,7 +505,7 @@ class DailyUpdateApp:
         # Resolve symbols to CIKs
         symbol_to_cik = {}
         for sym in symbols:
-            cik = self.cik_resolver.resolve_symbol_to_cik(sym)
+            cik = self.cik_resolver.get_cik(sym, end_date)
             if cik:
                 symbol_to_cik[sym] = cik
 
@@ -583,7 +602,7 @@ class DailyUpdateApp:
 
         # Get current universe
         year = target_date.year
-        symbols = self.universe_manager.load_symbols_for_year(year, sym_type='alpaca')
+        symbols = self._get_symbols_for_year(year)
 
         # 1. Update ticks data (only if market was open)
         if update_ticks:
@@ -610,6 +629,7 @@ class DailyUpdateApp:
 
             symbols_with_filings = self.get_symbols_with_recent_filings(
                 symbols=symbols,
+                update_date=target_date,
                 lookback_days=fundamental_lookback_days
             )
 

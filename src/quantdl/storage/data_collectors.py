@@ -36,12 +36,51 @@ class TicksDataCollector(DataCollector):
         crsp_ticks,
         alpaca_ticks,
         alpaca_headers: dict,
-        logger: logging.Logger
+        logger: logging.Logger,
+        alpaca_start_year: int = 2025
     ):
         super().__init__(logger=logger)
         self.crsp_ticks = crsp_ticks
         self.alpaca_ticks = alpaca_ticks
         self.alpaca_headers = alpaca_headers
+        self.alpaca_start_year = alpaca_start_year
+
+    def _normalize_daily_df(self, df: pl.DataFrame) -> pl.DataFrame:
+        if len(df) > 0:
+            required_cols = ["timestamp", "open", "high", "low", "close", "volume"]
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            if missing_cols:
+                df = df.with_columns([pl.lit(None).alias(col) for col in missing_cols])
+
+            df = df.with_columns([
+                pl.col('timestamp').cast(pl.Utf8),
+                pl.col('open').cast(pl.Float64).round(4),
+                pl.col('high').cast(pl.Float64).round(4),
+                pl.col('low').cast(pl.Float64).round(4),
+                pl.col('close').cast(pl.Float64).round(4),
+                pl.col('volume').cast(pl.Int64)
+            ]).sort('timestamp')
+
+        return df
+
+    def _bars_to_daily_df(self, bars: List[Dict]) -> pl.DataFrame:
+        if not bars:
+            return pl.DataFrame()
+
+        from dataclasses import asdict
+        parsed_ticks = self.alpaca_ticks.parse_ticks(bars)
+        ticks_data = [asdict(dp) for dp in parsed_ticks]
+
+        df = pl.DataFrame(ticks_data).with_columns([
+            pl.col('timestamp').str.to_datetime(format='%Y-%m-%dT%H:%M:%S').dt.date(),
+            pl.col('open').cast(pl.Float64),
+            pl.col('high').cast(pl.Float64),
+            pl.col('low').cast(pl.Float64),
+            pl.col('close').cast(pl.Float64),
+            pl.col('volume').cast(pl.Int64)
+        ]).select(['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+
+        return df
 
     def collect_daily_ticks_year(self, sym: str, year: int) -> pl.DataFrame:
         """
@@ -51,7 +90,7 @@ class TicksDataCollector(DataCollector):
         :param year: Year to fetch data for
         :return: Polars DataFrame with columns: timestamp, open, high, low, close, volume
         """
-        if year < 2025:
+        if year < self.alpaca_start_year:
             # Use CRSP for years < 2025 (avoids survivorship bias)
             crsp_symbol = sym.replace('.', '').replace('-', '')
             all_months_data = []
@@ -82,47 +121,32 @@ class TicksDataCollector(DataCollector):
         else:
             # Use Alpaca for years >= 2025
             try:
-                df = self.alpaca_ticks.get_daily_year(
-                    symbol=sym,
+                bars_map = self.alpaca_ticks.fetch_daily_year_bulk(
+                    symbols=[sym],
                     year=year,
                     adjusted=True
                 )
+                df = self._bars_to_daily_df(bars_map.get(sym, []))
             except Exception as e:
                 # Return empty DataFrame if fetch fails
                 self.logger.warning(f"Failed to fetch {sym} for {year}: {e}")
                 return pl.DataFrame()
 
-        # Apply consistent formatting and rounding (single logic for both sources)
-        if len(df) > 0:
-            required_cols = ["timestamp", "open", "high", "low", "close", "volume"]
-            missing_cols = [col for col in required_cols if col not in df.columns]
-            if missing_cols:
-                df = df.with_columns([pl.lit(None).alias(col) for col in missing_cols])
-
-            df = df.with_columns([
-                pl.col('timestamp').cast(pl.Utf8),
-                pl.col('open').cast(pl.Float64).round(4),
-                pl.col('high').cast(pl.Float64).round(4),
-                pl.col('low').cast(pl.Float64).round(4),
-                pl.col('close').cast(pl.Float64).round(4),
-                pl.col('volume').cast(pl.Int64)
-            ]).sort('timestamp')
-
-        return df
+        return self._normalize_daily_df(df)
 
     def collect_daily_ticks_year_bulk(self, symbols: List[str], year: int) -> Dict[str, pl.DataFrame]:
         """
         Bulk fetch daily ticks for a full year and return a mapping of symbol -> DataFrame.
-        Only supported for CRSP years (< 2025). For Alpaca years, falls back to per-symbol fetch.
+        Uses CRSP for years < 2025 and Alpaca bulk fetch for years >= 2025.
         """
-        if year < 2025:
+        if year < self.alpaca_start_year:
             return self.crsp_ticks.collect_daily_ticks_year_bulk(symbols, year, adjusted=True, auto_resolve=True)
 
+        symbol_bars = self.alpaca_ticks.fetch_daily_year_bulk(symbols, year, adjusted=True)
         result = {}
         for sym in symbols:
-            df = self.collect_daily_ticks_year(sym, year)
-            if len(df) > 0:
-                result[sym] = df
+            df = self._bars_to_daily_df(symbol_bars.get(sym, []))
+            result[sym] = self._normalize_daily_df(df)
         return result
 
     def collect_daily_ticks_month(
@@ -166,7 +190,7 @@ class TicksDataCollector(DataCollector):
                         Path(calendar_path)
                     )
                 )
-        elif year < 2025:
+        elif year < self.alpaca_start_year:
             # Use CRSP for years < 2025 (avoids survivorship bias)
             crsp_symbol = sym.replace('.', '').replace('-', '')
             try:
@@ -192,52 +216,48 @@ class TicksDataCollector(DataCollector):
         else:
             # Use Alpaca for years >= 2025
             try:
-                # Fetch daily data for specific month
-                daily_data = self.alpaca_ticks.get_daily(
-                    symbol=sym,
+                symbol_bars = self.alpaca_ticks.fetch_daily_month_bulk(
+                    symbols=[sym],
                     year=year,
                     month=month,
                     adjusted=True
                 )
-
-                if not daily_data:
-                    return pl.DataFrame()
-
-                # Parse and convert to DataFrame
-                from dataclasses import asdict
-                parsed_ticks = self.alpaca_ticks.parse_ticks(daily_data)
-                ticks_data = [asdict(dp) for dp in parsed_ticks]
-
-                df = pl.DataFrame(ticks_data).with_columns([
-                    pl.col('timestamp').str.to_datetime(format='%Y-%m-%dT%H:%M:%S').dt.date(),
-                    pl.col('open').cast(pl.Float64),
-                    pl.col('high').cast(pl.Float64),
-                    pl.col('low').cast(pl.Float64),
-                    pl.col('close').cast(pl.Float64),
-                    pl.col('volume').cast(pl.Int64)
-                ]).select(['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                df = self._bars_to_daily_df(symbol_bars.get(sym, []))
             except Exception as e:
                 # Return empty DataFrame if fetch fails
                 self.logger.warning(f"Failed to fetch {sym} for {year}-{month:02d}: {e}")
                 return pl.DataFrame()
 
-        # Apply consistent formatting and rounding (single logic for both sources)
-        if len(df) > 0:
-            required_cols = ["timestamp", "open", "high", "low", "close", "volume"]
-            missing_cols = [col for col in required_cols if col not in df.columns]
-            if missing_cols:
-                df = df.with_columns([pl.lit(None).alias(col) for col in missing_cols])
+        return self._normalize_daily_df(df)
 
-            df = df.with_columns([
-                pl.col('timestamp').cast(pl.Utf8),
-                pl.col('open').cast(pl.Float64).round(4),
-                pl.col('high').cast(pl.Float64).round(4),
-                pl.col('low').cast(pl.Float64).round(4),
-                pl.col('close').cast(pl.Float64).round(4),
-                pl.col('volume').cast(pl.Int64)
-            ]).sort('timestamp')
+    def collect_daily_ticks_month_bulk(
+        self,
+        symbols: List[str],
+        year: int,
+        month: int,
+        sleep_time: float = 0.2
+    ) -> Dict[str, pl.DataFrame]:
+        """
+        Bulk fetch daily ticks for a specific month and return a mapping of symbol -> DataFrame.
+        """
+        if year < self.alpaca_start_year:
+            result = {}
+            for sym in symbols:
+                result[sym] = self.collect_daily_ticks_month(sym, year, month)
+            return result
 
-        return df
+        symbol_bars = self.alpaca_ticks.fetch_daily_month_bulk(
+            symbols=symbols,
+            year=year,
+            month=month,
+            sleep_time=sleep_time,
+            adjusted=True
+        )
+        result = {}
+        for sym in symbols:
+            df = self._bars_to_daily_df(symbol_bars.get(sym, []))
+            result[sym] = self._normalize_daily_df(df)
+        return result
 
     def fetch_minute_month(
         self,
@@ -841,7 +861,8 @@ class DataCollectors:
         alpaca_headers: dict,
         logger: logging.Logger,
         sec_rate_limiter=None,
-        fundamental_cache_size: int = 128
+        fundamental_cache_size: int = 128,
+        alpaca_start_year: int = 2025
     ):
         """
         Initialize data collectors.
@@ -865,7 +886,8 @@ class DataCollectors:
             crsp_ticks=crsp_ticks,
             alpaca_ticks=alpaca_ticks,
             alpaca_headers=alpaca_headers,
-            logger=logger
+            logger=logger,
+            alpaca_start_year=alpaca_start_year
         )
 
         self.fundamental_collector = FundamentalDataCollector(
@@ -940,6 +962,15 @@ class DataCollectors:
 
     def collect_daily_ticks_year_bulk(self, symbols: List[str], year: int) -> Dict[str, pl.DataFrame]:
         return self.ticks_collector.collect_daily_ticks_year_bulk(symbols, year)
+
+    def collect_daily_ticks_month_bulk(
+        self,
+        symbols: List[str],
+        year: int,
+        month: int,
+        sleep_time: float = 0.2
+    ) -> Dict[str, pl.DataFrame]:
+        return self.ticks_collector.collect_daily_ticks_month_bulk(symbols, year, month, sleep_time)
 
     def fetch_minute_month(
         self,

@@ -80,7 +80,7 @@ class UniverseManager:
         try:
             # For years >= 2025 (using Alpaca), use current ticker list
             if year >= 2025:
-                df = fetch_all_stocks(with_filter=True, refresh=False, logger=self.logger)
+                df = fetch_all_stocks(with_filter=True, refresh=True, logger=self.logger)
                 nasdaq_symbols = df['Ticker'].to_list()
                 self.logger.info(f"Using current ticker list for {year} ({len(nasdaq_symbols)} symbols)")
             else:

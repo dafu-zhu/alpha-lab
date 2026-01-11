@@ -30,7 +30,10 @@ load_dotenv()
 
 
 class UploadApp:
-    def __init__(self):
+    def __init__(
+        self,
+        alpaca_start_year: int = 2025
+    ):
         # Setup config and client
         self.config = UploadConfig()
         self.client = S3Client().client
@@ -81,14 +84,16 @@ class UploadApp:
             alpaca_ticks=self.alpaca_ticks,
             alpaca_headers=self.headers,
             logger=self.logger,
-            sec_rate_limiter=self.sec_rate_limiter
+            sec_rate_limiter=self.sec_rate_limiter,
+            alpaca_start_year=alpaca_start_year
         )
 
         self.data_publishers = DataPublishers(
             s3_client=self.client,
             upload_config=self.config,
             logger=self.logger,
-            data_collectors=self.data_collectors
+            data_collectors=self.data_collectors,
+            alpaca_start_year=alpaca_start_year
         )
 
     # ===========================
@@ -143,7 +148,9 @@ class UploadApp:
         year: int,
         overwrite: bool = False,
         use_monthly_partitions: bool = True,
-        by_year: bool = False
+        by_year: bool = False,
+        chunk_size: int = 200,
+        sleep_time: float = 0.2
     ):
         """
         Upload daily ticks for all symbols for an entire year.
@@ -169,7 +176,8 @@ class UploadApp:
         alpaca_symbols = self.universe_manager.load_symbols_for_year(year, sym_type='alpaca')
 
         total_symbols = len(alpaca_symbols)
-        data_source = 'crsp' if year < 2025 else 'alpaca'
+        alpaca_start_year = self.data_collectors.ticks_collector.alpaca_start_year
+        data_source = 'crsp' if year < alpaca_start_year else 'alpaca'
 
         if use_monthly_partitions:
             # Upload month by month for better organization
@@ -180,6 +188,74 @@ class UploadApp:
             )
             self.logger.info(f"Storage: data/raw/ticks/daily/{{symbol}}/{year}/{{MM}}/ticks.parquet")
             self.logger.info(f"Starting year {year} ({total_symbols} symbols)")
+
+            if year >= alpaca_start_year:
+                if by_year:
+                    self.logger.info(
+                        "Alpaca daily ticks will use monthly bulk fetch; ignoring by_year=True."
+                    )
+
+                for month in range(1, 13):
+                    completed = 0
+                    success = 0
+                    failed = 0
+                    canceled = 0
+                    skipped = 0
+
+                    for i in range(0, total_symbols, chunk_size):
+                        chunk = alpaca_symbols[i:i + chunk_size]
+
+                        if not overwrite:
+                            symbols_to_fetch = []
+                            for sym in chunk:
+                                if self.validator.data_exists(sym, 'ticks', year, month):
+                                    canceled += 1
+                                    completed += 1
+                                else:
+                                    symbols_to_fetch.append(sym)
+                            if not symbols_to_fetch:
+                                continue
+                            chunk = symbols_to_fetch
+
+                        symbol_map = self.data_collectors.collect_daily_ticks_month_bulk(
+                            chunk,
+                            year,
+                            month,
+                            sleep_time=sleep_time
+                        )
+
+                        for sym in chunk:
+                            df = symbol_map.get(sym, pl.DataFrame())
+                            result = self.data_publishers.publish_daily_ticks(
+                                sym,
+                                year,
+                                df,
+                                month=month,
+                                by_year=False
+                            )
+                            completed += 1
+
+                            if result['status'] == 'success':
+                                success += 1
+                            elif result['status'] == 'canceled':
+                                canceled += 1
+                            elif result['status'] == 'skipped':
+                                skipped += 1
+                            else:
+                                failed += 1
+
+                            if completed % 100 == 0:
+                                self.logger.info(
+                                    f"{year}-{month:02d} Progress: {completed}/{total_symbols} "
+                                    f"({success} success, {failed} failed, "
+                                    f"{canceled} canceled, {skipped} skipped)"
+                                )
+
+                    self.logger.info(
+                        f"{year}-{month:02d} completed: {success} success, {failed} failed, "
+                        f"{canceled} canceled, {skipped} skipped out of {total_symbols} total"
+                    )
+                return
 
             completed = 0
             success = 0
@@ -291,6 +367,59 @@ class UploadApp:
             failed = 0
             canceled = 0
             skipped = 0
+
+            if year >= alpaca_start_year:
+                for i in range(0, total_symbols, chunk_size):
+                    chunk = alpaca_symbols[i:i + chunk_size]
+
+                    if not overwrite:
+                        symbols_to_fetch = []
+                        for sym in chunk:
+                            if self.validator.data_exists(sym, 'ticks', year):
+                                canceled += 1
+                                completed += 1
+                            else:
+                                symbols_to_fetch.append(sym)
+                        if not symbols_to_fetch:
+                            continue
+                        chunk = symbols_to_fetch
+
+                    symbol_map = self.data_collectors.collect_daily_ticks_year_bulk(
+                        chunk,
+                        year
+                    )
+
+                    for sym in chunk:
+                        df = symbol_map.get(sym, pl.DataFrame())
+                        result = self.data_publishers.publish_daily_ticks(
+                            sym,
+                            year,
+                            df,
+                            month=None,
+                            by_year=False
+                        )
+                        completed += 1
+
+                        if result['status'] == 'success':
+                            success += 1
+                        elif result['status'] == 'canceled':
+                            canceled += 1
+                        elif result['status'] == 'skipped':
+                            skipped += 1
+                        else:
+                            failed += 1
+
+                        if completed % 50 == 0:
+                            self.logger.info(
+                                f"{year} Progress: {completed}/{total_symbols} "
+                                f"({success} success, {failed} failed, {canceled} canceled, {skipped} skipped)"
+                            )
+
+                self.logger.info(
+                    f"{year} Daily ticks upload completed ({data_source}): {success} success, "
+                    f"{failed} failed, {canceled} canceled, {skipped} skipped out of {total_symbols} total"
+                )
+                return
 
             for sym in tqdm(alpaca_symbols, desc=f"Uploading {year} symbols", unit="sym"):
                 result = self._publish_single_daily_ticks(
@@ -1129,6 +1258,9 @@ class UploadApp:
             overwrite: bool=False,
             chunk_size: int=30,
             sleep_time: float=0.02,
+            daily_chunk_size: int=200,
+            daily_sleep_time: float=0.2,
+            minute_ticks_start_year: int=2017,
             run_fundamental: bool=False,
             run_derived_fundamental: bool=False,
             run_ttm_fundamental: bool=False,
@@ -1187,11 +1319,17 @@ class UploadApp:
 
             if run_daily_ticks:
                 self.logger.info(f"Uploading daily ticks for {year} (year-based, all trading days)")
-                self.upload_daily_ticks(year, overwrite, by_year=True)
+                self.upload_daily_ticks(
+                    year,
+                    overwrite,
+                    by_year=True,
+                    chunk_size=daily_chunk_size,
+                    sleep_time=daily_sleep_time
+                )
 
             if run_minute_ticks:
                 # Upload minute ticks for all months in the year (only for years >= 2017)
-                if year >= 2017:
+                if year >= minute_ticks_start_year:
                     self.logger.info(f"Uploading minute ticks for {year} (all 12 months)")
                     for month in range(1, 13):
                         self.logger.info(f"Processing minute ticks for {year}-{month:02d}")
@@ -1219,7 +1357,8 @@ class UploadApp:
             self.logger.warning(f"No symbols available for {year}, skipping top3000 upload")
             return
 
-        source = 'crsp' if year < 2025 else 'alpaca'
+        alpaca_start_year = self.data_collectors.ticks_collector.alpaca_start_year
+        source = 'crsp' if year < alpaca_start_year else 'alpaca'
         self.logger.info(
             f"Starting {year} top3000 monthly upload for {len(symbols)} symbols (source={source}, overwrite={overwrite})"
         )
@@ -1281,19 +1420,3 @@ class UploadApp:
                 self.logger.info("WRDS connection closed")
 
 
-if __name__ == "__main__":
-    app = UploadApp()
-    try:
-        # Example: Run from 2010 to 2025 (yearly processing)
-        app.run(
-            start_year=2010, 
-            end_year=2025, 
-            overwrite=True,
-            run_daily_ticks=True,
-            run_minute_ticks=False,
-            run_fundamental=False, 
-            run_derived_fundamental=False, 
-            run_ttm_fundamental=False
-        )
-    finally:
-        app.close()

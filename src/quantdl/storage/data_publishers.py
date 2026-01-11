@@ -37,7 +37,8 @@ class DataPublishers:
         upload_config,
         logger: logging.Logger,
         data_collectors,
-        bucket_name: Optional[str] = None
+        bucket_name: Optional[str] = None,
+        alpaca_start_year: int = 2025
     ):
         """
         Initialize data publishers.
@@ -52,6 +53,7 @@ class DataPublishers:
         self.upload_config = upload_config
         self.logger = logger
         self.data_collectors = data_collectors
+        self.alpaca_start_year = alpaca_start_year
         # Allow bucket_name to be passed as parameter or from environment variable
         self.bucket_name = bucket_name or os.getenv('S3_BUCKET_NAME', 'us-equity-datalake')
 
@@ -213,7 +215,7 @@ class DataPublishers:
                     'year': str(year),
                     'month': f"{month:02d}",
                     'data_type': 'daily_ticks',
-                    'source': 'crsp' if year < 2025 else 'alpaca',
+                    'source': 'crsp' if year < self.alpaca_start_year else 'alpaca',
                     'trading_days': str(len(df)),
                     'partition_type': 'monthly'
                 }
@@ -224,7 +226,7 @@ class DataPublishers:
                     'symbol': sym,
                     'year': str(year),
                     'data_type': 'daily_ticks',
-                    'source': 'crsp' if year < 2025 else 'alpaca',
+                    'source': 'crsp' if year < self.alpaca_start_year else 'alpaca',
                     'trading_days': str(len(df)),
                     'partition_type': 'yearly'
                 }

@@ -179,6 +179,155 @@ class Ticks:
         self.logger.info(f"Successfully fetched {len(result_dict)}/{len(symbols)} symbols")
         return result_dict
 
+    def fetch_daily_range_bulk(
+        self,
+        symbols: List[str],
+        start_str: str,
+        end_str: str,
+        sleep_time: float = 0.2,
+        adjusted: bool = True
+    ) -> Dict[str, List[dict]]:
+        """
+        Bulk fetch daily bars for multiple symbols over a date range.
+
+        :param symbols: List of symbols in Alpaca format (e.g., ['AAPL', 'MSFT'])
+        :param start_str: Start time in UTC ISO format with 'Z' suffix
+        :param end_str: End time in UTC ISO format with 'Z' suffix
+        :param sleep_time: Sleep time between paginated requests in seconds
+        :param adjusted: If True, apply split adjustments
+        :return: Dict mapping symbol -> list of bars
+        """
+        params = {
+            "symbols": ",".join(symbols),
+            "timeframe": "1Day",
+            "start": start_str,
+            "end": end_str,
+            "limit": 10000,
+            "adjustment": "split" if adjusted else "raw",
+            "feed": "sip",
+            "sort": "asc"
+        }
+
+        session = requests.Session()
+        session.headers.update(self.headers)
+        try:
+            base_url = "https://data.alpaca.markets/v2/stocks/bars"
+            return self._fetch_with_pagination(
+                session=session,
+                base_url=base_url,
+                params=params,
+                symbols=symbols,
+                sleep_time=sleep_time
+            )
+        finally:
+            session.close()
+
+    def fetch_daily_month_bulk(
+        self,
+        symbols: List[str],
+        year: int,
+        month: int,
+        sleep_time: float = 0.2,
+        adjusted: bool = True
+    ) -> Dict[str, List[dict]]:
+        """
+        Bulk fetch daily bars for multiple symbols for the specified month.
+
+        :param symbols: List of symbols in Alpaca format (e.g., ['AAPL', 'MSFT'])
+        :param year: Year to fetch
+        :param month: Month to fetch (1-12)
+        :param sleep_time: Sleep time between paginated requests in seconds
+        :param adjusted: If True, apply split adjustments
+        :return: Dict mapping symbol -> list of bars
+        """
+        start_str, end_str = self._get_month_range(year, month)
+        return self.fetch_daily_range_bulk(
+            symbols=symbols,
+            start_str=start_str,
+            end_str=end_str,
+            sleep_time=sleep_time,
+            adjusted=adjusted
+        )
+
+    def fetch_daily_year_bulk(
+        self,
+        symbols: List[str],
+        year: int,
+        sleep_time: float = 0.2,
+        adjusted: bool = True
+    ) -> Dict[str, List[dict]]:
+        """
+        Bulk fetch daily bars for multiple symbols for the specified year.
+
+        :param symbols: List of symbols in Alpaca format (e.g., ['AAPL', 'MSFT'])
+        :param year: Year to fetch
+        :param sleep_time: Sleep time between paginated requests in seconds
+        :param adjusted: If True, apply split adjustments
+        :return: Dict mapping symbol -> list of bars
+        """
+        start_date = dt.date(year, 1, 1)
+        end_date = dt.date(year, 12, 31)
+        start_str = dt.datetime.combine(
+            start_date, dt.time(0, 0), tzinfo=dt.timezone.utc
+        ).isoformat().replace("+00:00", "Z")
+        end_str = dt.datetime.combine(
+            end_date, dt.time(23, 59, 59), tzinfo=dt.timezone.utc
+        ).isoformat().replace("+00:00", "Z")
+        return self.fetch_daily_range_bulk(
+            symbols=symbols,
+            start_str=start_str,
+            end_str=end_str,
+            sleep_time=sleep_time,
+            adjusted=adjusted
+        )
+
+    def fetch_daily_day_bulk(
+        self,
+        symbols: List[str],
+        trade_day: str,
+        sleep_time: float = 0.2
+    ) -> Dict[str, List[dict]]:
+        """
+        Bulk fetch daily bars for multiple symbols on a single trading day.
+
+        :param symbols: List of symbols in Alpaca format (e.g., ['AAPL', 'MSFT'])
+        :param trade_day: Trading day (format: "YYYY-MM-DD")
+        :param sleep_time: Sleep time between paginated requests in seconds
+        :return: Dict mapping symbol -> list of bars
+        """
+        trade_date = dt.datetime.strptime(trade_day, "%Y-%m-%d").date()
+        start_str = dt.datetime.combine(
+            trade_date, dt.time(0, 0), tzinfo=dt.timezone.utc
+        ).isoformat().replace("+00:00", "Z")
+        end_str = dt.datetime.combine(
+            trade_date, dt.time(23, 59, 59), tzinfo=dt.timezone.utc
+        ).isoformat().replace("+00:00", "Z")
+
+        params = {
+            "symbols": ",".join(symbols),
+            "timeframe": "1Day",
+            "start": start_str,
+            "end": end_str,
+            "limit": 10000,
+            "adjustment": "split",
+            "feed": "sip",
+            "sort": "asc"
+        }
+
+        session = requests.Session()
+        session.headers.update(self.headers)
+        try:
+            base_url = "https://data.alpaca.markets/v2/stocks/bars"
+            return self._fetch_with_pagination(
+                session=session,
+                base_url=base_url,
+                params=params,
+                symbols=symbols,
+                sleep_time=sleep_time
+            )
+        finally:
+            session.close()
+
     def get_ticks(
         self,
         symbol: str,
@@ -199,8 +348,9 @@ class Ticks:
         {"c": 184.25, "h": 185.88, "l": 183.43, "n": 656956, "o": 184.22, "t": "2024-01-03T05:00:00Z", "v": 58418916, "vw": 184.319693}
         """
         url = f"https://data.alpaca.markets/v2/stocks/bars"
+        symbol = str(symbol).upper()
         params = {
-            "symbols": str(symbol).upper(),
+            "symbols": symbol,
             "timeframe": timeframe,
             "start": start_day,
             "end": end_day,
@@ -223,9 +373,11 @@ class Ticks:
             data = response.json()
 
             if 'bars' not in data or data['bars'] is None:
+                self.logger.error(f'No bars in json response for {symbol}')
                 return []
 
             if symbol not in data['bars']:
+                self.logger.error(f'Symbol not found in response for {symbol}')
                 return []
 
             return data['bars'][symbol]
@@ -577,22 +729,14 @@ class Ticks:
         :param adjusted: If True, apply split adjustments (default: True)
         :return: List of dictionaries with OHLCV data
         """
-        # Calculate month range
-        start_date = dt.date(year, month, 1)
-        if month == 12:
-            end_date = dt.date(year, 12, 31)
-        else:
-            end_date = dt.date(year, month + 1, 1) - dt.timedelta(days=1)
-
-        # Convert to UTC timestamps for API
-        start_utc = dt.datetime.combine(start_date, dt.time(0, 0), tzinfo=dt.timezone.utc)
-        end_utc = dt.datetime.combine(end_date, dt.time(23, 59, 59), tzinfo=dt.timezone.utc)
-        start = start_utc.isoformat().replace("+00:00", "Z")
-        end = end_utc.isoformat().replace("+00:00", "Z")
-
-        result = self.get_ticks(symbol, start, end, "1Day", adjusted=adjusted)
-
-        return result
+        symbol_key = str(symbol).upper()
+        bars_map = self.fetch_daily_month_bulk(
+            symbols=[symbol_key],
+            year=year,
+            month=month,
+            adjusted=adjusted
+        )
+        return bars_map.get(symbol_key, [])
 
     def get_daily_year(self, symbol: str, year: int, adjusted: bool=True) -> pl.DataFrame:
         """
@@ -603,18 +747,13 @@ class Ticks:
         :param adjusted: If True, apply split adjustments (default: True)
         :return: Polars DataFrame with daily OHLCV data
         """
-        # Fetch entire year
-        start_date = dt.date(year, 1, 1)
-        end_date = dt.date(year, 12, 31)
-
-        # Convert to UTC timestamps for API
-        start_utc = dt.datetime.combine(start_date, dt.time(0, 0), tzinfo=dt.timezone.utc)
-        end_utc = dt.datetime.combine(end_date, dt.time(23, 59, 59), tzinfo=dt.timezone.utc)
-        start = start_utc.isoformat().replace("+00:00", "Z")
-        end = end_utc.isoformat().replace("+00:00", "Z")
-
-        # Fetch ticks
-        ticks = self.get_ticks(symbol, start, end, "1Day", adjusted=adjusted)
+        symbol_key = str(symbol).upper()
+        bars_map = self.fetch_daily_year_bulk(
+            symbols=[symbol_key],
+            year=year,
+            adjusted=adjusted
+        )
+        ticks = bars_map.get(symbol_key, [])
 
         # Handle empty data
         if not ticks:
