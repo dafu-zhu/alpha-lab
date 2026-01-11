@@ -999,6 +999,34 @@ class TestFundamentalDataCollector:
         assert result is cached
         mock_fundamental.assert_not_called()
 
+    def test_get_or_create_fundamental_cache_hit_moves_to_end(self):
+        """Cache hit moves item to end (LRU behavior) - covers lines 466-467."""
+        from quantdl.storage import data_collectors as dc
+
+        collector = dc.FundamentalDataCollector(logger=Mock(spec=logging.Logger), fundamental_cache_size=3)
+        cached1 = Mock()
+        cached2 = Mock()
+        cached3 = Mock()
+
+        # Populate cache with 3 items
+        collector._fundamental_cache = OrderedDict([
+            ("0001", cached1),
+            ("0002", cached2),
+            ("0003", cached3)
+        ])
+
+        with patch('quantdl.storage.data_collectors.Fundamental') as mock_fundamental:
+            # Access the first item
+            result = collector._get_or_create_fundamental("0001")
+
+        # Should return cached item
+        assert result is cached1
+        mock_fundamental.assert_not_called()
+
+        # Item should be moved to end (most recently used)
+        keys_list = list(collector._fundamental_cache.keys())
+        assert keys_list == ["0002", "0003", "0001"]
+
     def test_get_or_create_fundamental_evicts_oldest(self):
         """Cache evicts oldest when capacity exceeded."""
         from quantdl.storage import data_collectors as dc
@@ -1114,6 +1142,49 @@ class TestFundamentalDataCollector:
 
         assert result.is_empty()
         mock_logger.error.assert_called_once()
+
+    def test_collect_fundamental_long_filters_out_of_range_records(self):
+        """Records outside date range are skipped - covers line 511."""
+        from quantdl.storage.data_collectors import FundamentalDataCollector
+
+        collector = FundamentalDataCollector(logger=Mock(spec=logging.Logger))
+
+        # Create data points - one in range, one out of range
+        dp_in_range = Mock()
+        dp_in_range.timestamp = dt.date(2024, 6, 30)
+        dp_in_range.accn = "0001"
+        dp_in_range.form = "10-Q"
+        dp_in_range.value = 123.0
+        dp_in_range.start_date = dt.date(2024, 4, 1)
+        dp_in_range.end_date = dt.date(2024, 6, 30)
+        dp_in_range.frame = "CY2024Q2"
+        dp_in_range.is_instant = False
+
+        dp_out_of_range = Mock()
+        dp_out_of_range.timestamp = dt.date(2025, 3, 31)  # Outside the end_date
+        dp_out_of_range.accn = "0002"
+        dp_out_of_range.form = "10-Q"
+        dp_out_of_range.value = 456.0
+        dp_out_of_range.start_date = dt.date(2025, 1, 1)
+        dp_out_of_range.end_date = dt.date(2025, 3, 31)
+        dp_out_of_range.frame = "CY2025Q1"
+        dp_out_of_range.is_instant = False
+
+        fund = Mock()
+        fund.get_concept_data.return_value = [dp_out_of_range, dp_in_range]
+        collector._get_or_create_fundamental = Mock(return_value=fund)
+
+        result = collector.collect_fundamental_long(
+            cik="0001",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            symbol="AAPL",
+            concepts=["rev"]
+        )
+
+        # Should only include the in-range record
+        assert len(result) == 1
+        assert result.select("accn").item() == "0001"
 
     def test_collect_ttm_long_range_filters_dates(self):
         """TTM data is filtered to date range."""
@@ -1248,6 +1319,47 @@ class TestFundamentalDataCollector:
 
         assert result.is_empty()
         mock_logger.error.assert_called_once()
+
+    def test_collect_ttm_long_range_skips_empty_concept_data(self):
+        """Empty concept data is skipped - covers line 577."""
+        from quantdl.storage.data_collectors import FundamentalDataCollector
+
+        mock_logger = Mock(spec=logging.Logger)
+        collector = FundamentalDataCollector(logger=mock_logger)
+
+        dp = Mock()
+        dp.timestamp = dt.date(2024, 6, 30)
+        dp.accn = "0001"
+        dp.form = "10-Q"
+        dp.value = 123.0
+        dp.start_date = dt.date(2024, 4, 1)
+        dp.end_date = dt.date(2024, 6, 30)
+        dp.frame = "CY2024Q2"
+
+        fund = Mock()
+        # First concept returns no data (empty list), second returns data
+        fund.get_concept_data.side_effect = [[], [dp]]
+        collector._get_or_create_fundamental = Mock(return_value=fund)
+
+        ttm_df = pl.DataFrame({
+            "symbol": ["AAPL"],
+            "as_of_date": ["2024-06-30"],
+            "concept": ["eps"],
+            "value": [123.0]
+        })
+
+        with patch('quantdl.storage.data_collectors.compute_ttm_long', return_value=ttm_df):
+            result = collector.collect_ttm_long_range(
+                cik="0001",
+                start_date="2024-01-01",
+                end_date="2024-12-31",
+                symbol="AAPL",
+                concepts=["rev", "eps"]  # rev has no data, eps has data
+            )
+
+        # Should only include data from the second concept
+        assert len(result) == 1
+        assert result.select("concept").item() == "eps"
 
     def test_build_metrics_wide_no_ttm_records(self):
         """No duration concept records returns empty output."""
@@ -1521,6 +1633,59 @@ class TestFundamentalDataCollector:
                 )
 
         assert "pe" in metrics_df.columns
+
+    def test_build_metrics_wide_adds_missing_stock_cols_when_raw_empty(self):
+        """When raw_long is empty, missing stock columns are added with nulls - covers lines 751-754."""
+        from quantdl.storage import data_collectors as dc
+
+        collector = dc.FundamentalDataCollector(logger=Mock(spec=logging.Logger))
+
+        # Create duration data point
+        dp_duration = Mock()
+        dp_duration.timestamp = dt.date(2024, 6, 30)
+        dp_duration.accn = "0001"
+        dp_duration.form = "10-Q"
+        dp_duration.value = 123.0
+        dp_duration.start_date = dt.date(2024, 4, 1)
+        dp_duration.end_date = dt.date(2024, 6, 30)
+        dp_duration.frame = "CY2024Q2"
+
+        def _concept_data(concept):
+            if concept == "rev":
+                return [dp_duration]
+            # Stock concepts (eps, pe) return no data
+            return []
+
+        fund = Mock()
+        fund.get_concept_data.side_effect = _concept_data
+        collector._get_or_create_fundamental = Mock(return_value=fund)
+
+        ttm_df = pl.DataFrame({
+            "symbol": ["AAPL"],
+            "as_of_date": ["2024-06-30"],
+            "concept": ["rev"],
+            "value": [123.0],
+            "accn": ["0001"],
+            "form": ["10-Q"],
+            "frame": ["CY2024Q2"]
+        })
+
+        with patch('quantdl.storage.data_collectors.DURATION_CONCEPTS', ["rev"]):
+            with patch('quantdl.storage.data_collectors.compute_ttm_long', return_value=ttm_df):
+                metrics_df, metadata = collector._build_metrics_wide(
+                    cik="0001",
+                    start_date="2024-01-01",
+                    end_date="2024-12-31",
+                    symbol="AAPL",
+                    concepts=["rev", "eps", "pe"]
+                )
+
+        # Stock columns should be added with null values
+        assert "eps" in metrics_df.columns
+        assert "pe" in metrics_df.columns
+        # Values should be null since no raw data was provided
+        assert metrics_df.select("eps").item() is None
+        assert metrics_df.select("pe").item() is None
 
     def test_collect_derived_long_derived_empty(self):
         """Derived empty returns reason."""

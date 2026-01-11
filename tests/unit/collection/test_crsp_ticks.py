@@ -1304,3 +1304,636 @@ class TestGetDailyRangeValidation:
         assert result[0]['timestamp'] == '2024-06-28'
         assert result[1]['timestamp'] == '2024-06-29'
         assert result[2]['timestamp'] == '2024-06-30'
+
+
+class TestRecentDailyTicksChunking:
+    """Test recent_daily_ticks chunking and edge cases"""
+
+    @patch('quantdl.collection.crsp_ticks.raw_sql_with_retry')
+    @patch('quantdl.collection.crsp_ticks.validate_date_string')
+    @patch('quantdl.collection.crsp_ticks.validate_permno')
+    @patch('quantdl.collection.crsp_ticks.SecurityMaster')
+    @patch('quantdl.collection.crsp_ticks.setup_logger')
+    @patch('quantdl.collection.crsp_ticks.pl.from_pandas')
+    def test_recent_daily_ticks_chunk_size_zero(self, mock_from_pandas, mock_logger, mock_security_master, mock_validate_permno, mock_validate_date, mock_raw_sql_with_retry):
+        """Test recent_daily_ticks with chunk_size=0 (line 347)"""
+        import polars as pl
+
+        mock_conn = Mock()
+        mock_logger_instance = Mock()
+        mock_logger.return_value = mock_logger_instance
+
+        mock_sm_instance = Mock()
+        mock_master_tb = Mock()
+
+        filtered_mock = Mock()
+        selected_mock = Mock()
+        unique_mock = Mock()
+        final_mock = MagicMock()
+
+        mock_master_tb.filter.return_value = filtered_mock
+        filtered_mock.select.return_value = selected_mock
+        selected_mock.unique.return_value = unique_mock
+        unique_mock.filter.return_value = final_mock
+        final_mock.__getitem__.return_value.to_list.return_value = ['AAPL']
+
+        mock_sm_instance.master_tb = mock_master_tb
+        mock_sm_instance.get_security_id.return_value = 'sid_123'
+
+        security_map_mock = Mock()
+        security_map_filtered = Mock()
+        security_map_selected = Mock()
+        security_map_unique = MagicMock()
+
+        security_map_mock.filter.return_value = security_map_filtered
+        security_map_filtered.select.return_value = security_map_selected
+        security_map_selected.unique.return_value = security_map_unique
+        security_map_unique.__getitem__.return_value.to_list.return_value = ['sid_123']
+
+        mock_sm_instance.security_map.return_value = security_map_mock
+        mock_sm_instance.sid_to_permno.return_value = 10516
+        mock_security_master.return_value = mock_sm_instance
+
+        mock_validate_permno.return_value = 10516
+        mock_validate_date.side_effect = lambda x: x
+
+        mock_df = pd.DataFrame({
+            'permno': [10516],
+            'date': [pd.Timestamp('2024-06-30')],
+            'open': [100.0],
+            'high': [105.0],
+            'low': [99.0],
+            'close': [103.0],
+            'volume': [1000000]
+        })
+        mock_raw_sql_with_retry.return_value = mock_df
+
+        mock_polars_df = Mock()
+        mock_filtered = Mock()
+        mock_with_cols = Mock()
+        mock_selected = MagicMock()
+
+        mock_polars_df.filter.return_value = mock_filtered
+        mock_filtered.with_columns.return_value = mock_with_cols
+        mock_with_cols.select.return_value = mock_selected
+        mock_selected.__len__.return_value = 1
+
+        mock_from_pandas.return_value = mock_polars_df
+
+        crsp = CRSPDailyTicks(conn=mock_conn)
+        # chunk_size=0 should set chunk_size to len(permnos)
+        result = crsp.recent_daily_ticks(['AAPL'], '2024-06-30', chunk_size=0)
+
+        # Should make exactly 1 SQL query (all permnos in one chunk)
+        assert mock_raw_sql_with_retry.call_count == 1
+        assert isinstance(result, dict)
+
+    @patch('quantdl.collection.crsp_ticks.raw_sql_with_retry')
+    @patch('quantdl.collection.crsp_ticks.validate_date_string')
+    @patch('quantdl.collection.crsp_ticks.validate_permno')
+    @patch('quantdl.collection.crsp_ticks.SecurityMaster')
+    @patch('quantdl.collection.crsp_ticks.setup_logger')
+    @patch('quantdl.collection.crsp_ticks.pl.from_pandas')
+    def test_recent_daily_ticks_chunk_size_negative(self, mock_from_pandas, mock_logger, mock_security_master, mock_validate_permno, mock_validate_date, mock_raw_sql_with_retry):
+        """Test recent_daily_ticks with negative chunk_size (line 347)"""
+        import polars as pl
+
+        mock_conn = Mock()
+        mock_logger_instance = Mock()
+        mock_logger.return_value = mock_logger_instance
+
+        mock_sm_instance = Mock()
+        mock_master_tb = Mock()
+
+        filtered_mock = Mock()
+        selected_mock = Mock()
+        unique_mock = Mock()
+        final_mock = MagicMock()
+
+        mock_master_tb.filter.return_value = filtered_mock
+        filtered_mock.select.return_value = selected_mock
+        selected_mock.unique.return_value = unique_mock
+        unique_mock.filter.return_value = final_mock
+        final_mock.__getitem__.return_value.to_list.return_value = ['AAPL']
+
+        mock_sm_instance.master_tb = mock_master_tb
+        mock_sm_instance.get_security_id.return_value = 'sid_123'
+
+        security_map_mock = Mock()
+        security_map_filtered = Mock()
+        security_map_selected = Mock()
+        security_map_unique = MagicMock()
+
+        security_map_mock.filter.return_value = security_map_filtered
+        security_map_filtered.select.return_value = security_map_selected
+        security_map_selected.unique.return_value = security_map_unique
+        security_map_unique.__getitem__.return_value.to_list.return_value = ['sid_123']
+
+        mock_sm_instance.security_map.return_value = security_map_mock
+        mock_sm_instance.sid_to_permno.return_value = 10516
+        mock_security_master.return_value = mock_sm_instance
+
+        mock_validate_permno.return_value = 10516
+        mock_validate_date.side_effect = lambda x: x
+
+        mock_df = pd.DataFrame({
+            'permno': [10516],
+            'date': [pd.Timestamp('2024-06-30')],
+            'open': [100.0],
+            'high': [105.0],
+            'low': [99.0],
+            'close': [103.0],
+            'volume': [1000000]
+        })
+        mock_raw_sql_with_retry.return_value = mock_df
+
+        mock_polars_df = Mock()
+        mock_filtered = Mock()
+        mock_with_cols = Mock()
+        mock_selected = MagicMock()
+
+        mock_polars_df.filter.return_value = mock_filtered
+        mock_filtered.with_columns.return_value = mock_with_cols
+        mock_with_cols.select.return_value = mock_selected
+        mock_selected.__len__.return_value = 1
+
+        mock_from_pandas.return_value = mock_polars_df
+
+        crsp = CRSPDailyTicks(conn=mock_conn)
+        # chunk_size=-1 should set chunk_size to len(permnos)
+        result = crsp.recent_daily_ticks(['AAPL'], '2024-06-30', chunk_size=-1)
+
+        # Should make exactly 1 SQL query (all permnos in one chunk)
+        assert mock_raw_sql_with_retry.call_count == 1
+        assert isinstance(result, dict)
+
+    @patch('quantdl.collection.crsp_ticks.raw_sql_with_retry')
+    @patch('quantdl.collection.crsp_ticks.validate_date_string')
+    @patch('quantdl.collection.crsp_ticks.validate_permno')
+    @patch('quantdl.collection.crsp_ticks.SecurityMaster')
+    @patch('quantdl.collection.crsp_ticks.setup_logger')
+    def test_recent_daily_ticks_empty_frames_unadjusted(self, mock_logger, mock_security_master, mock_validate_permno, mock_validate_date, mock_raw_sql_with_retry):
+        """Test recent_daily_ticks with empty frames and unadjusted (line 382, 404)"""
+        mock_conn = Mock()
+        mock_logger_instance = Mock()
+        mock_logger.return_value = mock_logger_instance
+
+        mock_sm_instance = Mock()
+        mock_master_tb = Mock()
+
+        filtered_mock = Mock()
+        selected_mock = Mock()
+        unique_mock = Mock()
+        final_mock = MagicMock()
+
+        mock_master_tb.filter.return_value = filtered_mock
+        filtered_mock.select.return_value = selected_mock
+        selected_mock.unique.return_value = unique_mock
+        unique_mock.filter.return_value = final_mock
+        final_mock.__getitem__.return_value.to_list.return_value = ['AAPL']
+
+        mock_sm_instance.master_tb = mock_master_tb
+        mock_sm_instance.get_security_id.return_value = 'sid_123'
+
+        security_map_mock = Mock()
+        security_map_filtered = Mock()
+        security_map_selected = Mock()
+        security_map_unique = MagicMock()
+
+        security_map_mock.filter.return_value = security_map_filtered
+        security_map_filtered.select.return_value = security_map_selected
+        security_map_selected.unique.return_value = security_map_unique
+        security_map_unique.__getitem__.return_value.to_list.return_value = ['sid_123']
+
+        mock_sm_instance.security_map.return_value = security_map_mock
+        mock_sm_instance.sid_to_permno.return_value = 10516
+        mock_security_master.return_value = mock_sm_instance
+
+        mock_validate_permno.return_value = 10516
+        mock_validate_date.side_effect = lambda x: x
+
+        # Return empty DataFrame (no data in CRSP)
+        mock_raw_sql_with_retry.return_value = pd.DataFrame()
+
+        crsp = CRSPDailyTicks(conn=mock_conn)
+        result = crsp.recent_daily_ticks(['AAPL'], '2024-06-30', adjusted=False)
+
+        # Should return empty dict
+        assert result == {}
+        # Verify unadjusted query was used
+        query = mock_raw_sql_with_retry.call_args[0][1]
+        assert 'cfacpr' not in query
+        assert 'cfacshr' not in query
+
+    @patch('quantdl.collection.crsp_ticks.raw_sql_with_retry')
+    @patch('quantdl.collection.crsp_ticks.validate_date_string')
+    @patch('quantdl.collection.crsp_ticks.validate_permno')
+    @patch('quantdl.collection.crsp_ticks.SecurityMaster')
+    @patch('quantdl.collection.crsp_ticks.setup_logger')
+    @patch('quantdl.collection.crsp_ticks.pl.from_pandas')
+    def test_recent_daily_ticks_many_failed_symbols(self, mock_from_pandas, mock_logger, mock_security_master, mock_validate_permno, mock_validate_date, mock_raw_sql_with_retry):
+        """Test recent_daily_ticks with >20 failed symbols (lines 442-444)"""
+        import polars as pl
+
+        mock_conn = Mock()
+        mock_logger_instance = Mock()
+        mock_logger.return_value = mock_logger_instance
+
+        mock_sm_instance = Mock()
+        mock_master_tb = Mock()
+
+        # Mock empty resolution (all symbols fail)
+        filtered_mock = Mock()
+        selected_mock = Mock()
+        unique_mock = Mock()
+        final_mock = MagicMock()
+
+        mock_master_tb.filter.return_value = filtered_mock
+        filtered_mock.select.return_value = selected_mock
+        selected_mock.unique.return_value = unique_mock
+        unique_mock.filter.return_value = final_mock
+        final_mock.__getitem__.return_value.to_list.return_value = []  # No symbols resolved via fast path
+
+        mock_sm_instance.master_tb = mock_master_tb
+        # All auto_resolve attempts fail
+        mock_sm_instance.get_security_id.side_effect = ValueError("Symbol not found")
+        mock_security_master.return_value = mock_sm_instance
+
+        # Create 25 invalid symbols
+        failed_symbols = [f'INVALID{i}' for i in range(25)]
+
+        crsp = CRSPDailyTicks(conn=mock_conn)
+        result = crsp.recent_daily_ticks(failed_symbols, '2024-06-30', auto_resolve=True)
+
+        # Should return empty dict (all failed)
+        assert result == {}
+        # Verify error logging
+        mock_logger_instance.error.assert_called_with("No symbols could be resolved to permnos")
+        # Verify warning for failed symbols
+        warning_calls = [call for call in mock_logger_instance.warning.call_args_list if 'Failed symbols' in str(call)]
+        assert len(warning_calls) >= 1
+        # Check that "... and X more" message was logged
+        more_message_calls = [call for call in mock_logger_instance.warning.call_args_list if '... and' in str(call)]
+        assert len(more_message_calls) >= 1
+
+
+class TestCollectDailyTicksYearBulkAdvanced:
+    """Test collect_daily_ticks_year_bulk advanced scenarios"""
+
+    @patch('quantdl.collection.crsp_ticks.validate_date_string')
+    @patch('quantdl.collection.crsp_ticks.validate_permno')
+    @patch('quantdl.collection.crsp_ticks.SecurityMaster')
+    @patch('quantdl.collection.crsp_ticks.setup_logger')
+    def test_collect_year_bulk_auto_resolve_path(self, mock_logger, mock_security_master, mock_validate_permno, mock_validate_date):
+        """Test year bulk with auto_resolve triggering fallback (lines 494, 499)"""
+        import polars as pl
+
+        mock_conn = Mock()
+        mock_logger_instance = Mock()
+        mock_logger.return_value = mock_logger_instance
+
+        mock_sm_instance = Mock()
+
+        # Mock master_tb to return empty (no fast path resolution)
+        mock_sm_instance.master_tb = pl.DataFrame({
+            "symbol": [],
+            "start_date": [],
+            "end_date": [],
+            "security_id": []
+        })
+
+        # Auto-resolve should be called
+        mock_sm_instance.get_security_id.return_value = 'sid_123'
+
+        # Mock security_map
+        mock_sm_instance.security_map = Mock(return_value=pl.DataFrame({
+            "security_id": ["sid_123"],
+            "permno": [10516]
+        }))
+        mock_security_master.return_value = mock_sm_instance
+
+        mock_validate_permno.return_value = 10516
+        mock_validate_date.side_effect = lambda x: x
+
+        mock_conn.raw_sql.return_value = pd.DataFrame({
+            "permno": [10516],
+            "date": [pd.Timestamp("2024-06-30")],
+            "open": [100.0],
+            "high": [105.0],
+            "low": [99.0],
+            "close": [103.0],
+            "volume": [1000000]
+        })
+
+        crsp = CRSPDailyTicks(conn=mock_conn)
+        result = crsp.collect_daily_ticks_year_bulk(['AAPL'], 2024, auto_resolve=True)
+
+        # Verify auto_resolve was called
+        mock_sm_instance.get_security_id.assert_called_with('AAPL', '2024-12-31', auto_resolve=True)
+        assert 'AAPL' in result
+
+    @patch('quantdl.collection.crsp_ticks.validate_date_string')
+    @patch('quantdl.collection.crsp_ticks.validate_permno')
+    @patch('quantdl.collection.crsp_ticks.SecurityMaster')
+    @patch('quantdl.collection.crsp_ticks.setup_logger')
+    def test_collect_year_bulk_sid_none_raises(self, mock_logger, mock_security_master, mock_validate_permno, mock_validate_date):
+        """Test year bulk raises when security_id is None (line 501)"""
+        import polars as pl
+
+        mock_conn = Mock()
+        mock_logger_instance = Mock()
+        mock_logger.return_value = mock_logger_instance
+
+        mock_sm_instance = Mock()
+
+        # Mock master_tb to return empty
+        mock_sm_instance.master_tb = pl.DataFrame({
+            "symbol": [],
+            "start_date": [],
+            "end_date": [],
+            "security_id": []
+        })
+
+        # Auto-resolve returns None
+        mock_sm_instance.get_security_id.return_value = None
+        mock_security_master.return_value = mock_sm_instance
+
+        crsp = CRSPDailyTicks(conn=mock_conn)
+        result = crsp.collect_daily_ticks_year_bulk(['INVALID'], 2024, auto_resolve=True)
+
+        # Should fail to resolve and return empty dict
+        assert result == {}
+        # Verify warning logged
+        mock_logger_instance.warning.assert_called()
+
+    @patch('quantdl.collection.crsp_ticks.validate_date_string')
+    @patch('quantdl.collection.crsp_ticks.validate_permno')
+    @patch('quantdl.collection.crsp_ticks.SecurityMaster')
+    @patch('quantdl.collection.crsp_ticks.setup_logger')
+    def test_collect_year_bulk_exception_handling(self, mock_logger, mock_security_master, mock_validate_permno, mock_validate_date):
+        """Test year bulk exception handling (lines 503-505)"""
+        import polars as pl
+
+        mock_conn = Mock()
+        mock_logger_instance = Mock()
+        mock_logger.return_value = mock_logger_instance
+
+        mock_sm_instance = Mock()
+
+        # Mock master_tb to return empty
+        mock_sm_instance.master_tb = pl.DataFrame({
+            "symbol": [],
+            "start_date": [],
+            "end_date": [],
+            "security_id": []
+        })
+
+        # Auto-resolve raises exception
+        mock_sm_instance.get_security_id.side_effect = RuntimeError("Database error")
+        mock_security_master.return_value = mock_sm_instance
+
+        crsp = CRSPDailyTicks(conn=mock_conn)
+        result = crsp.collect_daily_ticks_year_bulk(['AAPL'], 2024, auto_resolve=True)
+
+        # Should fail gracefully and return empty dict
+        assert result == {}
+        # Verify warning logged with exception details
+        warning_calls = [call for call in mock_logger_instance.warning.call_args_list if 'Failed to resolve' in str(call)]
+        assert len(warning_calls) >= 1
+
+    @patch('quantdl.collection.crsp_ticks.validate_date_string')
+    @patch('quantdl.collection.crsp_ticks.validate_permno')
+    @patch('quantdl.collection.crsp_ticks.SecurityMaster')
+    @patch('quantdl.collection.crsp_ticks.setup_logger')
+    def test_collect_year_bulk_permno_resolution_fails(self, mock_logger, mock_security_master, mock_validate_permno, mock_validate_date):
+        """Test year bulk when permno resolution fails (lines 527-529)"""
+        import polars as pl
+
+        mock_conn = Mock()
+        mock_logger_instance = Mock()
+        mock_logger.return_value = mock_logger_instance
+
+        mock_sm_instance = Mock()
+
+        # Mock master_tb to return a result
+        end_day = "2024-12-31"
+        date_check = pd.Timestamp(end_day).date()
+
+        mock_sm_instance.master_tb = pl.DataFrame({
+            "symbol": ["AAPL"],
+            "start_date": [pd.Timestamp("2000-01-01").date()],
+            "end_date": [date_check],
+            "security_id": ["sid_1"]
+        })
+
+        # security_map returns empty (permno not found)
+        mock_sm_instance.security_map = Mock(return_value=pl.DataFrame({
+            "security_id": [],
+            "permno": []
+        }))
+        mock_security_master.return_value = mock_sm_instance
+
+        crsp = CRSPDailyTicks(conn=mock_conn)
+        result = crsp.collect_daily_ticks_year_bulk(['AAPL'], 2024)
+
+        # Should fail to resolve permno and return empty dict
+        assert result == {}
+        # Verify warning logged
+        warning_calls = [call for call in mock_logger_instance.warning.call_args_list if 'Failed to resolve permno' in str(call)]
+        assert len(warning_calls) >= 1
+
+    @patch('quantdl.collection.crsp_ticks.validate_date_string')
+    @patch('quantdl.collection.crsp_ticks.validate_permno')
+    @patch('quantdl.collection.crsp_ticks.SecurityMaster')
+    @patch('quantdl.collection.crsp_ticks.setup_logger')
+    def test_collect_year_bulk_all_symbols_fail(self, mock_logger, mock_security_master, mock_validate_permno, mock_validate_date):
+        """Test year bulk when all symbols fail (lines 533-534)"""
+        import polars as pl
+
+        mock_conn = Mock()
+        mock_logger_instance = Mock()
+        mock_logger.return_value = mock_logger_instance
+
+        mock_sm_instance = Mock()
+
+        # Mock master_tb to return empty
+        mock_sm_instance.master_tb = pl.DataFrame({
+            "symbol": [],
+            "start_date": [],
+            "end_date": [],
+            "security_id": []
+        })
+
+        # All symbols fail to resolve
+        mock_sm_instance.get_security_id.side_effect = ValueError("Not found")
+        mock_security_master.return_value = mock_sm_instance
+
+        crsp = CRSPDailyTicks(conn=mock_conn)
+        result = crsp.collect_daily_ticks_year_bulk(['INVALID1', 'INVALID2'], 2024, auto_resolve=True)
+
+        # Should return empty dict
+        assert result == {}
+        # Verify error logged
+        mock_logger_instance.error.assert_called_with("No symbols could be resolved to permnos")
+
+    @patch('quantdl.collection.crsp_ticks.validate_date_string')
+    @patch('quantdl.collection.crsp_ticks.validate_permno')
+    @patch('quantdl.collection.crsp_ticks.SecurityMaster')
+    @patch('quantdl.collection.crsp_ticks.setup_logger')
+    def test_collect_year_bulk_chunk_size_zero(self, mock_logger, mock_security_master, mock_validate_permno, mock_validate_date):
+        """Test year bulk with chunk_size=0 (line 540)"""
+        import polars as pl
+
+        mock_conn = Mock()
+        mock_logger_instance = Mock()
+        mock_logger.return_value = mock_logger_instance
+
+        mock_sm_instance = Mock()
+
+        end_day = "2024-12-31"
+        date_check = pd.Timestamp(end_day).date()
+
+        mock_sm_instance.master_tb = pl.DataFrame({
+            "symbol": ["AAPL"],
+            "start_date": [pd.Timestamp("2000-01-01").date()],
+            "end_date": [date_check],
+            "security_id": ["sid_1"]
+        })
+
+        mock_sm_instance.security_map = Mock(return_value=pl.DataFrame({
+            "security_id": ["sid_1"],
+            "permno": [10516]
+        }))
+        mock_security_master.return_value = mock_sm_instance
+
+        mock_validate_permno.return_value = 10516
+        mock_validate_date.side_effect = lambda x: x
+
+        mock_conn.raw_sql.return_value = pd.DataFrame({
+            "permno": [10516],
+            "date": [pd.Timestamp("2024-06-30")],
+            "open": [100.0],
+            "high": [105.0],
+            "low": [99.0],
+            "close": [103.0],
+            "volume": [1000000]
+        })
+
+        crsp = CRSPDailyTicks(conn=mock_conn)
+        result = crsp.collect_daily_ticks_year_bulk(['AAPL'], 2024, chunk_size=0)
+
+        # Should make exactly 1 SQL query (all permnos in one chunk)
+        assert mock_conn.raw_sql.call_count == 1
+        assert 'AAPL' in result
+
+    @patch('quantdl.collection.crsp_ticks.validate_date_string')
+    @patch('quantdl.collection.crsp_ticks.validate_permno')
+    @patch('quantdl.collection.crsp_ticks.SecurityMaster')
+    @patch('quantdl.collection.crsp_ticks.setup_logger')
+    def test_collect_year_bulk_empty_frames(self, mock_logger, mock_security_master, mock_validate_permno, mock_validate_date):
+        """Test year bulk with empty frames (line 595)"""
+        import polars as pl
+
+        mock_conn = Mock()
+        mock_logger_instance = Mock()
+        mock_logger.return_value = mock_logger_instance
+
+        mock_sm_instance = Mock()
+
+        end_day = "2024-12-31"
+        date_check = pd.Timestamp(end_day).date()
+
+        mock_sm_instance.master_tb = pl.DataFrame({
+            "symbol": ["AAPL"],
+            "start_date": [pd.Timestamp("2000-01-01").date()],
+            "end_date": [date_check],
+            "security_id": ["sid_1"]
+        })
+
+        mock_sm_instance.security_map = Mock(return_value=pl.DataFrame({
+            "security_id": ["sid_1"],
+            "permno": [10516]
+        }))
+        mock_security_master.return_value = mock_sm_instance
+
+        mock_validate_permno.return_value = 10516
+        mock_validate_date.side_effect = lambda x: x
+
+        # Return empty DataFrame (no data in CRSP)
+        mock_conn.raw_sql.return_value = pd.DataFrame()
+
+        crsp = CRSPDailyTicks(conn=mock_conn)
+        result = crsp.collect_daily_ticks_year_bulk(['AAPL'], 2024)
+
+        # Should return empty dict
+        assert result == {}
+
+    @patch('quantdl.collection.crsp_ticks.validate_date_string')
+    @patch('quantdl.collection.crsp_ticks.validate_permno')
+    @patch('quantdl.collection.crsp_ticks.SecurityMaster')
+    @patch('quantdl.collection.crsp_ticks.setup_logger')
+    def test_collect_year_bulk_many_failed_symbols(self, mock_logger, mock_security_master, mock_validate_permno, mock_validate_date):
+        """Test year bulk with >20 failed symbols (lines 629-631)"""
+        import polars as pl
+
+        mock_conn = Mock()
+        mock_logger_instance = Mock()
+        mock_logger.return_value = mock_logger_instance
+
+        mock_sm_instance = Mock()
+
+        # Mock master_tb to return one successful symbol
+        end_day = "2024-12-31"
+        date_check = pd.Timestamp(end_day).date()
+
+        mock_sm_instance.master_tb = pl.DataFrame({
+            "symbol": ["AAPL"],
+            "start_date": [pd.Timestamp("2000-01-01").date()],
+            "end_date": [date_check],
+            "security_id": ["sid_1"]
+        })
+
+        mock_sm_instance.security_map = Mock(return_value=pl.DataFrame({
+            "security_id": ["sid_1"],
+            "permno": [10516]
+        }))
+
+        # All other symbols fail via auto_resolve
+        def get_security_id_side_effect(symbol, date, auto_resolve):
+            if symbol == 'AAPL':
+                return 'sid_1'
+            raise ValueError("Not found")
+
+        mock_sm_instance.get_security_id.side_effect = get_security_id_side_effect
+        mock_security_master.return_value = mock_sm_instance
+
+        mock_validate_permno.return_value = 10516
+        mock_validate_date.side_effect = lambda x: x
+
+        mock_conn.raw_sql.return_value = pd.DataFrame({
+            "permno": [10516],
+            "date": [pd.Timestamp("2024-06-30")],
+            "open": [100.0],
+            "high": [105.0],
+            "low": [99.0],
+            "close": [103.0],
+            "volume": [1000000]
+        })
+
+        # Create 25 symbols: 1 valid (AAPL) + 24 invalid
+        symbols = ['AAPL'] + [f'INVALID{i}' for i in range(24)]
+
+        crsp = CRSPDailyTicks(conn=mock_conn)
+        result = crsp.collect_daily_ticks_year_bulk(symbols, 2024, auto_resolve=True)
+
+        # Should have AAPL but not the invalid ones
+        assert 'AAPL' in result
+        assert len(result) == 1
+
+        # Verify warning for failed symbols
+        warning_calls = [call for call in mock_logger_instance.warning.call_args_list if 'Failed symbols' in str(call)]
+        assert len(warning_calls) >= 1
+
+        # Check that "... and X more" message was logged
+        more_message_calls = [call for call in mock_logger_instance.warning.call_args_list if '... and' in str(call)]
+        assert len(more_message_calls) >= 1

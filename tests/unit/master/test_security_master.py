@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch, MagicMock
 import polars as pl
 import pandas as pd
 import datetime as dt
+import os
 from quantdl.master.security_master import SymbolNormalizer, SecurityMaster
 
 
@@ -751,3 +752,320 @@ class TestSecurityMaster:
         result = sm.master_table()
 
         assert result.select('security_id').item() == 101
+
+
+class TestSecurityMasterInitialization:
+    """Test SecurityMaster initialization with different configurations"""
+
+    @patch('quantdl.master.security_master.wrds.Connection')
+    @patch('quantdl.master.security_master.setup_logger')
+    @patch.dict(os.environ, {'WRDS_USERNAME': 'test_user', 'WRDS_PASSWORD': 'test_pass'})
+    def test_init_without_db_connection(self, mock_logger, mock_wrds):
+        """Test initialization without providing db connection (creates new connection)"""
+        # Mock the connection
+        mock_db_instance = Mock()
+        mock_wrds.return_value = mock_db_instance
+
+        # Mock the methods that are called during initialization
+        mock_db_instance.raw_sql.return_value = pd.DataFrame({
+            'kypermno': [1],
+            'ticker': ['AAA'],
+            'tsymbol': ['AAA'],
+            'comnam': ['AAA Corp'],
+            'ncusip': ['12345678'],
+            'cik': ['0000000001'],
+            'cikdate1': [pd.Timestamp('2020-01-01')],
+            'cikdate2': [pd.Timestamp('2020-12-31')],
+            'namedt': [pd.Timestamp('2020-01-01')],
+            'nameenddt': [pd.Timestamp('2020-12-31')]
+        })
+
+        with patch('quantdl.master.security_master.raw_sql_with_retry', return_value=mock_db_instance.raw_sql.return_value):
+            sm = SecurityMaster(db=None)
+
+        # Verify connection was created with env variables
+        mock_wrds.assert_called_once_with(
+            wrds_username='test_user',
+            wrds_password='test_pass'
+        )
+        assert sm.db == mock_db_instance
+
+    @patch('quantdl.master.security_master.setup_logger')
+    def test_init_with_db_connection(self, mock_logger):
+        """Test initialization with provided db connection"""
+        mock_db = Mock()
+
+        # Mock the methods that are called during initialization
+        mock_db.raw_sql.return_value = pd.DataFrame({
+            'kypermno': [1],
+            'ticker': ['AAA'],
+            'tsymbol': ['AAA'],
+            'comnam': ['AAA Corp'],
+            'ncusip': ['12345678'],
+            'cik': ['0000000001'],
+            'cikdate1': [pd.Timestamp('2020-01-01')],
+            'cikdate2': [pd.Timestamp('2020-12-31')],
+            'namedt': [pd.Timestamp('2020-01-01')],
+            'nameenddt': [pd.Timestamp('2020-12-31')]
+        })
+
+        with patch('quantdl.master.security_master.raw_sql_with_retry', return_value=mock_db.raw_sql.return_value):
+            sm = SecurityMaster(db=mock_db)
+
+        # Verify provided db connection was used
+        assert sm.db == mock_db
+
+    @patch('quantdl.master.security_master.setup_logger')
+    def test_init_creates_logger(self, mock_logger):
+        """Test that initialization creates a logger"""
+        mock_db = Mock()
+        mock_db.raw_sql.return_value = pd.DataFrame({
+            'kypermno': [1],
+            'ticker': ['AAA'],
+            'tsymbol': ['AAA'],
+            'comnam': ['AAA Corp'],
+            'ncusip': ['12345678'],
+            'cik': ['0000000001'],
+            'cikdate1': [pd.Timestamp('2020-01-01')],
+            'cikdate2': [pd.Timestamp('2020-12-31')],
+            'namedt': [pd.Timestamp('2020-01-01')],
+            'nameenddt': [pd.Timestamp('2020-12-31')]
+        })
+
+        with patch('quantdl.master.security_master.raw_sql_with_retry', return_value=mock_db.raw_sql.return_value):
+            sm = SecurityMaster(db=mock_db)
+
+        # Verify logger setup was called
+        mock_logger.assert_called_once()
+        assert sm.logger is not None
+
+    @patch('quantdl.master.security_master.setup_logger')
+    def test_init_sets_sec_cik_cache_to_none(self, mock_logger):
+        """Test that _sec_cik_cache is initialized to None"""
+        mock_db = Mock()
+        mock_db.raw_sql.return_value = pd.DataFrame({
+            'kypermno': [1],
+            'ticker': ['AAA'],
+            'tsymbol': ['AAA'],
+            'comnam': ['AAA Corp'],
+            'ncusip': ['12345678'],
+            'cik': ['0000000001'],
+            'cikdate1': [pd.Timestamp('2020-01-01')],
+            'cikdate2': [pd.Timestamp('2020-12-31')],
+            'namedt': [pd.Timestamp('2020-01-01')],
+            'nameenddt': [pd.Timestamp('2020-12-31')]
+        })
+
+        with patch('quantdl.master.security_master.raw_sql_with_retry', return_value=mock_db.raw_sql.return_value):
+            sm = SecurityMaster(db=mock_db)
+
+        # Verify cache is initialized to None
+        assert sm._sec_cik_cache is None
+
+
+class TestSecurityMasterCikCusipMapping:
+    """Test SecurityMaster cik_cusip_mapping edge cases"""
+
+    def test_cik_cusip_mapping_logs_null_symbols_when_more_than_50(self):
+        """Test logging when more than 50 null CIK symbols exist"""
+        sm = SecurityMaster.__new__(SecurityMaster)
+        sm.logger = Mock()
+        sm.db = Mock()
+
+        # Create data with many null CIKs (60 symbols)
+        symbols = [f'SYM{i:03d}' for i in range(60)]
+        sm.db.raw_sql.return_value = pd.DataFrame({
+            'kypermno': list(range(1, 61)),
+            'ticker': symbols,
+            'tsymbol': symbols,
+            'comnam': [f'{sym} Corp' for sym in symbols],
+            'ncusip': [f'{i:08d}' for i in range(1, 61)],
+            'cik': [None] * 60,
+            'cikdate1': [pd.Timestamp('2020-01-01')] * 60,
+            'cikdate2': [pd.Timestamp('2020-12-31')] * 60,
+            'namedt': [pd.Timestamp('2020-01-01')] * 60,
+            'nameenddt': [pd.Timestamp('2020-12-31')] * 60
+        })
+
+        # SEC fallback returns non-empty to trigger the logging path
+        sm._fetch_sec_cik_mapping = Mock(return_value=pl.DataFrame({'ticker': ['XYZ'], 'cik': ['0000000999']}))
+
+        with patch('quantdl.master.security_master.raw_sql_with_retry', return_value=sm.db.raw_sql.return_value):
+            result = sm.cik_cusip_mapping()
+
+        # Verify logging was called - should log "... and X more (see detailed log below)"
+        # since we have 60 unique symbols with NULL CIK
+        log_calls = [str(call) for call in sm.logger.info.call_args_list]
+        assert any('more (see detailed log below)' in str(call) for call in log_calls)
+
+    def test_cik_cusip_mapping_logs_detailed_examples_when_more_than_20(self):
+        """Test detailed logging when more than 20 null CIK records exist"""
+        sm = SecurityMaster.__new__(SecurityMaster)
+        sm.logger = Mock()
+        sm.db = Mock()
+
+        # Create data with many null CIKs (30 records)
+        symbols = [f'SYM{i:03d}' for i in range(30)]
+        sm.db.raw_sql.return_value = pd.DataFrame({
+            'kypermno': list(range(1, 31)),
+            'ticker': symbols,
+            'tsymbol': symbols,
+            'comnam': [f'{sym} Corp' for sym in symbols],
+            'ncusip': [f'{i:08d}' for i in range(1, 31)],
+            'cik': [None] * 30,
+            'cikdate1': [pd.Timestamp('2020-01-01')] * 30,
+            'cikdate2': [pd.Timestamp('2020-12-31')] * 30,
+            'namedt': [pd.Timestamp('2020-01-01')] * 30,
+            'nameenddt': [pd.Timestamp('2020-12-31')] * 30
+        })
+
+        # SEC fallback returns non-empty to trigger the logging path
+        sm._fetch_sec_cik_mapping = Mock(return_value=pl.DataFrame({'ticker': ['XYZ'], 'cik': ['0000000999']}))
+
+        with patch('quantdl.master.security_master.raw_sql_with_retry', return_value=sm.db.raw_sql.return_value):
+            result = sm.cik_cusip_mapping()
+
+        # Verify detailed logging was done - should log "... and X more records"
+        log_calls = [str(call) for call in sm.logger.info.call_args_list]
+        assert any('more records' in str(call) for call in log_calls)
+
+
+class TestSecurityMasterAutoResolve:
+    """Test SecurityMaster auto_resolve edge cases"""
+
+    def test_auto_resolve_with_null_candidates_defensive_code(self):
+        """Test defensive null-checking code in auto_resolve (lines 544-546, 565).
+
+        Note: These lines are defensive code that would handle null candidates.
+        In normal execution, line 533 filters nulls, making this code unreachable.
+        This test verifies the overall behavior when master_tb contains nulls.
+        """
+        sm = SecurityMaster.__new__(SecurityMaster)
+        sm.logger = Mock()
+        sm.sid_to_info = Mock(return_value="info")
+
+        # Create a master_tb with null security_ids
+        master_tb = pl.DataFrame({
+            'security_id': [None, None, 101],
+            'symbol': ['AAA', 'AAA', 'AAA'],
+            'company': ['AAA Corp 1', 'AAA Corp 2', 'AAA Corp 3'],
+            'start_date': [dt.date(2020, 1, 1), dt.date(2020, 6, 1), dt.date(2020, 1, 1)],
+            'end_date': [dt.date(2020, 12, 31), dt.date(2020, 12, 31), dt.date(2020, 12, 31)]
+        })
+        sm.master_tb = master_tb
+
+        # The auto_resolve method filters nulls at line 533 before the loop
+        # So it will only see security_id=101
+        result = sm.auto_resolve('AAA', '2020-06-30')
+
+        # Should successfully resolve to the non-null candidate
+        assert result == 101
+        # Warning should NOT be called because nulls were filtered before the loop
+        sm.logger.warning.assert_not_called()
+
+    def test_auto_resolve_verifies_null_filter_works(self):
+        """Verify that lines 544-546 and 565 are defensive code (currently unreachable).
+
+        Lines 544-546 check `if candidate_sid is None` and increment null_candidates.
+        Line 565 logs a warning if null_candidates > 0.
+
+        These lines are unreachable because line 533 filters out nulls before the loop:
+        .filter(pl.col('security_id').is_not_null())
+
+        This test documents that the defensive code exists but cannot be reached
+        in normal execution due to the earlier filter.
+        """
+        sm = SecurityMaster.__new__(SecurityMaster)
+        sm.logger = Mock()
+        sm.sid_to_info = Mock(return_value="info")
+
+        # Create master_tb with mixed null and valid security_ids
+        master_tb = pl.DataFrame({
+            'security_id': [None, None, 101],
+            'symbol': ['AAA', 'AAA', 'AAA'],
+            'company': ['AAA Corp', 'AAA Corp', 'AAA Corp'],
+            'start_date': [dt.date(2020, 1, 1), dt.date(2020, 1, 1), dt.date(2020, 1, 1)],
+            'end_date': [dt.date(2020, 12, 31), dt.date(2020, 12, 31), dt.date(2020, 12, 31)]
+        })
+        sm.master_tb = master_tb
+
+        # The filter at line 533 will remove nulls before the loop at line 543
+        result = sm.auto_resolve('AAA', '2020-06-30')
+
+        # Should resolve to the only non-null security
+        assert result == 101
+
+        # Verify the warning was NOT logged (because nulls were filtered before the loop)
+        # This confirms lines 544-546 and 565 were not executed
+        sm.logger.warning.assert_not_called()
+
+        # Verify that candidates were properly filtered by checking the intermediate result
+        # The candidates query (lines 529-534) should only return non-null security_ids
+        candidates = (
+            master_tb.filter(pl.col('symbol').eq('AAA'))
+            .select('security_id')
+            .unique()
+            .filter(pl.col('security_id').is_not_null())
+        )
+        # Should only have one candidate (101), nulls filtered out
+        assert candidates.height == 1
+        assert candidates['security_id'][0] == 101
+
+    def test_auto_resolve_date_before_symbol_start(self):
+        """Test auto_resolve when query date is before symbol start date"""
+        master_tb = pl.DataFrame({
+            'security_id': [1, 1, 2, 2],
+            'symbol': ['BBB', 'AAA', 'CCC', 'AAA'],
+            'company': ['OldCo', 'OldCo', 'NewCo', 'NewCo'],
+            'start_date': [dt.date(2018, 1, 1), dt.date(2020, 1, 1), dt.date(2018, 1, 1), dt.date(2021, 1, 1)],
+            'end_date': [dt.date(2019, 12, 31), dt.date(2020, 12, 31), dt.date(2022, 12, 31), dt.date(2022, 12, 31)]
+        })
+        sm = SecurityMaster.__new__(SecurityMaster)
+        sm.master_tb = master_tb
+        sm.logger = Mock()
+        sm.sid_to_info = Mock(return_value="info")
+
+        # Query date is before AAA was used by security_id=1 (2020-01-01)
+        # Security 1 was active 2018-2020, used AAA in 2020
+        # Security 2 was active 2018-2022, used AAA in 2021
+        result = sm.auto_resolve('AAA', '2019-06-15')
+
+        # Should pick security_id=1 (distance = 200 days to future use)
+        # vs security_id=2 (distance = 565 days to future use)
+        assert result == 1
+
+    def test_auto_resolve_date_after_symbol_end(self):
+        """Test auto_resolve when query date is after symbol end date"""
+        master_tb = pl.DataFrame({
+            'security_id': [1, 1, 2, 2],
+            'symbol': ['AAA', 'BBB', 'AAA', 'CCC'],
+            'company': ['OldCo', 'OldCo', 'NewCo', 'NewCo'],
+            'start_date': [dt.date(2018, 1, 1), dt.date(2020, 1, 1), dt.date(2019, 1, 1), dt.date(2020, 1, 1)],
+            'end_date': [dt.date(2019, 12, 31), dt.date(2020, 12, 31), dt.date(2019, 6, 30), dt.date(2020, 12, 31)]
+        })
+        sm = SecurityMaster.__new__(SecurityMaster)
+        sm.master_tb = master_tb
+        sm.logger = Mock()
+        sm.sid_to_info = Mock(return_value="info")
+
+        # Query date is after AAA was used by both securities
+        # Security 1: used AAA until 2019-12-31, active until 2020-12-31
+        # Security 2: used AAA until 2019-06-30, active until 2020-12-31
+        result = sm.auto_resolve('AAA', '2020-06-15')
+
+        # Should pick security_id=1 (distance = 167 days from 2019-12-31)
+        # vs security_id=2 (distance = 351 days from 2019-06-30)
+        assert result == 1
+
+
+class TestSecurityMasterClose:
+    """Test SecurityMaster close method"""
+
+    def test_close_calls_db_close(self):
+        """Test that close method calls db.close()"""
+        sm = SecurityMaster.__new__(SecurityMaster)
+        sm.db = Mock()
+
+        sm.close()
+
+        sm.db.close.assert_called_once()

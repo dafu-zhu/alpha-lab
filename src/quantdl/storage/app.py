@@ -448,16 +448,16 @@ class UploadApp:
                 f"{failed} failed, {canceled} canceled, {skipped} skipped out of {total_symbols} total"
             )
 
-    def upload_minute_ticks(self, year: int, month: int, overwrite: bool = False, num_workers: int = 50, chunk_size: int = 30, sleep_time: float = 0.2):
+    def upload_minute_ticks(self, year: int, month: int, overwrite: bool = False, num_workers: int = 50, chunk_size: int = 300, sleep_time: float = 0.2):
         """
         Upload minute ticks using bulk fetch + concurrent processing.
-        Fetches 30 symbols at a time for the specified month, then processes concurrently.
+        Fetches 300 symbols at a time for the specified month, then processes concurrently.
 
         :param year: Year to fetch data for
         :param month: Month to fetch data for (1-12)
         :param overwrite: If True, overwrite existing data in S3 (default: False)
         :param num_workers: Number of concurrent processing workers (default: 50)
-        :param chunk_size: Number of symbols to fetch at once (default: 30)
+        :param chunk_size: Number of symbols to fetch at once (default: 300)
         :param sleep_time: Sleep time between API requests in seconds (default: 0.2)
         """
         # Load symbols for this month

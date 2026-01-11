@@ -3,6 +3,7 @@ Unit tests for storage.data_publishers module
 Tests DataPublishers functionality with dependency injection
 """
 import pytest
+import time
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 import queue
@@ -666,3 +667,50 @@ class TestDataPublishers:
         t.join()
 
         assert stats["skipped"] == 1
+
+    def test_publish_daily_ticks_value_error_other(self):
+        """Test ValueError that doesn't contain 'not active on' returns failed status (lines 251-252)"""
+        publisher, _, _ = _make_publisher()
+        publisher.upload_fileobj = Mock(side_effect=ValueError("some other error"))
+
+        df = pl.DataFrame({
+            "timestamp": ["2024-06-30"],
+            "open": [190.0],
+            "high": [195.0],
+            "low": [189.0],
+            "close": [193.0],
+            "volume": [50000000]
+        })
+
+        result = publisher.publish_daily_ticks("AAPL", 2024, df, by_year=False)
+
+        assert result["status"] == "failed"
+        assert result["error"] == "some other error"
+        # Verify error logging was called
+        publisher.logger.error.assert_called()
+
+    def test_minute_ticks_worker_queue_timeout(self):
+        """Test that worker handles queue.Empty exception and continues (lines 331-332)"""
+        publisher, _, _ = _make_publisher()
+        stats = {"success": 0, "failed": 0, "skipped": 0, "completed": 0}
+        lock = threading.Lock()
+        q = queue.Queue()
+
+        # Start worker with empty queue - it will timeout waiting for items
+        t = threading.Thread(target=publisher.minute_ticks_worker, args=(q, stats, lock))
+        t.start()
+
+        # Wait longer than the queue timeout (1 second) to ensure queue.Empty is raised
+        # The worker uses queue.get(timeout=1), so we need to wait > 1 second
+        time.sleep(1.5)
+
+        # Add poison pill to stop worker
+        q.put(None)
+        t.join(timeout=2.0)
+
+        # Worker should have stopped cleanly
+        assert not t.is_alive()
+        # No items were processed
+        assert stats["success"] == 0
+        assert stats["failed"] == 0
+        assert stats["skipped"] == 0
