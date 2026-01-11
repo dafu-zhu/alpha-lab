@@ -112,10 +112,11 @@ class Validator:
         return sorted(years, reverse=True)
 
     def data_exists(
-            self, 
-            symbol, 
-            data_type: str, 
-            year: Optional[int]=None,  
+            self,
+            symbol,
+            data_type: str,
+            year: Optional[int]=None,
+            month: Optional[int]=None,
             day: Optional[str]=None,
             data_tier: str = "raw"
         ) -> bool:
@@ -125,7 +126,7 @@ class Validator:
         :param symbol: Stock to inspect
         :param data_type: "ticks", "fundamental", or "ttm"
         :param year: Daily data only, specify year
-        :param month: Daily data only, use YYYY/MM to locate
+        :param month: Daily data only, specify month (1-12) for monthly partitions
         :param day: Minute data only, specify trade day. Format: YYYY-MM-DD
         :param data_tier: "raw" or "derived" (default: "raw")
         """
@@ -137,9 +138,13 @@ class Validator:
 
         base_prefix = f"data/{data_tier}"
 
-        # Define Key based on year, day and data_type
+        # Define Key based on year, month, day and data_type
         if data_type == 'ticks':
-            if year:
+            if year and month:
+                # Monthly partition
+                s3_key = f'{base_prefix}/{data_type}/daily/{symbol}/{year}/{month:02d}/{data_type}.parquet'
+            elif year:
+                # Yearly partition (legacy)
                 s3_key = f'{base_prefix}/{data_type}/daily/{symbol}/{year}/{data_type}.parquet'
             elif day:
                 date = dt.datetime.strptime(day, '%Y-%m-%d').date()
@@ -148,7 +153,10 @@ class Validator:
                 day_str = date.strftime('%d')
                 s3_key = f'{base_prefix}/{data_type}/minute/{symbol}/{year_str}/{month_str}/{day_str}/{data_type}.parquet'
             else:
-                raise ValueError(f'Must provide either year or day parameter. Got year={year}, day={day}')
+                raise ValueError(
+                    "Must provide either year or day parameter "
+                    f"(month optional). Got year={year}, month={month}, day={day}"
+                )
         elif data_type == 'fundamental':
             if data_tier == "derived":
                 s3_key = f'data/derived/features/fundamental/{symbol}/metrics.parquet'

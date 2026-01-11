@@ -15,6 +15,7 @@ import logging
 import queue
 import threading
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, List, Optional, Callable, Any, cast
 import requests
@@ -105,20 +106,92 @@ class DataPublishers:
         self,
         sym: str,
         year: int,
-        df: pl.DataFrame
+        df: Optional[pl.DataFrame],
+        month: Optional[int] = None,
+        by_year: bool = False,
+        max_workers: int = 6,
+        year_df: Optional[pl.DataFrame] = None
     ) -> Dict[str, Optional[str]]:
         """
-        Publish daily ticks for a single symbol for entire year to S3.
-        Returns dict with status for progress tracking.
+        Publish daily ticks for a single symbol to S3.
 
-        Storage: data/raw/ticks/daily/{symbol}/{YYYY}/ticks.parquet
-        Contains all trading days for the year (~252 days).
+        Supports both monthly and yearly partitioning:
+        - If month is provided: data/raw/ticks/daily/{symbol}/{YYYY}/{MM}/ticks.parquet
+        - If month is None: data/raw/ticks/daily/{symbol}/{YYYY}/ticks.parquet (legacy)
+
+        Monthly partitioning is recommended for daily updates (92% cost savings).
+        Yearly partitioning can be used for historical bulk uploads.
 
         :param sym: Symbol in Alpaca format (e.g., 'BRK.B')
         :param year: Year to fetch data for
         :param df: Polars DataFrame with daily ticks data
+        :param month: Optional month (1-12) for monthly partitioning
+        :param by_year: If True, collect year data once and publish monthly partitions in parallel
+        :param max_workers: Max workers for parallel monthly uploads (by_year only)
         :return: Dict with status info
         """
+        if by_year:
+            return self._publish_daily_ticks_by_year(sym, year, max_workers=max_workers, year_df=year_df)
+
+        if df is None:
+            raise ValueError("df is required when by_year=False")
+
+        return self._publish_daily_ticks_df(sym, year, df, month=month)
+
+    def _publish_daily_ticks_by_year(
+        self,
+        sym: str,
+        year: int,
+        max_workers: int = 6,
+        year_df: Optional[pl.DataFrame] = None
+    ) -> Dict[str, Optional[str]]:
+        if year_df is None:
+            year_df = self.data_collectors.collect_daily_ticks_year(sym, year)
+        if len(year_df) == 0:
+            return {'symbol': sym, 'status': 'skipped', 'error': 'No data available'}
+
+        futures = {}
+        results = []
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for month in range(1, 13):
+                month_df = self.data_collectors.collect_daily_ticks_month(
+                    sym,
+                    year,
+                    month,
+                    year_df=year_df
+                )
+                futures[executor.submit(
+                    self._publish_daily_ticks_df,
+                    sym,
+                    year,
+                    month_df,
+                    month
+                )] = month
+
+            for future in as_completed(futures):
+                results.append(future.result())
+
+        failed = [r for r in results if r.get('status') == 'failed']
+        skipped = [r for r in results if r.get('status') == 'skipped']
+
+        if failed:
+            return {
+                'symbol': sym,
+                'status': 'failed',
+                'error': f'{len(failed)} month(s) failed'
+            }
+        if len(skipped) == 12:
+            return {'symbol': sym, 'status': 'skipped', 'error': 'No data available'}
+
+        return {'symbol': sym, 'status': 'success', 'error': None}
+
+    def _publish_daily_ticks_df(
+        self,
+        sym: str,
+        year: int,
+        df: pl.DataFrame,
+        month: Optional[int] = None
+    ) -> Dict[str, Optional[str]]:
         try:
             # Check if DataFrame is empty (no rows fetched)
             if len(df) == 0:
@@ -130,15 +203,32 @@ class DataPublishers:
             buffer.seek(0)
 
             s3_data = buffer
-            # Year-based storage: data/raw/ticks/daily/{symbol}/{YYYY}/ticks.parquet
-            s3_key = f"data/raw/ticks/daily/{sym}/{year}/ticks.parquet"
-            s3_metadata = {
-                'symbol': sym,
-                'year': str(year),
-                'data_type': 'ticks',
-                'source': 'crsp' if year < 2025 else 'alpaca',
-                'trading_days': str(len(df))
-            }
+
+            # Choose storage path based on partitioning
+            if month is not None:
+                # Monthly partition (recommended for daily updates)
+                s3_key = f"data/raw/ticks/daily/{sym}/{year}/{month:02d}/ticks.parquet"
+                s3_metadata = {
+                    'symbol': sym,
+                    'year': str(year),
+                    'month': f"{month:02d}",
+                    'data_type': 'daily_ticks',
+                    'source': 'crsp' if year < 2025 else 'alpaca',
+                    'trading_days': str(len(df)),
+                    'partition_type': 'monthly'
+                }
+            else:
+                # Yearly partition (legacy, for historical bulk uploads)
+                s3_key = f"data/raw/ticks/daily/{sym}/{year}/ticks.parquet"
+                s3_metadata = {
+                    'symbol': sym,
+                    'year': str(year),
+                    'data_type': 'daily_ticks',
+                    'source': 'crsp' if year < 2025 else 'alpaca',
+                    'trading_days': str(len(df)),
+                    'partition_type': 'yearly'
+                }
+
             # Allow list or dict as metadata value
             s3_metadata_prepared = {
                 k: json.dumps(v) if isinstance(v, (list, dict)) else str(v)

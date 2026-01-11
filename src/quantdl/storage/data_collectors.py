@@ -23,6 +23,7 @@ from quantdl.collection.fundamental import Fundamental, DURATION_CONCEPTS, SECCl
 from quantdl.collection.alpaca_ticks import Ticks
 from quantdl.universe.current import fetch_all_stocks
 from quantdl.utils.logger import setup_logger
+from quantdl.utils.mapping import align_calendar
 from quantdl.derived.ttm import compute_ttm_long
 from quantdl.derived.metrics import compute_derived
 
@@ -89,6 +90,135 @@ class TicksDataCollector(DataCollector):
             except Exception as e:
                 # Return empty DataFrame if fetch fails
                 self.logger.warning(f"Failed to fetch {sym} for {year}: {e}")
+                return pl.DataFrame()
+
+        # Apply consistent formatting and rounding (single logic for both sources)
+        if len(df) > 0:
+            required_cols = ["timestamp", "open", "high", "low", "close", "volume"]
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            if missing_cols:
+                df = df.with_columns([pl.lit(None).alias(col) for col in missing_cols])
+
+            df = df.with_columns([
+                pl.col('timestamp').cast(pl.Utf8),
+                pl.col('open').cast(pl.Float64).round(4),
+                pl.col('high').cast(pl.Float64).round(4),
+                pl.col('low').cast(pl.Float64).round(4),
+                pl.col('close').cast(pl.Float64).round(4),
+                pl.col('volume').cast(pl.Int64)
+            ]).sort('timestamp')
+
+        return df
+
+    def collect_daily_ticks_year_bulk(self, symbols: List[str], year: int) -> Dict[str, pl.DataFrame]:
+        """
+        Bulk fetch daily ticks for a full year and return a mapping of symbol -> DataFrame.
+        Only supported for CRSP years (< 2025). For Alpaca years, falls back to per-symbol fetch.
+        """
+        if year < 2025:
+            return self.crsp_ticks.collect_daily_ticks_year_bulk(symbols, year, adjusted=True, auto_resolve=True)
+
+        result = {}
+        for sym in symbols:
+            df = self.collect_daily_ticks_year(sym, year)
+            if len(df) > 0:
+                result[sym] = df
+        return result
+
+    def collect_daily_ticks_month(
+        self,
+        sym: str,
+        year: int,
+        month: int,
+        year_df: Optional[pl.DataFrame] = None
+    ) -> pl.DataFrame:
+        """
+        Fetch daily ticks for a specific month from appropriate source and return as Polars DataFrame.
+        Directly fetches only the requested month from the source API (no year-level fetch).
+        If year_df is provided, filters the month from that DataFrame instead of refetching.
+
+        :param sym: Symbol in Alpaca format (e.g., 'BRK.B')
+        :param year: Year to fetch data for
+        :param month: Month to fetch data for (1-12)
+        :return: Polars DataFrame with columns: timestamp, open, high, low, close, volume
+        """
+        if year_df is not None:
+            if len(year_df) == 0:
+                return pl.DataFrame()
+            month_prefix = f"{year}-{month:02d}"
+            df = year_df.filter(
+                pl.col('timestamp').cast(pl.Utf8).str.slice(0, 7).eq(month_prefix)
+            )
+            if len(df) == 0:
+                return pl.DataFrame()
+            calendar_path = getattr(self.crsp_ticks, "calendar_path", None)
+            if isinstance(calendar_path, (str, Path)) and Path(calendar_path).exists():
+                start_date_obj = dt.date(year, month, 1)
+                if month == 12:
+                    end_date_obj = dt.date(year, 12, 31)
+                else:
+                    end_date_obj = dt.date(year, month + 1, 1) - dt.timedelta(days=1)
+                df = pl.DataFrame(
+                    align_calendar(
+                        df.to_dicts(),
+                        start_date_obj,
+                        end_date_obj,
+                        Path(calendar_path)
+                    )
+                )
+        elif year < 2025:
+            # Use CRSP for years < 2025 (avoids survivorship bias)
+            crsp_symbol = sym.replace('.', '').replace('-', '')
+            try:
+                json_list = self.crsp_ticks.collect_daily_ticks(
+                    symbol=crsp_symbol,
+                    year=year,
+                    month=month,
+                    adjusted=True,
+                    auto_resolve=True
+                )
+
+                # Convert to Polars DataFrame
+                if not json_list:
+                    return pl.DataFrame()
+
+                df = pl.DataFrame(json_list)
+            except ValueError as e:
+                if "not active on" in str(e):
+                    # Symbol not active in this month
+                    return pl.DataFrame()
+                else:
+                    raise
+        else:
+            # Use Alpaca for years >= 2025
+            try:
+                # Fetch daily data for specific month
+                daily_data = self.alpaca_ticks.get_daily(
+                    symbol=sym,
+                    year=year,
+                    month=month,
+                    adjusted=True
+                )
+
+                if not daily_data:
+                    return pl.DataFrame()
+
+                # Parse and convert to DataFrame
+                from dataclasses import asdict
+                parsed_ticks = self.alpaca_ticks.parse_ticks(daily_data)
+                ticks_data = [asdict(dp) for dp in parsed_ticks]
+
+                df = pl.DataFrame(ticks_data).with_columns([
+                    pl.col('timestamp').str.to_datetime(format='%Y-%m-%dT%H:%M:%S').dt.date(),
+                    pl.col('open').cast(pl.Float64),
+                    pl.col('high').cast(pl.Float64),
+                    pl.col('low').cast(pl.Float64),
+                    pl.col('close').cast(pl.Float64),
+                    pl.col('volume').cast(pl.Int64)
+                ]).select(['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            except Exception as e:
+                # Return empty DataFrame if fetch fails
+                self.logger.warning(f"Failed to fetch {sym} for {year}-{month:02d}: {e}")
                 return pl.DataFrame()
 
         # Apply consistent formatting and rounding (single logic for both sources)
@@ -798,6 +928,18 @@ class DataCollectors:
     # Delegation methods for ticks collection
     def collect_daily_ticks_year(self, sym: str, year: int) -> pl.DataFrame:
         return self.ticks_collector.collect_daily_ticks_year(sym, year)
+
+    def collect_daily_ticks_month(
+        self,
+        sym: str,
+        year: int,
+        month: int,
+        year_df: Optional[pl.DataFrame] = None
+    ) -> pl.DataFrame:
+        return self.ticks_collector.collect_daily_ticks_month(sym, year, month, year_df=year_df)
+
+    def collect_daily_ticks_year_bulk(self, symbols: List[str], year: int) -> Dict[str, pl.DataFrame]:
+        return self.ticks_collector.collect_daily_ticks_year_bulk(symbols, year)
 
     def fetch_minute_month(
         self,

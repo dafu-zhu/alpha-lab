@@ -158,6 +158,14 @@ class CRSPDailyTicks:
         """
         # Resolve symbol to security_id (use end_date as reference point)
         sid = self.security_master.get_security_id(symbol, end_day, auto_resolve=auto_resolve)
+
+        # Check if symbol resolution returned None (symbol not found or has null security_id)
+        if sid is None:
+            raise ValueError(
+                f"Symbol '{symbol}' not active on {end_day} (security_id is None). "
+                "This may indicate the symbol doesn't exist in the security master or has invalid data."
+            )
+
         permno = validate_permno(self.security_master.sid_to_permno(sid))
         validated_start_day = validate_date_string(start_day)
         validated_end_day = validate_date_string(end_day)
@@ -429,6 +437,193 @@ class CRSPDailyTicks:
                     result_dict[symbol] = symbol_df
 
         self.logger.info(f"Successfully fetched {len(result_dict)}/{len(symbols)} symbols")
+        if failed_symbols:
+            self.logger.warning(f"Failed symbols ({len(failed_symbols)}): {', '.join(failed_symbols[:20])}")
+            if len(failed_symbols) > 20:
+                self.logger.warning(f"... and {len(failed_symbols) - 20} more")
+
+        return result_dict
+
+    def collect_daily_ticks_year_bulk(
+        self,
+        symbols: List[str],
+        year: int,
+        adjusted: bool = True,
+        auto_resolve: bool = True,
+        chunk_size: int = 2000
+    ) -> Dict[str, pl.DataFrame]:
+        """
+        Bulk fetch daily data for a list of symbols across a full year.
+
+        Returns a dict mapping symbol -> DataFrame with daily OHLCV rows for the year.
+        Data is not calendar-aligned; consumers can align per month if needed.
+        """
+        start_day = f"{year}-01-01"
+        end_day = f"{year}-12-31"
+
+        self.logger.info(f"Fetching {len(symbols)} symbols for {year} via bulk CRSP query")
+
+        symbol_to_permno = {}
+        failed_symbols = []
+
+        date_check = dt.datetime.strptime(end_day, '%Y-%m-%d').date()
+        crsp_keys = [symbol.replace('.', '').replace('-', '').upper() for symbol in symbols]
+        resolved_df = (
+            self.security_master.master_tb.filter(
+                pl.col('symbol').is_in(crsp_keys),
+                pl.col('start_date').le(date_check),
+                pl.col('end_date').ge(date_check)
+            )
+            .select(['symbol', 'security_id'])
+            .unique(subset=['symbol'], maintain_order=True)
+            .filter(pl.col('security_id').is_not_null())
+        )
+        resolved_map = dict(zip(resolved_df['symbol'].to_list(), resolved_df['security_id'].to_list()))
+
+        auto_resolved = 0
+        symbol_to_sid = {}
+        for symbol, crsp_key in tqdm(
+            list(zip(symbols, crsp_keys)),
+            desc="Resolving symbols",
+            unit="sym"
+        ):
+            try:
+                sid = resolved_map.get(crsp_key)
+                if sid is None and auto_resolve:
+                    sid = self.security_master.get_security_id(
+                        crsp_key,
+                        end_day,
+                        auto_resolve=True
+                    )
+                    auto_resolved += 1
+                if sid is None:
+                    raise ValueError("security_id is None")
+                symbol_to_sid[symbol] = sid
+            except Exception as e:
+                failed_symbols.append(symbol)
+                self.logger.warning(f"Failed to resolve {symbol}: {e}")
+
+        if auto_resolve:
+            self.logger.info(
+                f"Resolved {len(resolved_map)}/{len(symbols)} via fast lookup, "
+                f"auto_resolved {auto_resolved} symbols"
+            )
+
+        if symbol_to_sid:
+            unique_sids = list(set(symbol_to_sid.values()))
+            sid_permno_df = (
+                self.security_master.security_map()
+                .filter(pl.col('security_id').is_in(unique_sids))
+                .select(['security_id', 'permno'])
+                .unique(subset=['security_id'], maintain_order=True)
+            )
+            sid_to_permno = dict(
+                zip(sid_permno_df['security_id'].to_list(), sid_permno_df['permno'].to_list())
+            )
+            for symbol, sid in symbol_to_sid.items():
+                permno = sid_to_permno.get(sid)
+                if permno is None:
+                    failed_symbols.append(symbol)
+                    self.logger.warning(f"Failed to resolve permno for {symbol} (sid={sid})")
+                    continue
+                symbol_to_permno[symbol] = permno
+
+        if not symbol_to_permno:
+            self.logger.error("No symbols could be resolved to permnos")
+            return {}
+
+        self.logger.info(f"Resolved {len(symbol_to_permno)}/{len(symbols)} symbols to permnos")
+
+        permnos = list(symbol_to_permno.values())
+        if chunk_size <= 0:
+            chunk_size = len(permnos)
+        chunks = [permnos[i:i + chunk_size] for i in range(0, len(permnos), chunk_size)]
+
+        validated_start_day = validate_date_string(start_day)
+        validated_end_day = validate_date_string(end_day)
+
+        frames = []
+        for chunk in tqdm(chunks, desc="Querying CRSP", unit="chunk"):
+            validated_chunk = [validate_permno(p) for p in chunk]
+            permno_list_str = ','.join(map(str, validated_chunk))
+
+            if adjusted:
+                query = f"""
+                    SELECT
+                        permno,
+                        date,
+                        openprc / cfacpr as open,
+                        askhi / cfacpr as high,
+                        bidlo / cfacpr as low,
+                        abs(prc) / cfacpr as close,
+                        vol * cfacshr as volume
+                    FROM crsp.dsf
+                    WHERE permno IN ({permno_list_str})
+                        AND date >= '{validated_start_day}'
+                        AND date <= '{validated_end_day}'
+                        AND prc IS NOT NULL
+                        AND cfacpr IS NOT NULL
+                        AND cfacpr != 0
+                        AND cfacshr IS NOT NULL
+                        AND cfacshr != 0
+                    ORDER BY permno, date ASC
+                """
+            else:
+                query = f"""
+                    SELECT
+                        permno,
+                        date,
+                        openprc as open,
+                        askhi as high,
+                        bidlo as low,
+                        abs(prc) as close,
+                        vol as volume
+                    FROM crsp.dsf
+                    WHERE permno IN ({permno_list_str})
+                        AND date >= '{validated_start_day}'
+                        AND date <= '{validated_end_day}'
+                        AND prc IS NOT NULL
+                    ORDER BY permno, date ASC
+                """
+
+            frames.append(self.conn.raw_sql(query, date_cols=['date']))
+
+        if frames:
+            df_pandas = pd.concat(frames, ignore_index=True)
+        else:
+            df_pandas = pd.DataFrame()
+
+        self.logger.info(f"Fetched {len(df_pandas)} total rows from CRSP for {year}")
+
+        permno_to_symbol = {v: k for k, v in symbol_to_permno.items()}
+        result_dict: Dict[str, pl.DataFrame] = {}
+
+        if not df_pandas.empty:
+            df_pandas['symbol'] = df_pandas['permno'].map(permno_to_symbol)
+            df_polars = pl.from_pandas(df_pandas)
+
+            for symbol in symbol_to_permno.keys():
+                symbol_df = (
+                    df_polars
+                    .filter(pl.col('symbol') == symbol)
+                    .with_columns([
+                        pl.col('date').cast(pl.Date).alias('timestamp'),
+                        pl.col('open').cast(pl.Float64),
+                        pl.col('high').cast(pl.Float64),
+                        pl.col('low').cast(pl.Float64),
+                        pl.col('close').cast(pl.Float64),
+                        pl.col('volume').cast(pl.Int64)
+                    ])
+                    .select(['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                )
+                if len(symbol_df) > 0:
+                    result_dict[symbol] = symbol_df.with_columns(
+                        pl.col('timestamp').dt.strftime('%Y-%m-%d')
+                    )
+        else:
+            result_dict = {}
+
+        self.logger.info(f"Bulk fetch produced {len(result_dict)}/{len(symbols)} symbols with data")
         if failed_symbols:
             self.logger.warning(f"Failed symbols ({len(failed_symbols)}): {', '.join(failed_symbols[:20])}")
             if len(failed_symbols) > 20:

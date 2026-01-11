@@ -484,7 +484,14 @@ class SecurityMaster:
             on=['permno', 'symbol'],
             how='left'
         ).select([
-            'security_id', 'permno', 'symbol', 'cik', 'start_date', 'end_date'
+            'security_id',
+            'permno',
+            'symbol',
+            'company',
+            'cik',
+            'cusip',
+            'start_date',
+            'end_date',
         ]).with_columns([
             pl.col('security_id').cast(pl.Int64)
         ])
@@ -504,14 +511,7 @@ class SecurityMaster:
         """
         security_map = self.security_map()
 
-        # Join with original cik_cusip to get company and cusip
-        full_history = self.cik_cusip.join(
-            security_map.select(['permno', 'symbol', 'cik', 'start_date', 'end_date', 'security_id']),
-            on=['permno', 'symbol', 'cik', 'start_date', 'end_date'],
-            how='left'
-        )
-
-        result = full_history.select([
+        result = security_map.select([
             'security_id', 'symbol', 'company', 'cik', 'cusip', 'start_date', 'end_date'
         ])
 
@@ -627,8 +627,15 @@ class SecurityMaster:
                 raise ValueError(f"Symbol {symbol} not found in day {day}")
             else:
                 return self.auto_resolve(symbol, day)
-        
+
         result = match.head(1).select('security_id').item()
+
+        # Validate that security_id is not None (data quality check)
+        if result is None:
+            raise ValueError(
+                f"Symbol '{symbol}' found in security master for {day}, but security_id is None. "
+                "This indicates corrupted data in the security master table."
+            )
 
         return result
     
