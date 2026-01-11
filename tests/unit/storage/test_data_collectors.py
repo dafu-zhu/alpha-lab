@@ -1118,6 +1118,106 @@ class TestDataCollectorsOrchestrator:
             ["AAPL"], 2025, 6, 0.1
         )
 
+    def test_delegation_to_ticks_collector_month(self):
+        """Delegates single month fetch to TicksDataCollector."""
+        from quantdl.storage.data_collectors import DataCollectors
+
+        mock_logger = Mock(spec=logging.Logger)
+        orchestrator = DataCollectors(
+            crsp_ticks=Mock(),
+            alpaca_ticks=Mock(),
+            alpaca_headers={},
+            logger=mock_logger
+        )
+
+        orchestrator.ticks_collector.collect_daily_ticks_month = Mock(return_value=pl.DataFrame())
+
+        orchestrator.collect_daily_ticks_month("AAPL", 2024, 6)
+
+        orchestrator.ticks_collector.collect_daily_ticks_month.assert_called_once_with(
+            "AAPL", 2024, 6, year_df=None
+        )
+
+    def test_delegation_to_ticks_collector_year_bulk(self):
+        """Delegates yearly bulk fetch to TicksDataCollector."""
+        from quantdl.storage.data_collectors import DataCollectors
+
+        mock_logger = Mock(spec=logging.Logger)
+        orchestrator = DataCollectors(
+            crsp_ticks=Mock(),
+            alpaca_ticks=Mock(),
+            alpaca_headers={},
+            logger=mock_logger
+        )
+
+        orchestrator.ticks_collector.collect_daily_ticks_year_bulk = Mock(return_value={})
+
+        orchestrator.collect_daily_ticks_year_bulk(["AAPL", "MSFT"], 2024)
+
+        orchestrator.ticks_collector.collect_daily_ticks_year_bulk.assert_called_once_with(
+            ["AAPL", "MSFT"], 2024
+        )
+
+    def test_delegation_to_ticks_collector_fetch_minute_month(self):
+        """Delegates minute month fetch to TicksDataCollector."""
+        from quantdl.storage.data_collectors import DataCollectors
+
+        mock_logger = Mock(spec=logging.Logger)
+        orchestrator = DataCollectors(
+            crsp_ticks=Mock(),
+            alpaca_ticks=Mock(),
+            alpaca_headers={},
+            logger=mock_logger
+        )
+
+        orchestrator.ticks_collector.fetch_minute_month = Mock(return_value={})
+
+        orchestrator.fetch_minute_month(["AAPL"], 2024, 6, sleep_time=0.1)
+
+        orchestrator.ticks_collector.fetch_minute_month.assert_called_once_with(
+            ["AAPL"], 2024, 6, 0.1
+        )
+
+    def test_delegation_to_ticks_collector_fetch_minute_day(self):
+        """Delegates minute day fetch to TicksDataCollector."""
+        from quantdl.storage.data_collectors import DataCollectors
+
+        mock_logger = Mock(spec=logging.Logger)
+        orchestrator = DataCollectors(
+            crsp_ticks=Mock(),
+            alpaca_ticks=Mock(),
+            alpaca_headers={},
+            logger=mock_logger
+        )
+
+        orchestrator.ticks_collector.fetch_minute_day = Mock(return_value={})
+
+        orchestrator.fetch_minute_day(["AAPL"], "2024-06-03", sleep_time=0.1)
+
+        orchestrator.ticks_collector.fetch_minute_day.assert_called_once_with(
+            ["AAPL"], "2024-06-03", 0.1
+        )
+
+    def test_delegation_to_ticks_collector_parse_minute_bars(self):
+        """Delegates minute bars parsing to TicksDataCollector."""
+        from quantdl.storage.data_collectors import DataCollectors
+
+        mock_logger = Mock(spec=logging.Logger)
+        orchestrator = DataCollectors(
+            crsp_ticks=Mock(),
+            alpaca_ticks=Mock(),
+            alpaca_headers={},
+            logger=mock_logger
+        )
+
+        orchestrator.ticks_collector.parse_minute_bars_to_daily = Mock(return_value={})
+
+        orchestrator.parse_minute_bars_to_daily({"AAPL": []}, ["2024-06-03"])
+
+        orchestrator.ticks_collector.parse_minute_bars_to_daily.assert_called_once_with(
+            {"AAPL": []}, ["2024-06-03"]
+        )
+
     def test_delegation_to_fundamental_collector(self):
         """Test DataCollectors delegates to FundamentalDataCollector"""
         from quantdl.storage.data_collectors import DataCollectors
@@ -1138,6 +1238,65 @@ class TestDataCollectorsOrchestrator:
 
         # Should delegate to fundamental_collector
         orchestrator.fundamental_collector.collect_fundamental_long.assert_called_once_with(
+            '320193', '2024-01-01', '2024-12-31', 'AAPL', None, None
+        )
+
+    def test_delegation_to_fundamental_collector_load_concepts(self):
+        """Delegates _load_concepts to FundamentalDataCollector."""
+        from quantdl.storage.data_collectors import DataCollectors
+
+        mock_logger = Mock(spec=logging.Logger)
+        orchestrator = DataCollectors(
+            crsp_ticks=Mock(),
+            alpaca_ticks=Mock(),
+            alpaca_headers={},
+            logger=mock_logger
+        )
+
+        orchestrator.fundamental_collector._load_concepts = Mock(return_value=["rev"])
+
+        result = orchestrator._load_concepts(concepts=["rev"], config_path=None)
+
+        assert result == ["rev"]
+        orchestrator.fundamental_collector._load_concepts.assert_called_once_with(["rev"], None)
+
+    def test_delegation_to_fundamental_collector_ttm(self):
+        """Delegates collect_ttm_long_range to FundamentalDataCollector."""
+        from quantdl.storage.data_collectors import DataCollectors
+
+        mock_logger = Mock(spec=logging.Logger)
+        orchestrator = DataCollectors(
+            crsp_ticks=Mock(),
+            alpaca_ticks=Mock(),
+            alpaca_headers={},
+            logger=mock_logger
+        )
+
+        orchestrator.fundamental_collector.collect_ttm_long_range = Mock(return_value=pl.DataFrame())
+
+        orchestrator.collect_ttm_long_range('320193', '2024-01-01', '2024-12-31', 'AAPL')
+
+        orchestrator.fundamental_collector.collect_ttm_long_range.assert_called_once_with(
+            '320193', '2024-01-01', '2024-12-31', 'AAPL', None, None
+        )
+
+    def test_delegation_to_fundamental_collector_derived(self):
+        """Delegates collect_derived_long to FundamentalDataCollector."""
+        from quantdl.storage.data_collectors import DataCollectors
+
+        mock_logger = Mock(spec=logging.Logger)
+        orchestrator = DataCollectors(
+            crsp_ticks=Mock(),
+            alpaca_ticks=Mock(),
+            alpaca_headers={},
+            logger=mock_logger
+        )
+
+        orchestrator.fundamental_collector.collect_derived_long = Mock(return_value=(pl.DataFrame(), None))
+
+        orchestrator.collect_derived_long('320193', '2024-01-01', '2024-12-31', 'AAPL')
+
+        orchestrator.fundamental_collector.collect_derived_long.assert_called_once_with(
             '320193', '2024-01-01', '2024-12-31', 'AAPL', None, None
         )
 

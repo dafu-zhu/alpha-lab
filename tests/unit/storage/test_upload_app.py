@@ -4,7 +4,9 @@ Focus on upload flows with injected dependencies
 """
 from unittest.mock import Mock, patch
 from itertools import cycle
+from pathlib import Path
 import datetime as dt
+import logging
 import queue
 import threading
 import polars as pl
@@ -27,6 +29,74 @@ def _make_app():
 
 
 class TestUploadApp:
+    @patch('quantdl.storage.app.DataPublishers')
+    @patch('quantdl.storage.app.DataCollectors')
+    @patch('quantdl.storage.app.CIKResolver')
+    @patch('quantdl.storage.app.RateLimiter')
+    @patch('quantdl.storage.app.TradingCalendar')
+    @patch('quantdl.storage.app.UniverseManager')
+    @patch('quantdl.storage.app.CRSPDailyTicks')
+    @patch('quantdl.storage.app.Ticks')
+    @patch('quantdl.storage.app.Validator')
+    @patch('quantdl.storage.app.setup_logger')
+    @patch('quantdl.storage.app.S3Client')
+    @patch('quantdl.storage.app.UploadConfig')
+    @patch.dict('os.environ', {
+        'ALPACA_API_KEY': 'test_key',
+        'ALPACA_API_SECRET': 'test_secret'
+    })
+    def test_initialization(
+        self,
+        mock_config,
+        mock_s3_client,
+        mock_logger,
+        mock_validator,
+        mock_ticks,
+        mock_crsp,
+        mock_universe,
+        mock_calendar,
+        mock_rate_limiter,
+        mock_cik_resolver,
+        mock_collectors,
+        mock_publishers
+    ):
+        """Test UploadApp constructor wiring and defaults."""
+        from quantdl.storage.app import UploadApp
+
+        mock_config_instance = Mock()
+        mock_config.return_value = mock_config_instance
+
+        mock_s3_instance = Mock()
+        mock_s3_instance.client = Mock()
+        mock_s3_client.return_value = mock_s3_instance
+
+        mock_logger_instance = Mock()
+        mock_logger.return_value = mock_logger_instance
+
+        app = UploadApp(alpaca_start_year=2025)
+
+        assert app.config == mock_config_instance
+        assert app.client == mock_s3_instance.client
+        assert app.logger == mock_logger_instance
+        assert app.validator == mock_validator.return_value
+        assert app.alpaca_ticks == mock_ticks.return_value
+        assert app.crsp_ticks == mock_crsp.return_value
+        assert app.universe_manager == mock_universe.return_value
+        assert app.calendar == mock_calendar.return_value
+        assert app.sec_rate_limiter == mock_rate_limiter.return_value
+        assert app.cik_resolver == mock_cik_resolver.return_value
+        assert app.data_collectors == mock_collectors.return_value
+        assert app.data_publishers == mock_publishers.return_value
+
+        mock_logger.assert_called_once_with(
+            name="uploadapp",
+            log_dir=Path("data/logs/upload"),
+            level=logging.DEBUG,
+            console_output=True
+        )
+        assert app.headers["APCA-API-KEY-ID"] == "test_key"
+        assert app.headers["APCA-API-SECRET-KEY"] == "test_secret"
+
     def test_upload_daily_ticks_success_monthly(self):
         """Test upload with monthly partitions (default behavior)"""
         app = _make_app()
