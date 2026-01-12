@@ -200,16 +200,13 @@ class DailyUpdateApp:
             time.sleep(0.1)  # Rate limit: 10 req/sec (0.1s between requests)
             recent_filings = self.get_recent_edgar_filings(cik, lookback_days)
 
-            # Filter to only 10-K and 10-Q forms
-            relevant_filings = [f for f in recent_filings if f['form'] in ('10-K', '10-Q')]
-
-            if relevant_filings:
+            if recent_filings:
                 self.logger.debug(
-                    f"{symbol} (CIK {cik}): {len(relevant_filings)} recent 10-K/10-Q filings - "
-                    f"{[f['form'] for f in relevant_filings]}"
+                    f"{symbol} (CIK {cik}): {len(recent_filings)} recent 10-K/10-Q filings - "
+                    f"{[f['form'] for f in recent_filings]}"
                 )
 
-            return {'symbol': symbol, 'cik': cik, 'has_recent_filing': len(relevant_filings) > 0}
+            return {'symbol': symbol, 'cik': cik, 'has_recent_filing': len(recent_filings) > 0}
 
     def get_symbols_with_recent_filings(
         self,
