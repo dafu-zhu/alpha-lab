@@ -1,299 +1,281 @@
-## Objective
+# CLAUDE.md
 
-Build a self-hosted, automated market data infrastructure for US equities using official/authoritative sources, with daily updates and programmatic access via Python API.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Scope:**
-- All US-listed stocks
-- Post-2009 data only
-- Daily tick data (OHLCV, both adj Close and unadj Close)
-- Quarterly fundamental data (ROI, Capitalization, BM, ...)
-- Corporate actions (dividends, splits)
-- Index constituents (S&P 500, major indices)
-- Minute level tick data (OHLCV)
-- Derived daily common technical indicators (MACD, RSI, ...)
+## Project Overview
 
-## Definition of Done / Deliverables
+US Equity Data Lake: Self-hosted, automated market data infrastructure for US equities using official/authoritative sources. Data stored in flat-file structure on AWS S3.
 
-### 1. Flat file system
+**Data Coverage:**
+- Daily ticks (OHLCV): CRSP via WRDS (2009+)
+- Minute ticks: Alpaca API (2016+)
+- Fundamentals: SEC EDGAR JSON API (2009+)
+- Derived metrics: ROA, ROE, TTM calculations
+
+## Commands
+
+### Environment Setup
+```bash
+# Install dependencies
+uv sync
+
+# Set up .env file with:
+# - WRDS_USERNAME, WRDS_PASSWORD
+# - ALPACA_API_KEY, ALPACA_API_SECRET
+# - AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+# - SEC_USER_AGENT
+```
+
+### Testing
+```bash
+# Run all tests with coverage
+uv run pytest --cov=src/quantdl
+
+# Run only unit tests (fast)
+uv run pytest -m unit
+
+# Run only integration tests
+uv run pytest -m integration
+
+# Run specific test file
+uv run pytest tests/unit/collection/test_fundamental.py
+
+# Run with parallel execution
+uv run pytest -n auto
+```
+
+### Data Operations
+```bash
+# Initial upload (full backfill)
+uv run quantdl-storage --run-all --start-year 2009 --end-year 2025
+
+# Upload specific data types
+uv run quantdl-storage --run-fundamental
+uv run quantdl-storage --run-daily-ticks
+uv run quantdl-storage --run-minute-ticks
+uv run quantdl-storage --run-derived-fundamental
+
+# Daily update (incremental)
+uv run quantdl-update --date 2025-01-10
+uv run quantdl-update  # defaults to yesterday
+uv run quantdl-update --no-ticks  # skip ticks, only fundamentals
+```
+
+## Architecture
+
+### Core Components
+
+**1. Collection Layer** (`src/quantdl/collection/`)
+- `crsp_ticks.py`: Fetches daily OHLCV from CRSP via WRDS
+- `alpaca_ticks.py`: Fetches minute-level data from Alpaca API
+- `fundamental.py`: Fetches SEC EDGAR XBRL data (JSON API)
+- `models.py`: Data models (TickField, FndDataPoint, DataSource)
+
+**2. Storage Layer** (`src/quantdl/storage/`)
+- `data_collectors.py`: Collects data from sources, handles rate limiting
+- `data_publishers.py`: Publishes collected data to S3 in Parquet format
+- `s3_client.py`: S3 client wrapper with retry logic
+- `validation.py`: Validates uploaded data completeness
+- `cik_resolver.py`: Maps tickers to SEC CIK codes
+- `rate_limiter.py`: Rate limiting for API calls
+
+**3. Universe Management** (`src/quantdl/universe/`)
+- `current.py`: Fetches current stock universe from Nasdaq Trader
+- `historical.py`: Fetches historical universe from CRSP
+- `manager.py`: Manages universe state, handles symbol changes
+
+**4. Security Master** (`src/quantdl/master/`)
+- `security_master.py`: Tracks stocks across symbol changes, mergers, delistings
+- Contains `SymbolNormalizer` for deterministic ticker format conversion
+
+**5. Derived Data** (`src/quantdl/derived/`)
+- `ttm.py`: Computes trailing-twelve-month (TTM) fundamentals
+- `metrics.py`: Computes derived metrics (ROA, ROE, leverage ratios, etc.)
+
+**6. Update Apps** (`src/quantdl/update/`)
+- `app.py`: `DailyUpdateApp` orchestrates daily incremental updates
+- `cli.py`: CLI entry point for daily updates
+
+**7. Upload Apps** (`src/quantdl/storage/`)
+- `app.py`: `UploadApp` orchestrates full backfill uploads
+- `cli.py`: CLI entry point for initial uploads
+
+### Data Flow
 
 ```
-data/
-├───ticks/
-│   ├───daily/
-│   │   ├───AAPL/
-│   │   │   ├───2024/
-│   │   │   │   └───ticks.json
-│   │   │   ├───2023/
-│   │   │   │   └───ticks.json
-│   │   │   ...
-│   ├───minute/
-│   │   ├───AAPL/
-│   │   │   ├───2024/
-│   │   │   │   ├───01/
-│   │   │   │   │   ├───15/
-│   │   │   │   │   │   └───ticks.parquet
-│   │   │   │   │   ...
-│   │   │   ...
-├───fundamental/
-│   ├───AAPL/
-│   │   ├───2024/
-│   │   │   └───fundamental.json
-│   │   │   ...
-├───corporate_actions/
-│   ├───AAPL/
-│   │   └───actions.json
-├───reference/
-│   ├───ticker_metadata.parquet
-│   └───index_constituents.parquet
-...
+Data Sources → Collection → Validation → S3 Storage
+                    ↓
+            Derived Metrics
+                    ↓
+                S3 Storage
+```
+
+**Initial Upload:**
+1. `UploadApp` fetches universe from Nasdaq/CRSP
+2. `DataCollectors` fetch data from sources (CRSP, Alpaca, SEC)
+3. `DataPublishers` write Parquet files to S3
+4. `Validator` checks completeness
+
+**Daily Update:**
+1. `DailyUpdateApp` checks if market was open yesterday
+2. For ticks: Fetch yesterday's data, append to yearly Parquet files
+3. For fundamentals: Check EDGAR filings in last N days, update if new 10-K/10-Q
+4. Upload updated files to S3
+
+### Storage Paths
+
+```
+data/raw/
+├── ticks/
+│   ├── daily/{symbol}/{YYYY}/{MM}/ticks.parquet
+│   └── minute/{symbol}/{YYYY}/{MM}/{DD}/ticks.parquet
+├── fundamental/{symbol}/fundamental.parquet
+data/derived/
+└── features/fundamental/{symbol}/
+    ├── ttm.parquet
+    └── metrics.parquet
 ```
 
 **Storage Strategy:**
-- Daily ticks: `data/ticks/daily/{symbol}/{YYYY}/ticks.json`
-- Minute ticks: `data/ticks/minute/{symbol}/{YYYY}/{MM}/{DD}/ticks.parquet`
-- Fundamentals: `data/fundamental/{symbol}/{YYYY}/fundamental.json`
-- Corporate actions: `data/corporate_actions/{symbol}/actions.json` (all dates in single file per symbol)
-- Reference data: `data/reference/` (shared files for metadata and index constituents)
+- Daily ticks: Partitioned by symbol, year, month
+- Minute ticks: Partitioned by symbol, year, month, day
+- Fundamentals: One file per symbol (all quarters/years combined)
+- Derived: One file per symbol per metric type
 
-### 2. Data Collection Pipeline
-- Python scripts for initial data collection
-- Automated daily update mechanism
-- Error handling and retry logic
-- Progress logging and monitoring
+### Key Design Decisions
 
-### 3. Query API
-- Python module for data lake access
-- Support for date ranges, multi-symbol queries
-- Export capabilities (pandas, CSV, Parquet)
+**1. CIK-Based Storage (Fundamentals)**
+- Fundamentals stored under SEC CIK codes, not tickers
+- `CIKResolver` maps tickers to CIKs using SEC company tickers JSON
+- Prevents data loss during ticker changes/mergers
 
-### 4. Data Coverage Report
-- Comprehensive analysis document
-- Coverage by data type, source, completeness
-- Known gaps and limitations documented
-- Data quality metrics and validation results
+**2. Symbol Normalization**
+- `SymbolNormalizer` converts CRSP format (BRKB) to Nasdaq format (BRK.B)
+- Uses `SecurityMaster` to verify same security_id before conversion
+- Keeps delisted stocks in original format
 
-### 5. Documentation
-- Setup and installation guide
-- Data dictionary (all fields explained)
-- API reference with examples
-- Maintenance procedures (daily updates, backfills)
-- Troubleshooting guide
+**3. Parallel Processing**
+- Daily ticks: Batch processing with rate limiting (200 symbols/batch)
+- Minute ticks: High parallelization (50 workers, 100+ concurrent S3 reads)
+- Fundamentals: Sequential with retry logic (EDGAR API limits)
 
-### 6. Cloud Deployment
-- Server configured and running with AWS S3
-- Daily automated updates operational
-- Backup strategy implemented
-- Monitoring/alerting configured
+**4. Update Strategy**
+- Fundamentals: Check EDGAR for new 10-K/10-Q filings (lookback 7 days)
+- Ticks: Update only if trading day, append to existing Parquet files
+- Read-modify-write pattern for yearly/monthly Parquet files
 
-## Background and Assumptions
+## Testing
 
-### Key Assumptions
-
-1. Data Sources (Confirmed):
-- Daily Ticks Data (OHLCV): yfinance (2009+)
-- Minute Ticks Data (OHLCV): Alpaca Market Data API (2016+)
-- Fundamental Data: SEC EDGAR JSON API (official, authoritative, 2009+)
-- Corporate Actions: To be determined (candidates: NASDAQ FTP, SEC Form 8-K, yfinance backup)
-- Reference Data: NASDAQ FTP + SEC EDGAR for ticker universe (official)
-- Index Constituents: To be determined (candidates: S&P website, index provider APIs)
-
-2. Constraints:
-- Post-2009 data for daily ticks, fundamentals, corporate actions, reference data
-- 2016+ data for minute-level ticks (Alpaca API limitation)
-- Daily and minute-level frequency for ticks data
-- Quarterly/annual frequency for fundamental data
-- US markets only (NYSE, NASDAQ, AMEX)
-
-3. Dependencies:
-- Data Fetching Libraries: yfinance (daily ticks), alpaca-py or alpaca-trade-api (minute ticks)
-- Data Processing Libraries: pandas, pyarrow (Parquet I/O), open to polars/duckdb for query optimization
-- Official APIs: SEC EDGAR JSON API, NASDAQ FTP (for reference data), Alpaca Market Data API
-- Cloud Services: AWS S3 (storage), boto3 (S3 client)
-- Network Access: Reliable internet for daily API calls
-- Rate Limits: yfinance ~2 req/sec, Alpaca free tier has data limits (verify quota)
-
-4. Known Limitations:
-- No historical index constituents (survivorship bias present, will build forward from 2024)
-- Fundamental data lag: 45-90 days (filing deadlines)
-- Small cap coverage: ~75% have fundamental data
-- yfinance rate limits: ~2 requests/second
-
-5. Query API
-- Do not have rate limitation for my own personal use
-- Fetch data directly from cloud service
-
-
-## Technical Approach and Milestones
-
-### Architecture Overview
-
+### Test Structure
 ```
-Data Flow:
-Official Sources (Primary) → Python Collectors → Cloud → Query API → Analysis
-
-Components:
-1. Data Collection Layer (Python + stdlib + yfinance)
-2. Data Storage Layer (Parquet)
-3. Update Automation (cron jobs)
-4. Query API
-    - Use threading to accelerate querying, exceeding the I/O bound
-    - Use Polars, DuckDB or PySpark to accelerate querying
-5. Cloud Infrastructure (AWS S3)
+tests/
+├── unit/          # Fast, isolated tests (mocked external calls)
+├── integration/   # Tests with real S3/WRDS/SEC (slower)
+└── conftest.py    # Shared fixtures, auto-marks unit/integration
 ```
 
-### Roadmap
+### Test Markers
+- `@pytest.mark.unit`: Fast unit tests (auto-applied to tests/unit/**)
+- `@pytest.mark.integration`: Integration tests (auto-applied to tests/integration/**)
+- `@pytest.mark.slow`: Slow tests
+- `@pytest.mark.external`: Requires external API access
 
-**Phase 0: Validation & Foundation (Day 1-2)**
-1. Prototype with sample data (10-20 symbols, 1 year)
-2. Validate storage structure and measure file sizes
-3. Setup S3 bucket with lifecycle policies and access controls
-4. Create schema definitions for all data types
-5. Build logging and monitoring framework
+### Common Fixtures (conftest.py)
+- `sample_ticker`, `sample_tickers`: Test tickers
+- `sample_date`, `sample_date_range`: Test dates
+- `sample_year`: Test year (2024)
+- `sample_cik`: Apple's CIK (0000320193)
 
-**Phase 1: Reference Data & Infrastructure (Day 3-4)**
-6. Implement ticker universe collector (SEC EDGAR + NASDAQ FTP)
-7. Build corporate actions collector (determine source: NASDAQ FTP vs SEC vs yfinance)
-8. Implement index constituents collector (determine source)
-9. Create data validation framework (completeness, accuracy, consistency checks)
-10. Setup automated testing infrastructure
+## Critical Files & Configs
 
-**Phase 2: Daily Data Collection (Day 5-8)**
-11. Implement daily ticks collector (yfinance) with rate limiting
-12. Write unit tests for daily ticks module
-13. Backfill daily ticks for recent period (30-90 days) and validate
-14. Implement fundamentals collector (SEC EDGAR JSON API)
-15. Write unit tests for fundamentals module
-16. Backfill fundamentals for recent period (4-8 quarters) and validate
-17. Implement technical indicators calculator (MACD, RSI, etc.)
+**configs/approved_mapping.yaml**
+- Maps standardized field names to XBRL tags (SEC EDGAR)
+- Used by `fundamental.py` to extract XBRL concepts
+- Multiple candidate tags per concept (handles deprecated tags)
 
-**Phase 3: Minute Data Collection (Day 9-11)**
-18. Implement minute ticks collector (Alpaca API)
-19. Write unit tests for minute ticks module
-20. Backfill minute data for recent period (1-3 months) and validate
-21. Monitor storage costs and optimize partition strategy if needed
+**DURATION_CONCEPTS (fundamental.py)**
+- Duration concepts (income statement): rev, net_inc, cfo, etc.
+- Instant concepts (balance sheet): assets, liab, equity, etc.
+- Determines quarterly filtering logic
 
-**Phase 4: Full Historical Backfill (Day 12-15)**
-22. Execute full backfill for all data types with progress tracking
-23. Implement retry logic and error recovery
-24. Run data quality checks and generate coverage report
-25. Document known gaps and limitations
+## Common Patterns
 
-**Phase 5: Query API (Day 16-19)**
-26. Design and implement core query API (date ranges, multi-symbol)
-27. Add caching layer (local file cache)
-28. Implement export formats (pandas DataFrame, CSV, Parquet)
-29. Write API unit and integration tests
-30. Create usage examples and cookbook
+### Adding New Data Collector
+1. Create collector class in `collection/` inheriting `DataCollector`
+2. Add collector initialization in `DataCollectors` class
+3. Add publisher method in `DataPublishers` class
+4. Add CLI flags to `storage/cli.py` and `storage/app.py`
 
-**Phase 6: Automation & Production (Day 20-22)**
-31. Implement daily update pipeline (scheduled jobs)
-32. Add error handling, retry logic, and alerting
-33. Setup monitoring dashboard (coverage, latency, errors)
-34. Implement backup strategy (S3 versioning)
-35. Write operational runbook
+### Adding New Derived Metric
+1. Add metric function to `derived/metrics.py` or `derived/ttm.py`
+2. Update `compute_derived()` or `compute_ttm_long()` to include metric
+3. Add tests to `tests/unit/derived/test_metrics.py`
 
-**Phase 7: Documentation & Handoff (Day 23-25)**
-36. Complete setup and installation guide
-37. Document data dictionary (all fields explained)
-38. Write API reference documentation
-39. Create troubleshooting guide
-40. Deliver final coverage report
+### Modifying Storage Paths
+1. Update path constants in `UploadConfig` (storage/config_loader.py)
+2. Update corresponding publisher methods in `data_publishers.py`
+3. Update validation logic in `validation.py`
 
-## Implementation Considerations
+## Environment Variables
 
-### Storage Estimates
+Required in `.env`:
+```bash
+# WRDS (for CRSP data)
+WRDS_USERNAME=your_username
+WRDS_PASSWORD=your_password
 
-**Daily Ticks (EOD, stored by year):**
-- Per symbol-year file: ~252 trading days × 8 fields (O/H/L/C/adj_C/V/date/symbol) × 8 bytes = ~16 KB compressed
-- Total data: 5000 symbols × 15 years × 16 KB = ~1.2 GB
-- Total files: 5000 symbols × 15 years = **75,000 files**
+# Alpaca (for minute ticks)
+ALPACA_API_KEY=your_api_key
+ALPACA_API_SECRET=your_secret_key
 
-**Minute Ticks (stored by day):**
-- Per symbol-day file: 390 minutes × 8 fields × 8 bytes = ~25 KB compressed
-- Total data: 5000 symbols × 9 years × 252 days × 25 KB = ~283 GB
-- Total files: 5000 symbols × 9 years × 252 days = **11.34 million files**
+# AWS (for S3 storage)
+AWS_ACCESS_KEY_ID=your_access_key
+AWS_SECRET_ACCESS_KEY=your_secret_key
 
-**Fundamentals (stored by quarter):**
-- Per symbol-quarter: ~50 metrics × 500 bytes = ~25 KB
-- Total data: 5000 symbols × 60 quarters × 25 KB = ~7.5 GB
-- Total files: 5000 symbols × 15 years × 4 quarters = **300,000 files**
-
-**Total Storage:** ~292 GB | **Total Files:** ~11.7 million
-**Estimated S3 Costs:** ~$7/month (storage) + API request costs (important with millions of files!)
-
-### Query Optimization Strategies
-
-**Symbol-based partitioning characteristics:**
-
-✅ **Advantages:**
-- Single-symbol queries are extremely efficient (direct file access)
-- Easy to add/update individual symbols incrementally
-- Clear data organization and debugging
-
-⚠ **Challenges:**
-- Multi-symbol queries require many file reads (especially minute data)
-- S3 LIST operations expensive with millions of files
-- Cross-symbol analysis requires aggregation layer
-
-**Recommended Query Patterns:**
-
-1. **Daily Data Queries (by year files):**
-   - Single symbol, date range: Read only needed year files
-   - Multi-symbol, same period: Parallelize reads with threading (10-50 symbols per batch)
-
-2. **Minute Data Queries (by day files):**
-   - Use aggressive parallelization (100+ concurrent S3 reads)
-   - Implement local cache for frequently accessed symbol-days
-   - Consider creating aggregated views for cross-symbol analysis
-
-3. **Query Engine Recommendation:**
-   - **DuckDB** (recommended): Efficient Parquet scanning, SQL interface, handles partial reads
-   - Implement result caching at query level (cache popular date ranges)
-
-### Data Quality Framework
-
-**Validation checks per data type:**
-
-```python
-Daily Ticks Validation:
-- Row count matches trading days (compare vs NYSE calendar)
-- No missing OHLC values
-- High >= Low >= 0, Close within [Low, High]
-- Volume >= 0
-- No gaps in date sequence for trading days
-- Adjusted close reconciles with corporate actions
-
-Minute Ticks Validation:
-- 390 rows per trading day (9:30 AM - 4:00 PM ET)
-- Same OHLC sanity checks as daily
-- First minute of day: Open should align with previous day close (±5%)
-- Aggregate minute data should match daily data (±1%)
-
-Fundamentals Validation:
-- Required fields present (revenue, net_income, assets, liabilities, equity)
-- Balance sheet equation: Assets = Liabilities + Equity (±1%)
-- Filing date <= 90 days after period end
-- No negative values for absolute metrics (total assets, market cap)
+# SEC EDGAR (User-Agent required by API)
+SEC_USER_AGENT=your_name@example.com
 ```
 
-### Edge Case Handling
+## Known Limitations
 
-**1. Corporate Actions (splits, dividends):**
-- Store raw prices and adjusted prices separately
-- Maintain `corporate_actions/{symbol}/actions.parquet` with adjustment factors
-- Fields: symbol, date, action_type (split/dividend), value, adjustment_factor
+1. **Fundamentals:** ~75% small-cap coverage (SEC filing requirements)
+2. **Minute data:** 2016+ only (Alpaca limitation)
+3. **Historical index constituents:** Not available (survivorship bias)
+4. **Fundamental lag:** 45-90 days (SEC filing deadlines)
+5. **CRSP data:** Updated monthly by WRDS (latest: 2024-12-31)
 
-**2. Symbol Changes / Ticker Renames:**
-- Primary data stored under current symbol
-- Maintain `reference/ticker_history.parquet`: old_symbol, new_symbol, effective_date
-- Query API should support both old and new symbols
+## Edge Cases
 
-**3. Delistings:**
-- Keep historical data in same structure
-- Flag in `reference/ticker_metadata.parquet`: delisting_date, delisting_reason
-- Include in backfills but exclude from daily updates after delisting
+### Symbol Changes
+- SecurityMaster tracks permno (CRSP ID) across ticker changes
+- SymbolNormalizer prevents false matches (e.g., delisted ABCD ≠ ABC.D)
+- Historical data kept under original ticker for delisted stocks
 
-**4. Missing Data:**
-- Trading halts: Mark as NULL, don't interpolate
-- Data source unavailable: Retry with exponential backoff, alert if > 24h gap
-- Fundamental filing delays: Expected, track filing date separately
+### Corporate Actions
+- Fundamentals handle share splits via XBRL context (shares outstanding)
+- Daily ticks include both raw and adjusted close prices
+
+### Missing Data
+- Trading halts: Skip (don't interpolate)
+- Data source unavailable: Retry with exponential backoff
+- Fundamental filing delays: Expected, tracked separately
+
+## Dependencies
+
+Key libraries:
+- **polars**: DataFrame processing (faster than pandas for large datasets)
+- **boto3**: AWS S3 client
+- **wrds**: CRSP data access
+- **requests**: HTTP client for Alpaca, SEC EDGAR
+- **arelle**: XBRL processing for SEC filings
+- **pytest**: Testing framework
+- **pyarrow**: Parquet I/O
+
+## Performance Notes
+
+- Daily ticks: ~1.2 GB for 5000 symbols × 15 years
+- Minute ticks: ~283 GB for 5000 symbols × 9 years
+- Fundamentals: ~7.5 GB for 5000 symbols × 15 years
+- S3 costs: ~$7/month storage + API request costs
+- Use threading for I/O-bound operations (S3 reads/writes)
+- Rate limiting: CRSP via WRDS (throttled by DB), SEC EDGAR (10 req/sec limit)
