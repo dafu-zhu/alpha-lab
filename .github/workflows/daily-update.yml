@@ -27,6 +27,11 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      - name: Create .pgpass file for WRDS authentication
+        run: |
+          echo "wrds-pgdata.wharton.upenn.edu:9737:wrds:${{ secrets.WRDS_USERNAME }}:${{ secrets.WRDS_PASSWORD }}" > ~/.pgpass
+          chmod 600 ~/.pgpass
+
       - name: Run daily update
         env:
           WRDS_USERNAME: ${{ secrets.WRDS_USERNAME }}

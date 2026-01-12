@@ -58,11 +58,28 @@ The test workflow runs `quantdl-update --no-ticks` which:
 
 If successful, the main `daily-update.yml` workflow will run daily at 9:00 UTC (4:00 AM ET).
 
+## How It Works
+
+### WRDS Authentication
+The workflow creates a `.pgpass` file for non-interactive PostgreSQL authentication to WRDS:
+```bash
+echo "wrds-pgdata.wharton.upenn.edu:9737:wrds:$USERNAME:$PASSWORD" > ~/.pgpass
+chmod 600 ~/.pgpass
+```
+This allows the WRDS Python library to authenticate without interactive prompts.
+
+**Note on 2FA/MFA**: WRDS uses multi-factor authentication tied to IP addresses (30-day session tokens). GitHub Actions runners have dynamic IPs, which may require periodic re-authentication. If workflows fail with authentication errors after 30 days of inactivity, manually trigger the workflow or contact WRDS support for CI/CD-specific authentication options.
+
 ## Troubleshooting
 
 ### Error: "WRDS credentials not found"
 - `WRDS_USERNAME` or `WRDS_PASSWORD` secret is missing or empty
 - Add both secrets in GitHub Settings > Secrets > Actions
+
+### Error: "EOF when reading a line" (WRDS)
+- `.pgpass` file not created or has wrong permissions
+- This is now handled automatically in the workflow
+- Ensure `WRDS_USERNAME` and `WRDS_PASSWORD` secrets are set
 
 ### Error: "Application-specific password required"
 - Using Gmail with 2FA but regular password instead of app password
