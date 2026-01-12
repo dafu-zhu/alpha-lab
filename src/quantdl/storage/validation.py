@@ -59,66 +59,6 @@ class Validator:
 
         return files
 
-    def list_available_years(self, symbol: str, data_type: str) -> list:
-        """
-        For daily data, List all years we have for a symbol
-
-        :param symbol: Stock to inspect
-        :param data_type: "ticks", "fundamental", or "ttm"
-        """
-        if data_type == "ticks":
-            prefix = f'data/raw/{data_type}/daily/{symbol}/'
-        elif data_type == "fundamental":
-            prefix = f'data/raw/{data_type}/{symbol}/'
-        elif data_type == "ttm":
-            prefix = f'data/derived/features/fundamental/{symbol}/'
-        else:
-            raise ValueError(
-                f'Expected data_type is ticks, fundamental, or ttm, get {data_type} instead'
-            )
-
-        years = []
-        continuation_token = None
-
-        while True:
-            # Build request params
-            params = {
-                'Bucket': self.bucket_name,
-                'Prefix': prefix
-            }
-            if continuation_token:
-                params['ContinuationToken'] = continuation_token
-
-            # List objects
-            response = self.s3_client.list_objects_v2(**params)
-
-            # Extract years from object keys
-            if 'Contents' in response:
-                for obj in response['Contents']:
-                    parts = obj['Key'].split('/')
-                    if data_type == "fundamental":
-                        continue
-                    if len(parts) >= 6 and data_type in parts:
-                        # Handle both yearly and monthly partitions
-                        # Yearly: .../SYMBOL/2023/ticks.parquet (parts[-2] = year)
-                        # Monthly: .../SYMBOL/2023/01/ticks.parquet (parts[-3] = year)
-                        year_candidate = int(parts[-2])
-                        if year_candidate >= 2000 and year_candidate <= 2100:
-                            year = year_candidate
-                        else:
-                            # Monthly partition - year is one level up
-                            year = int(parts[-3])
-                        if year not in years:
-                            years.append(year)
-
-            # Check for more pages
-            if response.get('IsTruncated'):
-                continuation_token = response['NextContinuationToken']
-            else:
-                break
-
-        return sorted(years, reverse=True)
-
     def data_exists(
             self,
             symbol,

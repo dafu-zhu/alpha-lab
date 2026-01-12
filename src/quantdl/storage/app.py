@@ -672,10 +672,10 @@ class UploadApp:
         Upload fundamental data for all symbols for a date range.
         Uses concept-based extraction with approved_mapping.yaml.
 
-        Storage strategy: data/raw/fundamental/{symbol}/fundamental.parquet
+        Storage strategy: data/raw/fundamental/{cik}/fundamental.parquet
         - Stores all quarterly/annual filings (long format)
         - No forward filling - only actual filed data
-        - One file per symbol
+        - One file per CIK
         - Uses all concepts from approved_mapping.yaml
 
         Performance optimizations:
@@ -709,7 +709,7 @@ class UploadApp:
             f"(rate limited to 9.5 req/sec)"
         )
         self.logger.info(f"Using concept-based extraction with approved_mapping.yaml")
-        self.logger.info("Storage: data/raw/fundamental/{symbol}/fundamental.parquet")
+        self.logger.info("Storage: data/raw/fundamental/{cik}/fundamental.parquet")
 
         # OPTIMIZATION: Batch pre-fetch all CIKs before starting (avoids per-symbol DB queries)
         self.logger.info(f"Step 1/3: Pre-fetching CIKs for {total} symbols across {start_year}-{end_year}...")
@@ -884,9 +884,9 @@ class UploadApp:
         """
         Upload TTM fundamental data for all symbols for a date range.
 
-        Storage: data/derived/features/fundamental/{symbol}/ttm.parquet
+        Storage: data/derived/features/fundamental/{cik}/ttm.parquet
         - Computes TTM in memory from long-format fundamentals
-        - One file per symbol
+        - One file per CIK
         """
         start_time = time.time()
         start_year = int(start_date[:4])
@@ -907,7 +907,7 @@ class UploadApp:
             f"from {start_date} to {end_date} with {max_workers} workers "
             f"(rate limited to 9.5 req/sec)"
         )
-        self.logger.info("Storage: data/derived/features/fundamental/{symbol}/ttm.parquet (long)")
+        self.logger.info("Storage: data/derived/features/fundamental/{cik}/ttm.parquet (long)")
 
         self.logger.info(f"Step 1/3: Pre-fetching CIKs for {total} symbols...")
         prefetch_start = time.time()
@@ -1036,7 +1036,7 @@ class UploadApp:
         2. Compute derived metrics
         3. Publish derived data separately
 
-        Storage: data/derived/features/fundamental/{symbol}/metrics.parquet
+        Storage: data/derived/features/fundamental/{cik}/metrics.parquet
         Contains ONLY derived metrics (keys + 24 derived columns).
 
         :param sym: Symbol in Alpaca format (e.g., 'BRK.B')
@@ -1110,10 +1110,10 @@ class UploadApp:
         3. Store derived data separately
 
         Storage strategy:
-        - Raw: data/raw/fundamental/{symbol}/fundamental.parquet (long format)
-        - TTM: data/derived/features/fundamental/{symbol}/ttm.parquet (long format)
-        - Derived: data/derived/features/fundamental/{symbol}/metrics.parquet (keys + 24 derived)
-        One file per symbol for the full requested date range.
+        - Raw: data/raw/fundamental/{cik}/fundamental.parquet (long format)
+        - TTM: data/derived/features/fundamental/{cik}/ttm.parquet (long format)
+        - Derived: data/derived/features/fundamental/{cik}/metrics.parquet (keys + 24 derived)
+        One file per CIK for the full requested date range.
 
         :param start_date: Start date (YYYY-MM-DD)
         :param end_date: End date (YYYY-MM-DD)
@@ -1141,7 +1141,7 @@ class UploadApp:
             f"Starting derived fundamental upload for {total} symbols "
             f"from {start_date} to {end_date} with {max_workers} workers"
         )
-        self.logger.info("Storage: data/derived/features/fundamental/{symbol}/metrics.parquet")
+        self.logger.info("Storage: data/derived/features/fundamental/{cik}/metrics.parquet")
 
         # OPTIMIZATION: Batch pre-fetch all CIKs
         self.logger.info(
@@ -1274,9 +1274,9 @@ class UploadApp:
         Run the complete workflow, fetch and upload fundamental, daily ticks and minute ticks data within the period
 
         Storage strategy:
-        - Raw Fundamental: Once per symbol -> data/raw/fundamental/{symbol}/fundamental.parquet
-        - Derived Fundamental: Once per symbol -> data/derived/features/fundamental/{symbol}/metrics.parquet
-        - TTM Fundamental: Once per symbol -> data/derived/features/fundamental/{symbol}/ttm.parquet (long)
+        - Raw Fundamental: Once per CIK -> data/raw/fundamental/{cik}/fundamental.parquet
+        - Derived Fundamental: Once per CIK -> data/derived/features/fundamental/{cik}/metrics.parquet
+        - TTM Fundamental: Once per CIK -> data/derived/features/fundamental/{cik}/ttm.parquet (long)
         - Daily ticks: Once per year -> data/raw/ticks/daily/{symbol}/{YYYY}/ticks.parquet
         - Minute ticks: Monthly -> data/raw/ticks/minute/{symbol}/{YYYY}/{MM}/{DD}/ticks.parquet
 
