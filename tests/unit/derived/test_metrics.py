@@ -391,3 +391,29 @@ class TestComputeDerived:
 
         assert result.is_empty()
         logger.error.assert_called()
+
+    def test_all_logger_debug_calls(self, sample_ttm_data):
+        """Test all logger debug calls during computation - covers lines 110,128,142,156,185,198,240"""
+        logger = Mock()
+
+        result = compute_derived(sample_ttm_data, logger=logger, symbol="AAPL")
+
+        # Verify result is not empty
+        assert not result.is_empty()
+
+        # Verify all 7 debug calls were made
+        debug_calls = [str(call) for call in logger.debug.call_args_list]
+
+        expected_messages = [
+            "Computing profitability metrics",
+            "Computing balance sheet constructs",
+            "Computing cash flow metrics",
+            "Computing return metrics",
+            "Computing growth metrics",
+            "Computing accruals",
+            "Derived computation complete"
+        ]
+
+        for expected_msg in expected_messages:
+            assert any(expected_msg in call for call in debug_calls), \
+                f"Expected logger.debug call with '{expected_msg}' not found"

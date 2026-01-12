@@ -261,3 +261,89 @@ class TestComputeTTMLong:
         # Invalid date should be skipped, not enough valid quarters for TTM
         # (Only 3 valid quarters: Q1, Q3, Q4)
         assert result.is_empty()
+
+    def test_empty_dataframe_with_logger(self):
+        """Test empty DataFrame with logger - covers line 29"""
+        from unittest.mock import Mock
+        logger = Mock()
+        empty_df = pl.DataFrame()
+
+        result = compute_ttm_long(empty_df, logger=logger, symbol='AAPL')
+
+        assert result.is_empty()
+        logger.debug.assert_called_once()
+        assert "Empty input DataFrame" in str(logger.debug.call_args)
+
+    def test_missing_columns_with_logger(self):
+        """Test missing required columns with logger - covers line 53"""
+        from unittest.mock import Mock
+        logger = Mock()
+        df = pl.DataFrame({
+            'symbol': ['AAPL'],
+            'value': [1000.0]
+            # Missing: as_of_date, concept, frame
+        })
+
+        result = compute_ttm_long(df, logger=logger, symbol='AAPL')
+
+        assert result.is_empty()
+        logger.debug.assert_called_once()
+        assert "Missing columns" in str(logger.debug.call_args)
+
+    def test_duration_concepts_filter_empty(self):
+        """Test when duration_concepts filter results in empty - covers line 61"""
+        df = pl.DataFrame({
+            'symbol': ['AAPL'] * 4,
+            'as_of_date': ['2024-03-31', '2024-06-30', '2024-09-30', '2024-12-31'],
+            'accn': ['acc1', 'acc2', 'acc3', 'acc4'],
+            'form': ['10-Q'] * 4,
+            'concept': ['ta'] * 4,  # instant concept, not duration
+            'value': [1000.0, 1100.0, 1200.0, 1300.0],
+            'start': ['2024-01-01', '2024-04-01', '2024-07-01', '2024-10-01'],
+            'end': ['2024-03-31', '2024-06-30', '2024-09-30', '2024-12-31'],
+            'frame': ['CY2024Q1', 'CY2024Q2', 'CY2024Q3', 'CY2024Q4']
+        })
+
+        # Only process 'rev' but data has 'ta'
+        result = compute_ttm_long(df, duration_concepts={'rev'})
+
+        assert result.is_empty()
+
+    def test_rows_missing_as_of_date(self):
+        """Test rows without as_of_date are skipped - covers line 79"""
+        df = pl.DataFrame({
+            'symbol': ['AAPL'] * 4,
+            'as_of_date': ['2024-03-31', None, '2024-09-30', '2024-12-31'],
+            'accn': ['acc1', 'acc2', 'acc3', 'acc4'],
+            'form': ['10-Q'] * 4,
+            'concept': ['rev'] * 4,
+            'value': [100.0, 110.0, 120.0, 130.0],
+            'start': ['2024-01-01', '2024-04-01', '2024-07-01', '2024-10-01'],
+            'end': ['2024-03-31', '2024-06-30', '2024-09-30', '2024-12-31'],
+            'frame': ['CY2024Q1', 'CY2024Q2', 'CY2024Q3', 'CY2024Q4']
+        })
+
+        result = compute_ttm_long(df, duration_concepts={'rev'})
+
+        # Row with None as_of_date is skipped, only 3 valid quarters remain
+        assert result.is_empty()
+
+    def test_rows_missing_frame(self):
+        """Test rows without frame are skipped - covers line 81"""
+        df = pl.DataFrame({
+            'symbol': ['AAPL'] * 4,
+            'as_of_date': ['2024-03-31', '2024-06-30', '2024-09-30', '2024-12-31'],
+            'accn': ['acc1', 'acc2', 'acc3', 'acc4'],
+            'form': ['10-Q'] * 4,
+            'concept': ['rev'] * 4,
+            'value': [100.0, 110.0, 120.0, 130.0],
+            'start': ['2024-01-01', '2024-04-01', '2024-07-01', '2024-10-01'],
+            'end': ['2024-03-31', '2024-06-30', '2024-09-30', '2024-12-31'],
+            'frame': ['CY2024Q1', None, 'CY2024Q3', 'CY2024Q4']
+        })
+
+        result = compute_ttm_long(df, duration_concepts={'rev'})
+
+        # Row with None frame is skipped, only 3 valid quarters remain
+        assert result.is_empty()
+
