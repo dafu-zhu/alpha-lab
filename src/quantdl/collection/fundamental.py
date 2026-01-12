@@ -1,4 +1,6 @@
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import time
 from quantdl.collection.models import FndDataPoint, DataSource
 import datetime as dt
@@ -119,19 +121,43 @@ def extract_concept(facts: dict, concept: str) -> Optional[dict]:
 
 
 class SECClient:
-    """Handles HTTP requests to SEC EDGAR API"""
+    """Handles HTTP requests to SEC EDGAR API with retry and timeout"""
 
     def __init__(self, header: Optional[dict] = None, rate_limiter=None):
         self.header = header or HEADER
         self.rate_limiter = rate_limiter
 
+        # Session with retry and timeout configuration
+        self.session = requests.Session()
+
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=2,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET"],
+            raise_on_status=False  # Let us handle via raise_for_status()
+        )
+
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy,
+            pool_connections=10,
+            pool_maxsize=50,
+            pool_block=False
+        )
+
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
+
+        # Timeouts: (connect_timeout, read_timeout)
+        self.timeout = (10, 30)
+
     def fetch_company_facts(self, cik: str) -> dict:
         """
-        Fetch company facts from SEC EDGAR API.
+        Fetch company facts from SEC EDGAR API with retry and timeout.
 
         :param cik: Company CIK number (will be zero-padded to 10 digits)
         :return: Complete SEC EDGAR API response as dictionary
-        :raises requests.RequestException: If HTTP request fails
+        :raises requests.RequestException: If HTTP request fails or times out
         :raises ValueError: If JSON response is invalid
         """
         cik_padded = str(cik).zfill(10)
@@ -142,9 +168,17 @@ class SECClient:
             if self.rate_limiter:
                 self.rate_limiter.acquire()
 
-            response = requests.get(url=url, headers=self.header)
+            response = self.session.get(
+                url=url,
+                headers=self.header,
+                timeout=self.timeout
+            )
             response.raise_for_status()
             res = response.json()
+        except requests.Timeout as error:
+            raise requests.RequestException(
+                f"Timeout fetching data for CIK {cik_padded} (unreachable): {error}"
+            )
         except requests.RequestException as error:
             raise requests.RequestException(f"Failed to fetch data for CIK {cik_padded}: {error}")
         except json.JSONDecodeError as error:

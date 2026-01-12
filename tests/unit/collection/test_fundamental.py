@@ -112,8 +112,7 @@ class TestExtractConcept:
 class TestSECClient:
     """Test SECClient class"""
 
-    @patch('quantdl.collection.fundamental.requests.get')
-    def test_fetch_company_facts_success(self, mock_get):
+    def test_fetch_company_facts_success(self):
         """Test successful company facts fetch"""
         from quantdl.collection.fundamental import SECClient
 
@@ -135,48 +134,44 @@ class TestSECClient:
                 }
             }
         }
-        mock_get.return_value = mock_response
 
         client = SECClient()
-        result = client.fetch_company_facts('320193')
+        with patch.object(client.session, 'get', return_value=mock_response) as mock_get:
+            result = client.fetch_company_facts('320193')
 
-        assert result['cik'] == 320193
-        assert 'facts' in result
-        mock_get.assert_called_once()
+            assert result['cik'] == 320193
+            assert 'facts' in result
+            mock_get.assert_called_once()
 
-    @patch('quantdl.collection.fundamental.requests.get')
-    def test_fetch_company_facts_cik_padding(self, mock_get):
+    def test_fetch_company_facts_cik_padding(self):
         """Test that CIK is zero-padded correctly"""
         from quantdl.collection.fundamental import SECClient
 
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {'cik': 320193}
-        mock_get.return_value = mock_response
 
         client = SECClient()
-        client.fetch_company_facts('320193')
+        with patch.object(client.session, 'get', return_value=mock_response) as mock_get:
+            client.fetch_company_facts('320193')
 
-        # Verify URL contains padded CIK
-        call_url = mock_get.call_args[1]['url']
-        assert 'CIK0000320193.json' in call_url
+            # Verify URL contains padded CIK (first positional arg is url)
+            call_url = mock_get.call_args.kwargs['url']
+            assert 'CIK0000320193.json' in call_url
 
-    @patch('quantdl.collection.fundamental.requests.get')
-    def test_fetch_company_facts_http_error(self, mock_get):
+    def test_fetch_company_facts_http_error(self):
         """Test handling of HTTP error"""
         from quantdl.collection.fundamental import SECClient
 
         mock_response = Mock()
         mock_response.raise_for_status.side_effect = requests.RequestException("404 Not Found")
-        mock_get.return_value = mock_response
 
         client = SECClient()
+        with patch.object(client.session, 'get', return_value=mock_response):
+            with pytest.raises(requests.RequestException, match="Failed to fetch data"):
+                client.fetch_company_facts('999999')
 
-        with pytest.raises(requests.RequestException, match="Failed to fetch data"):
-            client.fetch_company_facts('999999')
-
-    @patch('quantdl.collection.fundamental.requests.get')
-    def test_fetch_company_facts_invalid_json(self, mock_get):
+    def test_fetch_company_facts_invalid_json(self):
         """Test handling of invalid JSON response"""
         from quantdl.collection.fundamental import SECClient
         import json
@@ -184,12 +179,11 @@ class TestSECClient:
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.side_effect = json.JSONDecodeError("Invalid JSON", "", 0)
-        mock_get.return_value = mock_response
 
         client = SECClient()
-
-        with pytest.raises(ValueError, match="Invalid JSON response"):
-            client.fetch_company_facts('320193')
+        with patch.object(client.session, 'get', return_value=mock_response):
+            with pytest.raises(ValueError, match="Invalid JSON response"):
+                client.fetch_company_facts('320193')
 
     def test_sec_client_custom_header(self):
         """Test SECClient with custom header"""
