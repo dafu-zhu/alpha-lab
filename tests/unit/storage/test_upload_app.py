@@ -1931,8 +1931,7 @@ class TestUploadApp:
         app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
         app.cik_resolver.batch_prefetch_ciks.return_value = {"AAPL": "0000320193"}
         app.validator.data_exists.return_value = True  # Already exists
-        app.data_collectors.sec_collector = Mock()
-        app.data_collectors.sec_collector.collect_fundamental_data.return_value = pl.DataFrame()
+        app.data_collectors.collect_derived_long.return_value = (pl.DataFrame(), "metrics_wide_empty")
         app.data_publishers.publish_derived_fundamental.return_value = {"status": "success"}
 
         # Use side_effect to actually call the method

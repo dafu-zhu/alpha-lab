@@ -21,10 +21,12 @@ class TestS3Client:
         # Create a temporary config file with all optional parameters
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
             config = {
-                's3': {
+                'client': {
                     'region_name': 'us-east-1',
-                    'us_east_1_regional_endpoint': 'regional',
                     'max_pool_connections': 50,
+                    's3': {
+                        'us_east_1_regional_endpoint': 'regional'
+                    },
                     'request_min_compression_size_bytes': 1024,
                     'disable_request_compression': False,
                     'request_checksum_calculation': 'when_supported',
@@ -38,7 +40,7 @@ class TestS3Client:
             # Create S3Client with the config file
             with patch('quantdl.storage.s3_client.UploadConfig') as mock_config_class:
                 mock_config_instance = Mock()
-                mock_config_instance.client = config['s3']
+                mock_config_instance.client = config['client']
                 mock_config_instance.load.return_value = config
                 mock_config_class.return_value = mock_config_instance
 
@@ -73,9 +75,11 @@ class TestS3Client:
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
             config = {
-                's3': {
+                'client': {
                     'region_name': 'us-east-1',
-                    'us_east_1_regional_endpoint': 'legacy'
+                    's3': {
+                        'us_east_1_regional_endpoint': 'legacy'
+                    }
                 }
             }
             yaml.dump(config, f)
@@ -84,7 +88,7 @@ class TestS3Client:
         try:
             with patch('quantdl.storage.s3_client.UploadConfig') as mock_config_class:
                 mock_config_instance = Mock()
-                mock_config_instance.client = config['s3']
+                mock_config_instance.client = config['client']
                 mock_config_instance.load.return_value = config
                 mock_config_class.return_value = mock_config_instance
 
