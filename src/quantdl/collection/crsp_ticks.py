@@ -28,6 +28,11 @@ class CRSPDailyTicks:
             username = os.getenv('WRDS_USERNAME')
             password = os.getenv('WRDS_PASSWORD')
 
+            if not username or not password:
+                raise ValueError(
+                    "WRDS credentials not found. Set WRDS_USERNAME and WRDS_PASSWORD environment variables."
+                )
+
             self.conn = wrds.Connection(
                 wrds_username=username,
                 wrds_password=password

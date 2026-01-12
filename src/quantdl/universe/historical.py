@@ -28,6 +28,10 @@ def get_hist_universe_crsp(year: int, month: int, db: Optional[wrds.Connection] 
     if db is None:
         username = os.getenv('WRDS_USERNAME')
         password = os.getenv('WRDS_PASSWORD')
+        if not username or not password:
+            raise ValueError(
+                "WRDS credentials not found. Set WRDS_USERNAME and WRDS_PASSWORD environment variables."
+            )
         db = wrds.Connection(wrds_username=username, wrds_password=password)
         close_db = True
 
