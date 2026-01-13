@@ -41,8 +41,16 @@ class TestTradingCalendar:
 
     def test_initialization_default_path(self):
         """Test TradingCalendar initialization with default path"""
+        # Create calendar file to prevent auto-generation
+        calendar_path = Path("data/calendar/master.parquet")
+        calendar_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if not calendar_path.exists():
+            df = pl.DataFrame({"timestamp": []})
+            df.write_parquet(calendar_path)
+
         calendar = TradingCalendar()
-        assert calendar.calendar_path == Path("data/calendar/master.parquet")
+        assert calendar.calendar_path == calendar_path
 
     def test_initialization_custom_path(self, tmp_path):
         """Test TradingCalendar initialization with custom path"""
