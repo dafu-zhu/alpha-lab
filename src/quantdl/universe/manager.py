@@ -43,6 +43,9 @@ class UniverseManager:
         # Cache for current symbols to avoid re-reading CSV
         self._current_symbols_cache: Optional[list[str]] = None
 
+        # Cache for historical universe to avoid re-querying WRDS
+        self._historical_cache: Dict[int, list[str]] = {}
+
     def get_current_symbols(self, refresh=False) -> list[str]:
         """
         Get the current list of common stocks from Nasdaq Trader.
@@ -77,6 +80,9 @@ class UniverseManager:
         :param sym_type: "sec" or "alpaca" (default: "alpaca")
         :return: List of symbols in the specified format
         """
+        from sqlalchemy.exc import OperationalError
+        import os
+
         try:
             # For years >= 2025 (using Alpaca), use current ticker list
             if year >= 2025:
@@ -86,11 +92,46 @@ class UniverseManager:
                 nasdaq_symbols = self._current_symbols_cache
                 self.logger.info(f"Using current ticker list for {year} ({len(nasdaq_symbols)} symbols)")
             else:
+                # Check cache first
+                cache_key = (year, sym_type)
+                if cache_key in self._historical_cache:
+                    symbols = self._historical_cache[cache_key]
+                    self.logger.info(f"Loaded {len(symbols)} symbols for {year} from cache (format={sym_type})")
+                    return symbols
+
                 # For historical years (< 2025), use CRSP historical universe
                 # Reuse CRSP database connection for performance
                 db = self.crsp_fetcher.conn if hasattr(self.crsp_fetcher, 'conn') else None
-                df = get_hist_universe_nasdaq(year, with_validation=False, db=db)
-                nasdaq_symbols = df['Ticker'].to_list()
+
+                try:
+                    df = get_hist_universe_nasdaq(year, with_validation=False, db=db)
+                    nasdaq_symbols = df['Ticker'].to_list()
+                except OperationalError as e:
+                    # Connection stale - recreate if we own it
+                    if "closed the connection" in str(e) or "server closed" in str(e):
+                        self.logger.warning(f"WRDS connection stale, recreating for {year}")
+                        if self._owns_wrds_conn:
+                            # Recreate connection
+                            username = os.getenv('WRDS_USERNAME')
+                            password = os.getenv('WRDS_PASSWORD')
+                            try:
+                                if hasattr(self.crsp_fetcher, 'conn') and self.crsp_fetcher.conn:
+                                    self.crsp_fetcher.conn.close()
+                            except:
+                                pass
+                            import wrds
+                            self.crsp_fetcher.conn = wrds.Connection(
+                                wrds_username=username,
+                                wrds_password=password
+                            )
+                            # Retry query with new connection
+                            df = get_hist_universe_nasdaq(year, with_validation=False, db=self.crsp_fetcher.conn)
+                            nasdaq_symbols = df['Ticker'].to_list()
+                        else:
+                            raise
+                    else:
+                        raise
+
                 self.logger.info(f"Using CRSP historical universe for {year} ({len(nasdaq_symbols)} symbols)")
 
             if sym_type == "alpaca":
@@ -103,9 +144,14 @@ class UniverseManager:
                 msg = f"Expected sym_type: 'sec' or 'alpaca', get {sym_type}"
                 raise ValueError(msg)
 
+            # Cache the result for future use
+            if year < 2025:
+                cache_key = (year, sym_type)
+                self._historical_cache[cache_key] = symbols
+
             self.logger.info(f"Loaded {len(symbols)} symbols for {year} (format={sym_type})")
             return symbols
-        
+
         except Exception as e:
             self.logger.error(f"Failed to load symbols for {year}: {e}", exc_info=True)
             return []

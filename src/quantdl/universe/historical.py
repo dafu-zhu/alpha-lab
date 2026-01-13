@@ -23,6 +23,8 @@ def get_hist_universe_crsp(year: int, month: int, db: Optional[wrds.Connection] 
     :param db: Optional WRDS connection (creates new one if not provided)
     :return: DataFrame with columns: Ticker (CRSP format), Name, PERMNO
     """
+    from sqlalchemy.exc import OperationalError
+
     # Create WRDS connection if not provided
     close_db = False
     if db is None:
@@ -56,8 +58,22 @@ def get_hist_universe_crsp(year: int, month: int, db: Optional[wrds.Connection] 
         ORDER BY ticker;
         """
 
-        # Execute query
-        df = raw_sql_with_retry(db, sql)
+        # Execute query with retry
+        try:
+            df = raw_sql_with_retry(db, sql)
+        except OperationalError as e:
+            # If connection is stale and we own it, recreate it
+            if close_db and ("closed the connection" in str(e) or "server closed" in str(e)):
+                username = os.getenv('WRDS_USERNAME')
+                password = os.getenv('WRDS_PASSWORD')
+                try:
+                    db.close()
+                except:
+                    pass
+                db = wrds.Connection(wrds_username=username, wrds_password=password)
+                df = raw_sql_with_retry(db, sql)
+            else:
+                raise
 
         if df.empty:
             return pl.DataFrame({
