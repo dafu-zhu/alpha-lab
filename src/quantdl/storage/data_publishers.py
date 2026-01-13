@@ -21,6 +21,7 @@ from typing import Dict, List, Optional, Callable, Any, cast
 import requests
 import polars as pl
 from boto3.s3.transfer import TransferConfig
+from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -37,6 +38,7 @@ class DataPublishers:
         upload_config,
         logger: logging.Logger,
         data_collectors,
+        security_master,
         bucket_name: Optional[str] = None,
         alpaca_start_year: int = 2025
     ):
@@ -47,12 +49,14 @@ class DataPublishers:
         :param upload_config: UploadConfig instance with transfer settings
         :param logger: Logger instance
         :param data_collectors: Data collectors instance
+        :param security_master: SecurityMaster instance for symbol→security_id resolution
         :param bucket_name: S3 bucket name (defaults to environment variable or 'us-equity-datalake')
         """
         self.s3_client = s3_client
         self.upload_config = upload_config
         self.logger = logger
         self.data_collectors = data_collectors
+        self.security_master = security_master
         self.alpaca_start_year = alpaca_start_year
         # Allow bucket_name to be passed as parameter or from environment variable
         self.bucket_name = bucket_name or os.getenv('S3_BUCKET_NAME', 'us-equity-datalake')
@@ -204,17 +208,16 @@ class DataPublishers:
             if len(df) == 0:
                 return {'symbol': sym, 'status': 'skipped', 'error': 'No data available'}
 
-            # Setup S3 message (Parquet format)
-            buffer = io.BytesIO()
-            df.write_parquet(buffer)
-            buffer.seek(0)
-
-            s3_data = buffer
-
             # Choose storage path based on partitioning
             if month is not None:
                 # Monthly partition (for current year daily updates)
                 s3_key = f"data/raw/ticks/daily/{security_id}/{year}/{month:02d}/ticks.parquet"
+
+                # Setup S3 message (Parquet format)
+                buffer = io.BytesIO()
+                df.write_parquet(buffer)
+                buffer.seek(0)
+
                 s3_metadata = {
                     'security_id': str(security_id),
                     'symbols': [sym],
@@ -228,13 +231,38 @@ class DataPublishers:
             else:
                 # History file (all completed years consolidated)
                 s3_key = f"data/raw/ticks/daily/{security_id}/history.parquet"
+
+                # Read existing history and append new year data
+                try:
+                    response = self.s3_client.get_object(
+                        Bucket=self.bucket_name,
+                        Key=s3_key
+                    )
+                    history_df = pl.read_parquet(response['Body'])
+
+                    # Remove existing year data (if any) and append new
+                    history_df = history_df.filter(
+                        ~pl.col('timestamp').str.starts_with(str(year))
+                    )
+                    combined_df = pl.concat([history_df, df]).sort('timestamp')
+                except ClientError as e:
+                    if e.response['Error']['Code'] == 'NoSuchKey':
+                        # No existing history, use new data only
+                        combined_df = df
+                    else:
+                        raise
+
+                # Setup S3 message
+                buffer = io.BytesIO()
+                combined_df.write_parquet(buffer)
+                buffer.seek(0)
+
                 s3_metadata = {
                     'security_id': str(security_id),
                     'symbols': [sym],
-                    'year': str(year),
                     'data_type': 'daily_ticks',
-                    'source': 'crsp' if year < self.alpaca_start_year else 'alpaca',
-                    'trading_days': str(len(df)),
+                    'source': 'mixed',
+                    'trading_days': str(len(combined_df)),
                     'partition_type': 'history'
                 }
 
@@ -245,7 +273,7 @@ class DataPublishers:
             }
 
             # Publish onto AWS S3
-            self.upload_fileobj(s3_data, s3_key, s3_metadata_prepared)
+            self.upload_fileobj(buffer, s3_key, s3_metadata_prepared)
 
             return {'symbol': sym, 'status': 'success', 'error': None}
 
@@ -273,6 +301,8 @@ class DataPublishers:
         """
         Worker thread that consumes fetched minute tick data and uploads to S3.
 
+        Storage: data/raw/ticks/minute/{security_id}/{YYYY}/{MM}/{DD}/ticks.parquet
+
         :param data_queue: Queue containing (sym, trade_day, minute_df) tuples
         :param stats: Shared statistics dictionary
         :param stats_lock: Lock for updating statistics
@@ -292,6 +322,9 @@ class DataPublishers:
                             stats['skipped'] += 1
                         continue
 
+                    # Resolve symbol to security_id at trade day
+                    security_id = self.security_master.get_security_id(sym, trade_day)
+
                     # Round numeric fields to 4 decimal places
                     for field in ['open', 'high', 'low', 'close']:
                         if field in minute_df.columns:
@@ -310,8 +343,9 @@ class DataPublishers:
                     month = date_obj.strftime('%m')
                     day = date_obj.strftime('%d')
 
-                    s3_key = f"data/raw/ticks/minute/{sym}/{year}/{month}/{day}/ticks.parquet"
+                    s3_key = f"data/raw/ticks/minute/{security_id}/{year}/{month}/{day}/ticks.parquet"
                     s3_metadata = {
+                        'security_id': str(security_id),
                         'symbol': sym,
                         'trade_day': trade_day,
                         'data_type': 'ticks'

@@ -716,13 +716,16 @@ class TestDailyUpdateAppNoWRDSUpdateMinuteTicks:
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     def test_update_minute_ticks_success(
-        self, mock_logger, mock_ticks, mock_config, mock_s3
+        self, mock_security_master, mock_logger, mock_ticks, mock_config, mock_s3
     ):
         """Test update_minute_ticks successfully updates minute data"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
 
         app = DailyUpdateAppNoWRDS()
+        app.security_master = Mock()
+        app.security_master.get_security_id = Mock(return_value=12345)
 
         # Mock minute data fetch and parse
         mock_minute_df = pl.DataFrame({

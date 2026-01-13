@@ -12,6 +12,7 @@ import datetime as dt
 from typing import Optional, Dict, Tuple
 import polars as pl
 import logging
+from botocore.exceptions import ClientError
 
 from quantdl.master.security_master import SecurityMaster
 
@@ -116,11 +117,14 @@ class TicksClient:
 
             return df
 
-        except self.s3_client.exceptions.NoSuchKey:
-            raise ValueError(
-                f"No historical data found for {symbol} (security_id={security_id}). "
-                f"Check if data has been uploaded."
-            )
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                raise ValueError(
+                    f"No historical data found for {symbol} (security_id={security_id}). "
+                    f"Check if data has been uploaded."
+                )
+            else:
+                raise
 
     def _resolve_symbol(self, symbol: str, year: int) -> int:
         """
@@ -201,11 +205,14 @@ class TicksClient:
 
             return df
 
-        except self.s3_client.exceptions.NoSuchKey:
-            raise ValueError(
-                f"No historical data found for security_id={security_id}. "
-                f"Check if data has been uploaded and consolidated."
-            )
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                raise ValueError(
+                    f"No historical data found for security_id={security_id}. "
+                    f"Check if data has been uploaded and consolidated."
+                )
+            else:
+                raise
 
     def _fetch_monthly(
         self,
@@ -237,10 +244,13 @@ class TicksClient:
                     Key=s3_key
                 )
                 monthly_dfs.append(pl.read_parquet(response['Body']))
-            except self.s3_client.exceptions.NoSuchKey:
-                # Month doesn't exist, skip
-                self.logger.debug(f"Month file not found: {s3_key}")
-                continue
+            except ClientError as e:
+                if e.response['Error']['Code'] == 'NoSuchKey':
+                    # Month doesn't exist, skip
+                    self.logger.debug(f"Month file not found: {s3_key}")
+                    continue
+                else:
+                    raise
 
         if not monthly_dfs:
             raise ValueError(

@@ -2377,15 +2377,16 @@ class TestConsolidateYear:
         buffer.seek(0)
 
         # Mock S3 responses - monthly file exists, history doesn't
-        no_such_key_exception = type('NoSuchKey', (Exception,), {})
-        mock_s3_client.exceptions = type('Exceptions', (), {'NoSuchKey': no_such_key_exception})()
+        from botocore.exceptions import ClientError
 
         def mock_get_object(Bucket, Key):
             if 'history.parquet' in Key:
-                raise mock_s3_client.exceptions.NoSuchKey()
+                error_response = {'Error': {'Code': 'NoSuchKey'}}
+                raise ClientError(error_response, 'GetObject')
             if '2024/01/ticks.parquet' in Key:
                 return {'Body': buffer}
-            raise mock_s3_client.exceptions.NoSuchKey()
+            error_response = {'Error': {'Code': 'NoSuchKey'}}
+            raise ClientError(error_response, 'GetObject')
 
         mock_s3_client.get_object = Mock(side_effect=mock_get_object)
         mock_s3_client.delete_object = Mock()

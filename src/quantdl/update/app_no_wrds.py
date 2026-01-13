@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 import polars as pl
 from dotenv import load_dotenv
+from botocore.exceptions import ClientError
 import time
 from threading import Semaphore
 
@@ -31,6 +32,7 @@ from quantdl.storage.data_publishers import DataPublishers
 from quantdl.collection.alpaca_ticks import Ticks
 from quantdl.collection.fundamental import SECClient
 from quantdl.universe.current import fetch_all_stocks
+from quantdl.master.security_master import SecurityMaster
 
 load_dotenv()
 
@@ -175,6 +177,12 @@ class DailyUpdateAppNoWRDS:
         # Initialize CIK resolver (SEC-only)
         self.cik_resolver = SimpleCIKResolver(logger=self.logger)
 
+        # Initialize SecurityMaster from S3 (read-only, no WRDS needed)
+        self.security_master = SecurityMaster(
+            s3_client=self.s3_client,
+            bucket_name='us-equity-datalake'
+        )
+
         # Initialize data collectors (pass None for crsp_ticks since we don't use it)
         self.data_collectors = DataCollectors(
             crsp_ticks=None,  # Not used in updates
@@ -188,7 +196,8 @@ class DailyUpdateAppNoWRDS:
             s3_client=self.s3_client,
             upload_config=self.config,
             logger=self.logger,
-            data_collectors=self.data_collectors
+            data_collectors=self.data_collectors,
+            security_master=self.security_master
         )
 
         # SEC client for checking recent filings
@@ -390,8 +399,12 @@ class DailyUpdateAppNoWRDS:
                         new_df
                     ]).sort('timestamp')
 
-                except self.s3_client.exceptions.NoSuchKey:
-                    updated_df = new_df
+                except ClientError as e:
+                    if e.response['Error']['Code'] == 'NoSuchKey':
+                        updated_df = new_df
+                    else:
+                        self.logger.debug(f"Could not read existing file for {sym}: {e}, creating new file")
+                        updated_df = new_df
                 except Exception as e:
                     self.logger.debug(f"Could not read existing file for {sym}: {e}, creating new file")
                     updated_df = new_df
@@ -499,6 +512,9 @@ class DailyUpdateAppNoWRDS:
                     stats['skipped'] += 1
                     continue
 
+                # Resolve symbol to security_id at trade day
+                security_id = self.security_master.get_security_id(sym, day)
+
                 # Upload to S3
                 date_obj = dt.datetime.strptime(day, '%Y-%m-%d').date()
                 year_str = date_obj.strftime('%Y')
@@ -510,8 +526,9 @@ class DailyUpdateAppNoWRDS:
                 minute_df.write_parquet(buffer)
                 buffer.seek(0)
 
-                s3_key = f"data/raw/ticks/minute/{sym}/{year_str}/{month_str}/{day_str}/ticks.parquet"
+                s3_key = f"data/raw/ticks/minute/{security_id}/{year_str}/{month_str}/{day_str}/ticks.parquet"
                 self.data_publishers.upload_fileobj(buffer, s3_key, {
+                    'security_id': str(security_id),
                     'symbol': sym,
                     'trade_day': day,
                     'data_type': 'ticks'

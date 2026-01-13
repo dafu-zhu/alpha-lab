@@ -115,6 +115,7 @@ class UploadApp:
             upload_config=self.config,
             logger=self.logger,
             data_collectors=self.data_collectors,
+            security_master=self.crsp_ticks.security_master,
             alpaca_start_year=alpaca_start_year
         )
 
@@ -175,19 +176,18 @@ class UploadApp:
         use_monthly_partitions: bool = True,
         by_year: bool = False,
         chunk_size: int = 200,
-        sleep_time: float = 0.2
+        sleep_time: float = 0.2,
+        current_year: Optional[int] = None
     ):
         """
         Upload daily ticks for all symbols for an entire year.
 
-        Storage strategy (monthly partitions recommended):
-        - Monthly: data/raw/ticks/daily/{symbol}/{YYYY}/{MM}/ticks.parquet (default)
-        - Yearly: data/raw/ticks/daily/{symbol}/{YYYY}/ticks.parquet (legacy)
+        Storage strategy:
+        - Completed years (year < current_year): data/raw/ticks/daily/{security_id}/history.parquet (consolidated)
+        - Current year (year == current_year): data/raw/ticks/daily/{security_id}/{YYYY}/{MM}/ticks.parquet (monthly)
 
-        Monthly partitioning is recommended for:
-        - 92% reduction in S3 transfer costs for daily updates
-        - 13x faster daily incremental updates
-        - Better query performance for partial year ranges
+        Completed years are appended to history.parquet incrementally during backfill.
+        Current year uses monthly partitions for efficient daily updates.
 
         Uses CRSP for years < 2025, Alpaca for years >= 2025.
         Sequential processing to avoid rate limits.
@@ -196,6 +196,7 @@ class UploadApp:
         :param overwrite: If True, overwrite existing data in S3 (default: False)
         :param use_monthly_partitions: If True, use monthly partitions (default: True)
         :param by_year: If True, collect year data once and publish monthly partitions in parallel
+        :param current_year: Current year for determining storage mode (default: datetime.now().year)
         """
         # NEW: Check WRDS availability for historical years
         if year < 2025 and not self._wrds_available:
@@ -204,6 +205,19 @@ class UploadApp:
                 "Available: Alpaca data only (2025+). "
                 "To backfill historical data, ensure WRDS credentials are set."
             )
+
+        # Determine current year if not provided
+        import datetime
+        if current_year is None:
+            current_year = datetime.datetime.now().year
+
+        # Determine storage mode: history for completed years, monthly for current year
+        is_completed_year = (year < current_year)
+
+        # Override storage mode for completed years
+        if is_completed_year:
+            use_monthly_partitions = False
+            self.logger.info(f"Year {year} is completed (< {current_year}), will upload to history.parquet")
 
         # Load symbols for this year
         alpaca_symbols = self.universe_manager.load_symbols_for_year(year, sym_type='alpaca')
@@ -393,12 +407,14 @@ class UploadApp:
                         )
 
         else:
-            # Legacy yearly partitions
+            # History mode (for completed years)
+            storage_desc = "history.parquet (consolidated)" if is_completed_year else "yearly partitions (legacy)"
             self.logger.info(
                 f"Starting {year} daily ticks upload for {total_symbols} symbols "
-                f"(source={data_source}, yearly partitions, sequential processing, overwrite={overwrite})"
+                f"(source={data_source}, {storage_desc}, sequential processing, overwrite={overwrite})"
             )
-            self.logger.info(f"Storage: data/raw/ticks/daily/{{symbol}}/{year}/ticks.parquet")
+            storage_path = f"data/raw/ticks/daily/{{security_id}}/history.parquet" if is_completed_year else f"data/raw/ticks/daily/{{security_id}}/{year}/ticks.parquet"
+            self.logger.info(f"Storage: {storage_path}")
 
             completed = 0
             success = 0

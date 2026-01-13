@@ -121,7 +121,7 @@ class TestUploadApp:
             "error": None
         }
 
-        result = app.upload_daily_ticks(2024, use_monthly_partitions=True)
+        result = app.upload_daily_ticks(2024, use_monthly_partitions=True, current_year=2024)
 
         assert result is None
         # Should be called for 2 symbols × 12 months = 24 times
@@ -165,7 +165,7 @@ class TestUploadApp:
             "error": None
         }
 
-        result = app.upload_daily_ticks(2024, use_monthly_partitions=True, by_year=True)
+        result = app.upload_daily_ticks(2024, use_monthly_partitions=True, by_year=True, current_year=2024)
 
         assert result is None
         app.data_collectors.collect_daily_ticks_year_bulk.assert_called_once_with(["AAPL", "MSFT"], 2024)
@@ -265,7 +265,7 @@ class TestUploadApp:
         app.data_collectors.collect_daily_ticks_month_bulk.return_value = {"AAPL": df}
         app.data_publishers.publish_daily_ticks.return_value = {"status": "failed"}
 
-        app.upload_daily_ticks(2025, use_monthly_partitions=True, by_year=False, chunk_size=1, sleep_time=0.25)
+        app.upload_daily_ticks(2025, use_monthly_partitions=True, by_year=False, chunk_size=1, sleep_time=0.25, current_year=2025)
 
         calls = app.data_collectors.collect_daily_ticks_month_bulk.call_args_list
         assert any(
@@ -293,7 +293,7 @@ class TestUploadApp:
         app.data_collectors.collect_daily_ticks_month_bulk.return_value = {"AAPL": df}
         app.data_publishers.publish_daily_ticks.return_value = {"status": "failed"}
 
-        app.upload_daily_ticks(2025, use_monthly_partitions=True, by_year=False, chunk_size=1)
+        app.upload_daily_ticks(2025, use_monthly_partitions=True, by_year=False, chunk_size=1, current_year=2025)
 
         info_calls = [str(call) for call in app.logger.info.call_args_list]
         completed_logs = [
@@ -882,7 +882,7 @@ class TestUploadApp:
         }
         app.data_publishers.publish_daily_ticks.return_value = {"status": "success", "error": None}
 
-        app.upload_daily_ticks(2025, use_monthly_partitions=True, by_year=False, chunk_size=1, sleep_time=0.5)
+        app.upload_daily_ticks(2025, use_monthly_partitions=True, by_year=False, chunk_size=1, sleep_time=0.5, current_year=2025)
 
         app.data_collectors.collect_daily_ticks_month_bulk.assert_any_call(
             ["AAPL"], 2025, 1, sleep_time=0.5
@@ -907,7 +907,7 @@ class TestUploadApp:
         }
         app.data_publishers.publish_daily_ticks.return_value = {"status": "success", "error": None}
 
-        app.upload_daily_ticks(2025, use_monthly_partitions=True, by_year=True, chunk_size=1, sleep_time=0.0)
+        app.upload_daily_ticks(2025, use_monthly_partitions=True, by_year=True, chunk_size=1, sleep_time=0.0, current_year=2025)
 
         app.data_collectors.collect_daily_ticks_year_bulk.assert_not_called()
         app.data_collectors.collect_daily_ticks_month_bulk.assert_called()
@@ -1564,7 +1564,7 @@ class TestUploadApp:
         app.data_collectors.collect_daily_ticks_year_bulk.return_value = bulk_map
         app.data_publishers.publish_daily_ticks.return_value = {"status": "success"}
 
-        app.upload_daily_ticks(2024, use_monthly_partitions=True, by_year=True)
+        app.upload_daily_ticks(2024, use_monthly_partitions=True, by_year=True, current_year=2024)
 
         app.data_collectors.collect_daily_ticks_year_bulk.assert_called_once_with(["AAPL", "MSFT"], 2024)
         assert app.data_publishers.publish_daily_ticks.call_count == 2
@@ -1589,7 +1589,7 @@ class TestUploadApp:
         app.data_collectors.collect_daily_ticks_year_bulk.return_value = bulk_map
         app.data_publishers.publish_daily_ticks.return_value = {"status": "success"}
 
-        app.upload_daily_ticks(2024, use_monthly_partitions=True, by_year=True, overwrite=False)
+        app.upload_daily_ticks(2024, use_monthly_partitions=True, by_year=True, overwrite=False, current_year=2024)
 
         # Only MSFT should be published
         app.data_publishers.publish_daily_ticks.assert_called_once()

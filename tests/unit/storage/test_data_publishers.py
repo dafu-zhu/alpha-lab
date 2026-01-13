@@ -19,12 +19,15 @@ def _make_publisher():
     upload_config = SimpleNamespace(transfer={})
     logger = Mock()
     data_collectors = Mock()
+    security_master = Mock()
+    security_master.get_security_id = Mock(return_value=12345)
 
     publisher = DataPublishers(
         s3_client=s3_client,
         upload_config=upload_config,
         logger=logger,
         data_collectors=data_collectors,
+        security_master=security_master,
         bucket_name="test-bucket"
     )
 
@@ -41,7 +44,13 @@ class TestDataPublishers:
 
     def test_publish_daily_ticks_success_yearly(self):
         """Test publishing daily ticks with yearly partition (legacy)"""
+        from botocore.exceptions import ClientError
+
         publisher, s3_client, _ = _make_publisher()
+
+        # Mock get_object to raise NoSuchKey (no existing history file)
+        error_response = {'Error': {'Code': 'NoSuchKey'}}
+        s3_client.get_object.side_effect = ClientError(error_response, 'GetObject')
 
         df = pl.DataFrame({
             "timestamp": ["2024-06-30"],
@@ -138,7 +147,13 @@ class TestDataPublishers:
 
     def test_publish_daily_ticks_metadata_yearly(self):
         """Test that yearly partition includes correct metadata"""
+        from botocore.exceptions import ClientError
+
         publisher, s3_client, _ = _make_publisher()
+
+        # Mock get_object to raise NoSuchKey (no existing history file)
+        error_response = {'Error': {'Code': 'NoSuchKey'}}
+        s3_client.get_object.side_effect = ClientError(error_response, 'GetObject')
 
         df = pl.DataFrame({
             "timestamp": ["2024-06-30"],
@@ -261,8 +276,14 @@ class TestDataPublishers:
         data_collectors.collect_fundamental_long.assert_not_called()
 
     def test_publish_daily_ticks_value_error_skips(self):
-        publisher, _, _ = _make_publisher()
+        from botocore.exceptions import ClientError
+
+        publisher, s3_client, _ = _make_publisher()
         publisher.upload_fileobj = Mock(side_effect=ValueError("not active on"))
+
+        # Mock get_object to raise NoSuchKey (no existing history file)
+        error_response = {'Error': {'Code': 'NoSuchKey'}}
+        s3_client.get_object.side_effect = ClientError(error_response, 'GetObject')
 
         df = pl.DataFrame({
             "timestamp": ["2024-06-30"],
@@ -800,8 +821,14 @@ class TestDataPublishers:
 
     def test_publish_daily_ticks_value_error_other(self):
         """Test ValueError that doesn't contain 'not active on' returns failed status (lines 251-252)"""
-        publisher, _, _ = _make_publisher()
+        from botocore.exceptions import ClientError
+
+        publisher, s3_client, _ = _make_publisher()
         publisher.upload_fileobj = Mock(side_effect=ValueError("some other error"))
+
+        # Mock get_object to raise NoSuchKey (no existing history file)
+        error_response = {'Error': {'Code': 'NoSuchKey'}}
+        s3_client.get_object.side_effect = ClientError(error_response, 'GetObject')
 
         df = pl.DataFrame({
             "timestamp": ["2024-06-30"],

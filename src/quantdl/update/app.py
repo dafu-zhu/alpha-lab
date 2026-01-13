@@ -18,6 +18,7 @@ from collections import defaultdict
 import requests
 import polars as pl
 from dotenv import load_dotenv
+from botocore.exceptions import ClientError
 import time
 from threading import Semaphore
 
@@ -126,7 +127,8 @@ class DailyUpdateApp:
             s3_client=self.s3_client,
             upload_config=self.config,
             logger=self.logger,
-            data_collectors=self.data_collectors
+            data_collectors=self.data_collectors,
+            security_master=self.security_master
         )
 
         # SEC client for checking recent filings
@@ -373,11 +375,16 @@ class DailyUpdateApp:
                         new_df
                     ]).sort('timestamp')
 
-                except self.s3_client.exceptions.NoSuchKey:
-                    # File doesn't exist yet, use new data only
-                    updated_df = new_df
+                except ClientError as e:
+                    if e.response['Error']['Code'] == 'NoSuchKey':
+                        # File doesn't exist yet, use new data only
+                        updated_df = new_df
+                    else:
+                        # Other S3 errors, log and use new data only
+                        self.logger.debug(f"Could not read existing file for {sym}: {e}, creating new file")
+                        updated_df = new_df
                 except Exception as e:
-                    # Other S3 errors, log and use new data only
+                    # Other errors, log and use new data only
                     self.logger.debug(f"Could not read existing file for {sym}: {e}, creating new file")
                     updated_df = new_df
 
@@ -451,7 +458,8 @@ class DailyUpdateApp:
         self,
         year: int,
         symbols: Optional[List[str]] = None,
-        max_workers: int = 50
+        max_workers: int = 50,
+        force: bool = False
     ) -> Dict[str, int]:
         """
         Consolidate previous year's monthly files into history.parquet.
@@ -459,13 +467,15 @@ class DailyUpdateApp:
         Run on Jan 1 to consolidate previous year data:
         1. Read 12 monthly files for the year
         2. Read existing history.parquet (if exists)
-        3. Concatenate all data
-        4. Write to history.parquet
-        5. Delete monthly files
+        3. Remove target year data from history (if any)
+        4. Append new year data
+        5. Write to history.parquet (OVERWRITES file)
+        6. Delete monthly files
 
         :param year: Year to consolidate (e.g., 2025 on Jan 1, 2026)
         :param symbols: List of symbols (if None, uses year's universe)
         :param max_workers: Number of concurrent workers
+        :param force: If True, allow overwriting existing year data in history
         :return: Dict with statistics
         """
         self.logger.info(f"Starting year consolidation for {year}")
@@ -497,9 +507,13 @@ class DailyUpdateApp:
                             Key=s3_key
                         )
                         monthly_dfs.append(pl.read_parquet(response['Body']))
-                    except self.s3_client.exceptions.NoSuchKey:
-                        # Month file doesn't exist, skip
-                        continue
+                    except ClientError as e:
+                        if e.response['Error']['Code'] == 'NoSuchKey':
+                            # Month file doesn't exist, skip
+                            continue
+                        else:
+                            self.logger.warning(f"Could not read {s3_key}: {e}")
+                            continue
                     except Exception as e:
                         self.logger.warning(f"Could not read {s3_key}: {e}")
                         continue
@@ -518,11 +532,29 @@ class DailyUpdateApp:
                         Key=history_key
                     )
                     history_df = pl.read_parquet(response['Body'])
-                    # Concatenate with new year data
+
+                    # Check if year already exists in history (safeguard)
+                    if not force:
+                        existing_years = history_df['timestamp'].str.slice(0, 4).unique().to_list()
+                        if str(year) in existing_years:
+                            return {
+                                'symbol': sym,
+                                'status': 'failed',
+                                'error': f'Year {year} already exists in history.parquet. Use --force to overwrite.'
+                            }
+
+                    # Remove existing year data from history (if any)
+                    history_df = history_df.filter(
+                        ~pl.col('timestamp').str.starts_with(str(year))
+                    )
+                    # Append new year data
                     combined_df = pl.concat([history_df, year_df]).sort('timestamp')
-                except self.s3_client.exceptions.NoSuchKey:
-                    # No history file yet, use year data only
-                    combined_df = year_df
+                except ClientError as e:
+                    if e.response['Error']['Code'] == 'NoSuchKey':
+                        # No history file yet, use year data only
+                        combined_df = year_df
+                    else:
+                        raise
 
                 # Write consolidated history file
                 buffer = io.BytesIO()
@@ -600,7 +632,7 @@ class DailyUpdateApp:
         Update minute ticks for a specific trading day.
 
         Fetches minute data from Alpaca and adds new daily parquet files to S3.
-        Storage: data/raw/ticks/minute/{symbol}/{YYYY}/{MM}/{DD}/ticks.parquet
+        Storage: data/raw/ticks/minute/{security_id}/{YYYY}/{MM}/{DD}/ticks.parquet
 
         :param update_date: Trading day to update (typically yesterday)
         :param symbols: List of symbols to update (if None, uses current universe)
@@ -643,6 +675,9 @@ class DailyUpdateApp:
                     stats['skipped'] += 1
                     continue
 
+                # Resolve symbol to security_id at trade day
+                security_id = self.security_master.get_security_id(sym, day)
+
                 # Upload to S3
                 date_obj = dt.datetime.strptime(day, '%Y-%m-%d').date()
                 year_str = date_obj.strftime('%Y')
@@ -654,8 +689,9 @@ class DailyUpdateApp:
                 minute_df.write_parquet(buffer)
                 buffer.seek(0)
 
-                s3_key = f"data/raw/ticks/minute/{sym}/{year_str}/{month_str}/{day_str}/ticks.parquet"
+                s3_key = f"data/raw/ticks/minute/{security_id}/{year_str}/{month_str}/{day_str}/ticks.parquet"
                 self.data_publishers.upload_fileobj(buffer, s3_key, {
+                    'security_id': str(security_id),
                     'symbol': sym,
                     'trade_day': day,
                     'data_type': 'ticks'

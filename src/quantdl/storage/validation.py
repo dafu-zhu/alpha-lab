@@ -67,7 +67,8 @@ class Validator:
             month: Optional[int]=None,
             day: Optional[str]=None,
             data_tier: str = "raw",
-            cik: Optional[str] = None
+            cik: Optional[str] = None,
+            security_id: Optional[int] = None
         ) -> bool:
         """
         For both daily and minute data, check if data exists
@@ -79,6 +80,7 @@ class Validator:
         :param day: Minute data only, specify trade day. Format: YYYY-MM-DD
         :param data_tier: "raw" or "derived" (default: "raw")
         :param cik: CIK string for fundamental data (zero-padded to 10 digits). If provided, uses CIK-based paths for fundamental/ttm/derived data
+        :param security_id: Security ID for ticks data (if None, falls back to symbol-based paths for backward compatibility)
         """
         if year and day:
             raise ValueError(f'Specify year OR day, not both')
@@ -90,18 +92,22 @@ class Validator:
 
         # Define Key based on year, month, day and data_type
         if data_type == 'ticks':
+            identifier = str(security_id) if security_id is not None else symbol
             if year and month:
                 # Monthly partition
-                s3_key = f'{base_prefix}/{data_type}/daily/{symbol}/{year}/{month:02d}/{data_type}.parquet'
+                s3_key = f'{base_prefix}/{data_type}/daily/{identifier}/{year}/{month:02d}/{data_type}.parquet'
             elif year:
-                # Yearly partition (legacy)
-                s3_key = f'{base_prefix}/{data_type}/daily/{symbol}/{year}/{data_type}.parquet'
+                # History file (for security_id) or yearly partition (legacy for symbol)
+                if security_id is not None:
+                    s3_key = f'{base_prefix}/{data_type}/daily/{identifier}/history.parquet'
+                else:
+                    s3_key = f'{base_prefix}/{data_type}/daily/{identifier}/{year}/{data_type}.parquet'
             elif day:
                 date = dt.datetime.strptime(day, '%Y-%m-%d').date()
                 year_str = date.strftime('%Y')
                 month_str = date.strftime('%m')
                 day_str = date.strftime('%d')
-                s3_key = f'{base_prefix}/{data_type}/minute/{symbol}/{year_str}/{month_str}/{day_str}/{data_type}.parquet'
+                s3_key = f'{base_prefix}/{data_type}/minute/{identifier}/{year_str}/{month_str}/{day_str}/{data_type}.parquet'
             else:
                 raise ValueError(
                     "Must provide either year or day parameter "
