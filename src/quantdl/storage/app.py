@@ -233,7 +233,7 @@ class UploadApp:
                 f"(source={data_source}, monthly partitions, sequential processing, overwrite={overwrite}, "
                 f"by_year={by_year})"
             )
-            self.logger.info(f"Storage: data/raw/ticks/daily/{{symbol}}/{year}/{{MM}}/ticks.parquet")
+            self.logger.info(f"Storage: data/raw/ticks/daily/{{security_id}}/{year}/{{MM}}/ticks.parquet")
             self.logger.info(f"Starting year {year} ({total_symbols} symbols)")
 
             if year >= alpaca_start_year:
@@ -1333,8 +1333,8 @@ class UploadApp:
         - Raw Fundamental: Once per CIK -> data/raw/fundamental/{cik}/fundamental.parquet
         - Derived Fundamental: Once per CIK -> data/derived/features/fundamental/{cik}/metrics.parquet
         - TTM Fundamental: Once per CIK -> data/derived/features/fundamental/{cik}/ttm.parquet (long)
-        - Daily ticks: Once per year -> data/raw/ticks/daily/{symbol}/{YYYY}/ticks.parquet
-        - Minute ticks: Monthly -> data/raw/ticks/minute/{symbol}/{YYYY}/{MM}/{DD}/ticks.parquet
+        - Daily ticks: Monthly partitions -> data/raw/ticks/daily/{security_id}/{YYYY}/{MM}/ticks.parquet
+        - Minute ticks: Daily partitions -> data/raw/ticks/minute/{security_id}/{YYYY}/{MM}/{DD}/ticks.parquet
 
         :param start_year: Starting year (inclusive)
         :param end_year: Ending year (inclusive)

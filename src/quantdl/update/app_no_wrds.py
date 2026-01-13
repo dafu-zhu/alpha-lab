@@ -359,6 +359,11 @@ class DailyUpdateAppNoWRDS:
         def process_symbol(sym: str) -> Dict[str, Optional[str]]:
             """Process single symbol update"""
             try:
+                # Resolve symbol to security_id
+                security_id = self.security_master.get_security_id(
+                    sym, update_date.isoformat()
+                )
+
                 ticks = symbol_bars.get(sym, [])
 
                 if not ticks:
@@ -383,8 +388,8 @@ class DailyUpdateAppNoWRDS:
                     self.logger.debug(f"Skipping {sym} daily ticks: empty DataFrame after parsing")
                     return {'symbol': sym, 'status': 'skipped', 'error': 'Empty DataFrame after parsing'}
 
-                # Check if monthly file exists
-                s3_key = f"data/raw/ticks/daily/{sym}/{year}/{month:02d}/ticks.parquet"
+                # Check if monthly file exists (security_id-based path)
+                s3_key = f"data/raw/ticks/daily/{security_id}/{year}/{month:02d}/ticks.parquet"
 
                 try:
                     response = self.s3_client.get_object(

@@ -21,21 +21,21 @@ The Daily Update module provides automated daily data updates for the US Equity 
 ### Data Updated
 
 #### Daily Ticks
-- **Storage**: `data/raw/ticks/daily/{symbol}/{YYYY}/{MM}/ticks.parquet` (monthly partitions)
+- **Storage**: `data/raw/ticks/daily/{security_id}/{YYYY}/{MM}/ticks.parquet` (monthly partitions)
 - **Update Strategy**: Fetches yesterday's data and merges with current month file only
 - **Optimization**: Only downloads/uploads current month (~5 KB) instead of entire year (~64 KB)
 - **Savings**: 92% reduction in S3 data transfer, 13x faster updates
 - **Source**: Alpaca Markets API
 
 #### Minute Ticks
-- **Storage**: `data/raw/ticks/minute/{symbol}/{YYYY}/{MM}/{DD}/ticks.parquet`
+- **Storage**: `data/raw/ticks/minute/{security_id}/{YYYY}/{MM}/{DD}/ticks.parquet`
 - **Update Strategy**: Creates new daily parquet files
 - **Source**: Alpaca Markets API
 
 #### Fundamental Data
-- **Raw**: `data/raw/fundamental/{symbol}/fundamental.parquet`
-- **TTM**: `data/derived/features/fundamental/{symbol}/ttm.parquet`
-- **Metrics**: `data/derived/features/fundamental/{symbol}/metrics.parquet`
+- **Raw**: `data/raw/fundamental/{cik}/fundamental.parquet`
+- **TTM**: `data/derived/features/fundamental/{cik}/ttm.parquet`
+- **Metrics**: `data/derived/features/fundamental/{cik}/metrics.parquet`
 - **Update Strategy**: Checks EDGAR for recent filings, only updates if new data available
 - **Source**: SEC EDGAR API
 

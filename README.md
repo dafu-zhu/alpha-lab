@@ -92,24 +92,24 @@ us-equity-datalake/
 ## Data Storage Format
 
 ### Daily Ticks
-- **Path**: `data/raw/ticks/daily/{symbol}/{YYYY}/{MM}/ticks.parquet`
+- **Path**: `data/raw/ticks/daily/{security_id}/{YYYY}/{MM}/ticks.parquet`
 - **Format**: Parquet with OHLCV fields
 - **Coverage**: 2009+ (CRSP)
 
 ### Minute Ticks
-- **Path**: `data/raw/ticks/minute/{symbol}/{YYYY}/{MM}/{DD}/ticks.parquet`
+- **Path**: `data/raw/ticks/minute/{security_id}/{YYYY}/{MM}/{DD}/ticks.parquet`
 - **Format**: Parquet with OHLCV fields
 - **Coverage**: 2016+ (Alpaca)
 
 ### Fundamentals
-- **Path**: `data/raw/fundamental/{symbol}/fundamental.parquet`
+- **Path**: `data/raw/fundamental/{cik}/fundamental.parquet`
 - **Format**: Parquet with long table
 - **Coverage**: 2009+ (SEC EDGAR)
 
 ### Derived
 - **Path**:
-   - `data/derived/features/fundamental/{symbol}/ttm.parquet`
-   - `data/derived/features/fundamental/{symbol}/metrics.parquet`
+   - `data/derived/features/fundamental/{cik}/ttm.parquet`
+   - `data/derived/features/fundamental/{cik}/metrics.parquet`
 - **Format**: Parquet with long table
 - **Coverage**: 2009+ (SEC EDGAR)
 
