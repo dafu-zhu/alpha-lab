@@ -190,11 +190,13 @@ class TestSimpleCIKResolver:
 class TestDailyUpdateAppNoWRDSInitialization:
     """Tests for DailyUpdateAppNoWRDS initialization"""
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
-    def test_init(self, mock_logger, mock_ticks, mock_config, mock_s3):
+    def test_init(self, mock_logger, mock_ticks, mock_config, mock_s3, mock_security_master, mock_calendar):
         """Test DailyUpdateAppNoWRDS initialization"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
 
@@ -211,11 +213,13 @@ class TestDailyUpdateAppNoWRDSInitialization:
         assert app.data_publishers is not None
         assert app.sec_client is not None
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
-    def test_init_uses_simple_cik_resolver(self, mock_logger, mock_ticks, mock_config, mock_s3):
+    def test_init_uses_simple_cik_resolver(self, mock_logger, mock_ticks, mock_config, mock_s3, mock_security_master, mock_calendar):
         """Test that DailyUpdateAppNoWRDS uses SimpleCIKResolver"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS, SimpleCIKResolver
 
@@ -228,13 +232,15 @@ class TestDailyUpdateAppNoWRDSInitialization:
 class TestDailyUpdateAppNoWRDSGetSymbols:
     """Tests for _get_symbols method"""
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.fetch_all_stocks')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     def test_get_symbols_fetches_from_nasdaq(
-        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_fetch
+        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_fetch, mock_security_master, mock_calendar
     ):
         """Test that _get_symbols fetches from Nasdaq FTP"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
@@ -256,13 +262,15 @@ class TestDailyUpdateAppNoWRDSGetSymbols:
         # Check result
         assert symbols == ['AAPL', 'MSFT', 'GOOGL']
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.fetch_all_stocks')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     def test_get_symbols_caches_result(
-        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_fetch
+        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_fetch, mock_security_master, mock_calendar
     ):
         """Test that _get_symbols caches the result"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
@@ -286,11 +294,13 @@ class TestDailyUpdateAppNoWRDSGetSymbols:
 class TestDailyUpdateAppNoWRDSCheckMarketOpen:
     """Tests for check_market_open method"""
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
-    def test_check_market_open(self, mock_logger, mock_ticks, mock_config, mock_s3):
+    def test_check_market_open(self, mock_logger, mock_ticks, mock_config, mock_s3, mock_security_master, mock_calendar):
         """Test check_market_open method"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
 
@@ -310,22 +320,26 @@ class TestDailyUpdateAppNoWRDSCheckMarketOpen:
 class TestDailyUpdateAppNoWRDSGetRecentEdgarFilings:
     """Tests for get_recent_edgar_filings method"""
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.requests.get')
     def test_get_recent_edgar_filings_success(
-        self, mock_get, mock_s3, mock_config, mock_ticks, mock_logger
+        self, mock_get, mock_s3, mock_config, mock_ticks, mock_logger, mock_security_master, mock_calendar
     ):
         """Test get_recent_edgar_filings returns recent filings"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
 
-        # Calculate dates based on today
-        today = dt.date.today()
-        recent_date1 = (today - dt.timedelta(days=2)).isoformat()
-        recent_date2 = (today - dt.timedelta(days=5)).isoformat()
-        old_date = (today - dt.timedelta(days=20)).isoformat()
+        # Use fixed date for deterministic testing
+        fixed_today = dt.date(2025, 1, 13)
+
+        # Calculate dates based on fixed today
+        recent_date1 = (fixed_today - dt.timedelta(days=2)).isoformat()
+        recent_date2 = (fixed_today - dt.timedelta(days=5)).isoformat()
+        old_date = (fixed_today - dt.timedelta(days=20)).isoformat()
 
         # Mock EDGAR API response
         mock_response = Mock()
@@ -342,28 +356,39 @@ class TestDailyUpdateAppNoWRDSGetRecentEdgarFilings:
         mock_get.return_value = mock_response
 
         app = DailyUpdateAppNoWRDS()
-        result = app.get_recent_edgar_filings('0000320193', lookback_days=7)
 
-        # Should return only filings within lookback (recent_date1 and recent_date2)
-        assert len(result) == 2
-        assert result[0]['form'] == '10-K'
-        assert result[0]['filingDate'] == recent_date1
-        assert result[1]['form'] == '10-Q'
-        assert result[1]['filingDate'] == recent_date2
+        # Mock dt.date.today() to return fixed date
+        with patch('quantdl.update.app_no_wrds.dt.date') as mock_date:
+            mock_date.today.return_value = fixed_today
+            mock_date.side_effect = lambda *args, **kw: dt.date(*args, **kw)
 
+            result = app.get_recent_edgar_filings('0000320193', lookback_days=7)
+
+            # Should return only filings within lookback (recent_date1 and recent_date2)
+            assert len(result) == 2
+            assert result[0]['form'] == '10-K'
+            assert result[0]['filingDate'] == recent_date1
+            assert result[1]['form'] == '10-Q'
+            assert result[1]['filingDate'] == recent_date2
+
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.requests.get')
     def test_get_recent_edgar_filings_no_recent(
-        self, mock_get, mock_s3, mock_config, mock_ticks, mock_logger
+        self, mock_get, mock_s3, mock_config, mock_ticks, mock_logger, mock_security_master, mock_calendar
     ):
         """Test get_recent_edgar_filings with no recent filings"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
 
+        # Use fixed date for deterministic testing
+        fixed_today = dt.date(2025, 1, 13)
+
         # Use date from over a year ago
-        old_date = (dt.date.today() - dt.timedelta(days=365)).isoformat()
+        old_date = (fixed_today - dt.timedelta(days=365)).isoformat()
 
         mock_response = Mock()
         mock_response.raise_for_status.return_value = None
@@ -379,17 +404,25 @@ class TestDailyUpdateAppNoWRDSGetRecentEdgarFilings:
         mock_get.return_value = mock_response
 
         app = DailyUpdateAppNoWRDS()
-        result = app.get_recent_edgar_filings('0000320193', lookback_days=7)
 
-        assert len(result) == 0
+        # Mock dt.date.today() to return fixed date
+        with patch('quantdl.update.app_no_wrds.dt.date') as mock_date:
+            mock_date.today.return_value = fixed_today
+            mock_date.side_effect = lambda *args, **kw: dt.date(*args, **kw)
 
+            result = app.get_recent_edgar_filings('0000320193', lookback_days=7)
+
+            assert len(result) == 0
+
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.requests.get')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     def test_get_recent_edgar_filings_handles_error(
-        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_get
+        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_get, mock_security_master, mock_calendar
     ):
         """Test get_recent_edgar_filings handles API errors gracefully"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
@@ -401,22 +434,26 @@ class TestDailyUpdateAppNoWRDSGetRecentEdgarFilings:
 
         assert result == []
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.requests.get')
     def test_get_recent_edgar_filings_filters_relevant_forms(
-        self, mock_get, mock_s3, mock_config, mock_ticks, mock_logger
+        self, mock_get, mock_s3, mock_config, mock_ticks, mock_logger, mock_security_master, mock_calendar
     ):
         """Test that only relevant forms (10-K, 10-Q, 8-K) are returned"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
 
+        # Use fixed date for deterministic testing
+        fixed_today = dt.date(2025, 1, 13)
+
         # Calculate recent dates
-        today = dt.date.today()
-        date1 = (today - dt.timedelta(days=2)).isoformat()
-        date2 = (today - dt.timedelta(days=3)).isoformat()
-        date3 = (today - dt.timedelta(days=4)).isoformat()
+        date1 = (fixed_today - dt.timedelta(days=2)).isoformat()
+        date2 = (fixed_today - dt.timedelta(days=3)).isoformat()
+        date3 = (fixed_today - dt.timedelta(days=4)).isoformat()
 
         mock_response = Mock()
         mock_response.raise_for_status.return_value = None
@@ -432,25 +469,33 @@ class TestDailyUpdateAppNoWRDSGetRecentEdgarFilings:
         mock_get.return_value = mock_response
 
         app = DailyUpdateAppNoWRDS()
-        result = app.get_recent_edgar_filings('0000320193', lookback_days=7)
 
-        # Only 10-K and 8-K should be included
-        assert len(result) == 2
-        forms = [f['form'] for f in result]
-        assert '10-K' in forms
-        assert '8-K' in forms
-        assert 'S-1' not in forms
+        # Mock dt.date.today() to return fixed date
+        with patch('quantdl.update.app_no_wrds.dt.date') as mock_date:
+            mock_date.today.return_value = fixed_today
+            mock_date.side_effect = lambda *args, **kw: dt.date(*args, **kw)
+
+            result = app.get_recent_edgar_filings('0000320193', lookback_days=7)
+
+            # Only 10-K and 8-K should be included
+            assert len(result) == 2
+            forms = [f['form'] for f in result]
+            assert '10-K' in forms
+            assert '8-K' in forms
+            assert 'S-1' not in forms
 
 
 class TestDailyUpdateAppNoWRDSCheckFiling:
     """Tests for _check_filing method"""
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     def test_check_filing_with_recent_filings(
-        self, mock_logger, mock_ticks, mock_config, mock_s3
+        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_security_master, mock_calendar
     ):
         """Test _check_filing when symbol has recent filings"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
@@ -470,12 +515,14 @@ class TestDailyUpdateAppNoWRDSCheckFiling:
         assert result['cik'] == '0000320193'
         assert result['has_recent_filing'] is True
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     def test_check_filing_no_recent_filings(
-        self, mock_logger, mock_ticks, mock_config, mock_s3
+        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_security_master, mock_calendar
     ):
         """Test _check_filing when symbol has no recent filings"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
@@ -494,12 +541,14 @@ class TestDailyUpdateAppNoWRDSCheckFiling:
 class TestDailyUpdateAppNoWRDSGetSymbolsWithRecentFilings:
     """Tests for get_symbols_with_recent_filings method"""
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     def test_get_symbols_with_recent_filings(
-        self, mock_logger, mock_ticks, mock_config, mock_s3
+        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_security_master, mock_calendar
     ):
         """Test get_symbols_with_recent_filings identifies symbols correctly"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
@@ -529,12 +578,14 @@ class TestDailyUpdateAppNoWRDSGetSymbolsWithRecentFilings:
         # Only AAPL should be returned
         assert result == {'AAPL'}
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     def test_get_symbols_with_recent_filings_filters_none_ciks(
-        self, mock_logger, mock_ticks, mock_config, mock_s3
+        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_security_master, mock_calendar
     ):
         """Test that symbols without CIKs are filtered out"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
@@ -566,12 +617,14 @@ class TestDailyUpdateAppNoWRDSGetSymbolsWithRecentFilings:
 class TestDailyUpdateAppNoWRDSUpdateDailyTicks:
     """Tests for update_daily_ticks and process_symbol methods"""
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     def test_update_daily_ticks_success(
-        self, mock_logger, mock_ticks, mock_config, mock_s3
+        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_security_master, mock_calendar
     ):
         """Test update_daily_ticks successfully updates ticks"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
@@ -622,12 +675,14 @@ class TestDailyUpdateAppNoWRDSUpdateDailyTicks:
         assert stats['skipped'] == 0
         app.data_publishers.upload_fileobj.assert_called_once()
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     def test_update_daily_ticks_skips_no_data(
-        self, mock_logger, mock_ticks, mock_config, mock_s3
+        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_security_master, mock_calendar
     ):
         """Test update_daily_ticks skips symbols with no data"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
@@ -643,12 +698,14 @@ class TestDailyUpdateAppNoWRDSUpdateDailyTicks:
         assert stats['skipped'] == 1
         assert stats['success'] == 0
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     def test_update_daily_ticks_appends_to_existing(
-        self, mock_logger, mock_ticks, mock_config, mock_s3
+        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_security_master, mock_calendar
     ):
         """Test update_daily_ticks appends to existing monthly file"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
@@ -712,13 +769,14 @@ class TestDailyUpdateAppNoWRDSUpdateDailyTicks:
 class TestDailyUpdateAppNoWRDSUpdateMinuteTicks:
     """Tests for update_minute_ticks method"""
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
-    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     def test_update_minute_ticks_success(
-        self, mock_security_master, mock_logger, mock_ticks, mock_config, mock_s3
+        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_security_master, mock_calendar
     ):
         """Test update_minute_ticks successfully updates minute data"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
@@ -751,12 +809,14 @@ class TestDailyUpdateAppNoWRDSUpdateMinuteTicks:
         assert stats['skipped'] == 0
         app.data_publishers.upload_fileobj.assert_called_once()
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     def test_update_minute_ticks_skips_empty_data(
-        self, mock_logger, mock_ticks, mock_config, mock_s3
+        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_security_master, mock_calendar
     ):
         """Test update_minute_ticks skips empty DataFrames"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
@@ -780,12 +840,14 @@ class TestDailyUpdateAppNoWRDSUpdateMinuteTicks:
         assert stats['skipped'] == 1
         assert stats['success'] == 0
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     def test_update_minute_ticks_handles_error(
-        self, mock_logger, mock_ticks, mock_config, mock_s3
+        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_security_master, mock_calendar
     ):
         """Test update_minute_ticks handles upload errors"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
@@ -814,12 +876,14 @@ class TestDailyUpdateAppNoWRDSUpdateMinuteTicks:
 class TestDailyUpdateAppNoWRDSUpdateFundamental:
     """Tests for update_fundamental method"""
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     def test_update_fundamental_success(
-        self, mock_logger, mock_ticks, mock_config, mock_s3
+        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_security_master, mock_calendar
     ):
         """Test update_fundamental successfully updates fundamental data"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
@@ -852,12 +916,14 @@ class TestDailyUpdateAppNoWRDSUpdateFundamental:
         app.data_publishers.publish_ttm_fundamental.assert_called_once()
         app.data_publishers.publish_derived_fundamental.assert_called_once()
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     def test_update_fundamental_skips_no_cik(
-        self, mock_logger, mock_ticks, mock_config, mock_s3
+        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_security_master, mock_calendar
     ):
         """Test update_fundamental skips symbols without CIK"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
@@ -878,12 +944,14 @@ class TestDailyUpdateAppNoWRDSUpdateFundamental:
         assert stats['failed'] == 0
         assert stats['skipped'] == 0
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     def test_update_fundamental_handles_skipped_status(
-        self, mock_logger, mock_ticks, mock_config, mock_s3
+        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_security_master, mock_calendar
     ):
         """Test update_fundamental handles skipped status from publisher"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
@@ -906,12 +974,14 @@ class TestDailyUpdateAppNoWRDSUpdateFundamental:
 class TestDailyUpdateAppNoWRDSRunDailyUpdate:
     """Tests for run_daily_update method"""
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     def test_run_daily_update_market_open(
-        self, mock_logger, mock_ticks, mock_config, mock_s3
+        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_security_master, mock_calendar
     ):
         """Test run_daily_update on a trading day"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
@@ -936,12 +1006,14 @@ class TestDailyUpdateAppNoWRDSRunDailyUpdate:
         app.get_symbols_with_recent_filings.assert_called_once()
         app.update_fundamental.assert_called_once()
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     def test_run_daily_update_market_closed(
-        self, mock_logger, mock_ticks, mock_config, mock_s3
+        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_security_master, mock_calendar
     ):
         """Test run_daily_update on non-trading day"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
@@ -965,12 +1037,14 @@ class TestDailyUpdateAppNoWRDSRunDailyUpdate:
         # Fundamentals should still be checked
         app.get_symbols_with_recent_filings.assert_called_once()
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     def test_run_daily_update_ticks_only(
-        self, mock_logger, mock_ticks, mock_config, mock_s3
+        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_security_master, mock_calendar
     ):
         """Test run_daily_update with update_fundamentals=False"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
@@ -999,6 +1073,8 @@ class TestDailyUpdateAppNoWRDSRunDailyUpdate:
         app.get_symbols_with_recent_filings.assert_not_called()
         app.update_fundamental.assert_not_called()
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.dt.timedelta')
     @patch('quantdl.update.app_no_wrds.dt.date')
     @patch('quantdl.update.app_no_wrds.S3Client')
@@ -1006,7 +1082,7 @@ class TestDailyUpdateAppNoWRDSRunDailyUpdate:
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     def test_run_daily_update_defaults_to_yesterday(
-        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_date_class, mock_timedelta
+        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_date_class, mock_timedelta, mock_security_master, mock_calendar
     ):
         """Test run_daily_update defaults to yesterday's date"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
@@ -1031,12 +1107,14 @@ class TestDailyUpdateAppNoWRDSRunDailyUpdate:
             # Should use yesterday (2025-01-11)
             app.check_market_open.assert_called_once_with(yesterday)
 
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
     @patch('quantdl.update.app_no_wrds.S3Client')
     @patch('quantdl.update.app_no_wrds.UploadConfig')
     @patch('quantdl.update.app_no_wrds.Ticks')
     @patch('quantdl.update.app_no_wrds.setup_logger')
     def test_run_daily_update_no_recent_filings(
-        self, mock_logger, mock_ticks, mock_config, mock_s3
+        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_security_master, mock_calendar
     ):
         """Test run_daily_update when no symbols have recent filings"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
