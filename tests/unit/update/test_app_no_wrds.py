@@ -573,10 +573,11 @@ class TestDailyUpdateAppNoWRDSGetSymbolsWithRecentFilings:
         symbols = ['AAPL', 'MSFT', 'GOOGL']
         update_date = dt.date(2025, 1, 12)
 
-        result, filing_stats = app.get_symbols_with_recent_filings(symbols, update_date, lookback_days=7)
+        fundamental_filings, all_filings, filing_stats = app.get_symbols_with_recent_filings(symbols, update_date, lookback_days=7)
 
-        # Only AAPL should be returned
-        assert result == {'AAPL'}
+        # Only AAPL should be returned (10-K is a fundamental filing)
+        assert fundamental_filings == {'AAPL'}
+        assert all_filings == {'AAPL'}
         assert filing_stats == {'10-K': 1}
 
     @patch('quantdl.update.app_no_wrds.TradingCalendar')
@@ -610,11 +611,56 @@ class TestDailyUpdateAppNoWRDSGetSymbolsWithRecentFilings:
         symbols = ['AAPL', 'UNKNOWN', 'MSFT']
         update_date = dt.date(2025, 1, 12)
 
-        result, filing_stats = app.get_symbols_with_recent_filings(symbols, update_date, lookback_days=7)
+        fundamental_filings, all_filings, filing_stats = app.get_symbols_with_recent_filings(symbols, update_date, lookback_days=7)
 
         # _check_filing should only be called for symbols with CIKs
         assert app._check_filing.call_count == 2  # AAPL and MSFT only
         assert filing_stats == {}
+
+    @patch('quantdl.update.app_no_wrds.TradingCalendar')
+    @patch('quantdl.update.app_no_wrds.SecurityMaster')
+    @patch('quantdl.update.app_no_wrds.S3Client')
+    @patch('quantdl.update.app_no_wrds.UploadConfig')
+    @patch('quantdl.update.app_no_wrds.Ticks')
+    @patch('quantdl.update.app_no_wrds.setup_logger')
+    def test_get_symbols_with_recent_filings_excludes_8k_from_fundamental(
+        self, mock_logger, mock_ticks, mock_config, mock_s3, mock_security_master, mock_calendar
+    ):
+        """Test that 8-K filings are in all_filings but not fundamental_filings"""
+        from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
+
+        app = DailyUpdateAppNoWRDS()
+
+        # Mock CIK resolver
+        app.cik_resolver.batch_prefetch_ciks = Mock(return_value={
+            'AAPL': '0000320193',
+            'MSFT': '0000789019',
+            'GOOGL': '0001652044'
+        })
+
+        # Mock _check_filing: AAPL has 10-K, MSFT has 8-K only, GOOGL has both
+        def mock_check_filing(symbol, cik, lookback_days, semaphore):
+            if symbol == 'AAPL':
+                return {'symbol': symbol, 'cik': cik, 'has_recent_filing': True, 'filing_types': ['10-K']}
+            elif symbol == 'MSFT':
+                return {'symbol': symbol, 'cik': cik, 'has_recent_filing': True, 'filing_types': ['8-K']}
+            elif symbol == 'GOOGL':
+                return {'symbol': symbol, 'cik': cik, 'has_recent_filing': True, 'filing_types': ['8-K', '10-Q']}
+            return {'symbol': symbol, 'cik': cik, 'has_recent_filing': False, 'filing_types': []}
+
+        app._check_filing = mock_check_filing
+
+        symbols = ['AAPL', 'MSFT', 'GOOGL']
+        update_date = dt.date(2025, 1, 12)
+
+        fundamental_filings, all_filings, filing_stats = app.get_symbols_with_recent_filings(symbols, update_date, lookback_days=7)
+
+        # AAPL and GOOGL have fundamental filings (10-K, 10-Q)
+        # MSFT only has 8-K which doesn't have financials
+        assert fundamental_filings == {'AAPL', 'GOOGL'}
+        # All three should be in all_filings
+        assert all_filings == {'AAPL', 'MSFT', 'GOOGL'}
+        assert filing_stats == {'10-K': 1, '8-K': 2, '10-Q': 1}
 
 
 class TestDailyUpdateAppNoWRDSUpdateDailyTicks:
@@ -663,10 +709,13 @@ class TestDailyUpdateAppNoWRDSUpdateDailyTicks:
                          low=149.5, close=150.5, volume=1000000)
         ])
 
-        # Mock S3 client (no existing file) - create a proper exception type
-        no_such_key_exception = type('NoSuchKey', (Exception,), {})
-        app.s3_client.exceptions = type('Exceptions', (), {'NoSuchKey': no_such_key_exception})()
-        app.s3_client.get_object = Mock(side_effect=no_such_key_exception())
+        # Mock S3 client (no existing file) - use ClientError with NoSuchKey code
+        from botocore.exceptions import ClientError
+        no_such_key_error = ClientError(
+            error_response={'Error': {'Code': 'NoSuchKey', 'Message': 'Not found'}},
+            operation_name='GetObject'
+        )
+        app.s3_client.get_object = Mock(side_effect=no_such_key_error)
         app.data_publishers.upload_fileobj = Mock()
         app.data_publishers.bucket_name = 'test-bucket'
 
@@ -997,7 +1046,7 @@ class TestDailyUpdateAppNoWRDSRunDailyUpdate:
         app.check_market_open = Mock(return_value=True)
         app.update_daily_ticks = Mock(return_value={'success': 2, 'failed': 0, 'skipped': 0})
         app.update_minute_ticks = Mock(return_value={'success': 2, 'failed': 0, 'skipped': 0})
-        app.get_symbols_with_recent_filings = Mock(return_value=({'AAPL'}, {'10-K': 1}))
+        app.get_symbols_with_recent_filings = Mock(return_value=({'AAPL'}, {'AAPL'}, {'10-K': 1}))
         app.update_fundamental = Mock(return_value={'success': 1, 'failed': 0, 'skipped': 0})
 
         target_date = dt.date(2025, 1, 10)
@@ -1037,7 +1086,7 @@ class TestDailyUpdateAppNoWRDSRunDailyUpdate:
         app.check_market_open = Mock(return_value=False)
         app.update_daily_ticks = Mock()
         app.update_minute_ticks = Mock()
-        app.get_symbols_with_recent_filings = Mock(return_value=(set(), {}))
+        app.get_symbols_with_recent_filings = Mock(return_value=(set(), set(), {}))
         app.update_fundamental = Mock()
 
         target_date = dt.date(2025, 1, 11)  # Weekend
@@ -1116,7 +1165,7 @@ class TestDailyUpdateAppNoWRDSRunDailyUpdate:
         app.security_master.update_from_sec = Mock(return_value={'extended': 0, 'added': 0, 'unchanged': 100})
         app._get_symbols = Mock(return_value=[])
         app.check_market_open = Mock(return_value=False)
-        app.get_symbols_with_recent_filings = Mock(return_value=(set(), {}))
+        app.get_symbols_with_recent_filings = Mock(return_value=(set(), set(), {}))
 
         # Mock date and timedelta properly
         today = dt.date(2025, 1, 12)
@@ -1151,7 +1200,7 @@ class TestDailyUpdateAppNoWRDSRunDailyUpdate:
         app.check_market_open = Mock(return_value=True)
         app.update_daily_ticks = Mock(return_value={'success': 2, 'failed': 0, 'skipped': 0})
         app.update_minute_ticks = Mock(return_value={'success': 2, 'failed': 0, 'skipped': 0})
-        app.get_symbols_with_recent_filings = Mock(return_value=(set(), {}))  # Empty set
+        app.get_symbols_with_recent_filings = Mock(return_value=(set(), set(), {}))  # Empty set
         app.update_fundamental = Mock()
 
         target_date = dt.date(2025, 1, 10)

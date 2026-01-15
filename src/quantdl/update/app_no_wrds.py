@@ -291,14 +291,20 @@ class DailyUpdateAppNoWRDS:
         symbols: List[str],
         update_date: dt.date,
         lookback_days: int = 7
-    ) -> Tuple[Set[str], Dict[str, int]]:
+    ) -> Tuple[Set[str], Set[str], Dict[str, int]]:
         """Identify symbols that have new EDGAR filings (parallelized).
 
         Returns:
-            Tuple of (symbols_with_filings, filing_type_counts)
+            Tuple of (symbols_with_fundamental_filings, symbols_with_any_filings, filing_type_counts)
+            - symbols_with_fundamental_filings: symbols with 10-K/10-Q (contain financials)
+            - symbols_with_any_filings: symbols with any filing type including 8-K
         """
         symbols_with_filings = set()
+        symbols_with_fundamental_filings = set()
         filing_stats: Dict[str, int] = {}
+
+        # Filing types that contain fundamental financial data
+        fundamental_forms = {'10-K', '10-Q', '10-K/A', '10-Q/A'}
 
         self.logger.info(f"Checking EDGAR for recent filings ({lookback_days} day lookback)...")
 
@@ -326,6 +332,9 @@ class DailyUpdateAppNoWRDS:
                 result = future.result()
                 if result['has_recent_filing']:
                     symbols_with_filings.add(result['symbol'])
+                    # Check if any filing is fundamental-relevant (10-K/10-Q)
+                    if any(form in fundamental_forms for form in result['filing_types']):
+                        symbols_with_fundamental_filings.add(result['symbol'])
                     # Count filing types
                     for form in result['filing_types']:
                         filing_stats[form] = filing_stats.get(form, 0) + 1
@@ -340,8 +349,11 @@ class DailyUpdateAppNoWRDS:
             f"Found {len(symbols_with_filings)} symbols with recent filings "
             f"out of {len(symbol_to_cik)} checked ({stats_str})"
         )
+        self.logger.info(
+            f"Of these, {len(symbols_with_fundamental_filings)} have 10-K/10-Q filings with financial data"
+        )
 
-        return symbols_with_filings, filing_stats
+        return symbols_with_fundamental_filings, symbols_with_filings, filing_stats
 
     def update_daily_ticks(
         self,
@@ -421,13 +433,11 @@ class DailyUpdateAppNoWRDS:
 
                 except ClientError as e:
                     if e.response['Error']['Code'] == 'NoSuchKey':
-                        updated_df = new_df
+                        updated_df = new_df  # File doesn't exist yet - OK
                     else:
-                        self.logger.debug(f"Could not read existing file for {sym}: {e}, creating new file")
-                        updated_df = new_df
+                        raise  # Re-raise to trigger retry or mark as failed
                 except Exception as e:
-                    self.logger.debug(f"Could not read existing file for {sym}: {e}, creating new file")
-                    updated_df = new_df
+                    raise  # Re-raise to trigger retry or mark as failed
 
                 # Drop null rows
                 null_row = (
@@ -713,16 +723,16 @@ class DailyUpdateAppNoWRDS:
         if update_fundamental or update_ttm or update_derived:
             self.logger.info("Checking EDGAR for recent filings...")
 
-            symbols_with_filings, filing_stats = self.get_symbols_with_recent_filings(
+            symbols_with_fundamental_filings, symbols_with_filings, filing_stats = self.get_symbols_with_recent_filings(
                 symbols=symbols,
                 update_date=target_date,
                 lookback_days=fundamental_lookback_days
             )
 
-            if symbols_with_filings:
+            if symbols_with_fundamental_filings:
                 self.logger.info(
-                    f"Updating fundamental data for {len(symbols_with_filings)} symbols "
-                    f"with recent filings..."
+                    f"Updating fundamental data for {len(symbols_with_fundamental_filings)} symbols "
+                    f"with 10-K/10-Q filings..."
                 )
 
                 end_date = dt.date.today().isoformat()
@@ -731,7 +741,7 @@ class DailyUpdateAppNoWRDS:
                 ).isoformat()
 
                 fundamental_stats = self.update_fundamental(
-                    symbols=list(symbols_with_filings),
+                    symbols=list(symbols_with_fundamental_filings),
                     start_date=start_date,
                     end_date=end_date,
                     update_raw=update_fundamental,
@@ -739,7 +749,7 @@ class DailyUpdateAppNoWRDS:
                     update_derived=update_derived
                 )
             else:
-                self.logger.info("No symbols with recent filings, skipping fundamental update")
+                self.logger.info("No symbols with 10-K/10-Q filings, skipping fundamental update")
 
         self.logger.info(f"=" * 80)
         self.logger.info(f"Daily update completed for {target_date}")

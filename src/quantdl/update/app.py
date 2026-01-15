@@ -230,14 +230,20 @@ class DailyUpdateApp:
         update_date: dt.date,
         symbols: List[str],
         lookback_days: int = 7
-    ) -> Tuple[Set[str], Dict[str, int]]:
+    ) -> Tuple[Set[str], Set[str], Dict[str, int]]:
         """Identify symbols that have new EDGAR filings (parallelized).
 
         Returns:
-            Tuple of (symbols_with_filings, filing_type_counts)
+            Tuple of (symbols_with_fundamental_filings, symbols_with_any_filings, filing_type_counts)
+            - symbols_with_fundamental_filings: symbols with 10-K/10-Q (contain financials)
+            - symbols_with_any_filings: symbols with any filing type including 8-K
         """
         symbols_with_filings = set()
+        symbols_with_fundamental_filings = set()
         filing_stats: Dict[str, int] = {}
+
+        # Filing types that contain fundamental financial data
+        fundamental_forms = {'10-K', '10-Q', '10-K/A', '10-Q/A'}
 
         self.logger.info(f"Checking EDGAR for recent filings ({lookback_days} day lookback)...")
 
@@ -265,6 +271,9 @@ class DailyUpdateApp:
                 result = future.result()
                 if result['has_recent_filing']:
                     symbols_with_filings.add(result['symbol'])
+                    # Check if any filing is fundamental-relevant (10-K/10-Q)
+                    if any(form in fundamental_forms for form in result['filing_types']):
+                        symbols_with_fundamental_filings.add(result['symbol'])
                     # Count filing types
                     for form in result['filing_types']:
                         filing_stats[form] = filing_stats.get(form, 0) + 1
@@ -279,8 +288,11 @@ class DailyUpdateApp:
             f"Found {len(symbols_with_filings)} symbols with recent filings "
             f"out of {len(symbol_to_cik)} checked ({stats_str})"
         )
+        self.logger.info(
+            f"Of these, {len(symbols_with_fundamental_filings)} have 10-K/10-Q filings with financial data"
+        )
 
-        return symbols_with_filings, filing_stats
+        return symbols_with_fundamental_filings, symbols_with_filings, filing_stats
 
     def update_daily_ticks(
         self,
@@ -875,16 +887,16 @@ class DailyUpdateApp:
         if update_fundamental or update_ttm or update_derived:
             self.logger.info("Checking EDGAR for recent filings...")
 
-            symbols_with_filings, filing_stats = self.get_symbols_with_recent_filings(
+            symbols_with_fundamental_filings, symbols_with_filings, filing_stats = self.get_symbols_with_recent_filings(
                 symbols=symbols,
                 update_date=target_date,
                 lookback_days=fundamental_lookback_days
             )
 
-            if symbols_with_filings:
+            if symbols_with_fundamental_filings:
                 self.logger.info(
-                    f"Updating fundamental data for {len(symbols_with_filings)} symbols "
-                    f"with recent filings..."
+                    f"Updating fundamental data for {len(symbols_with_fundamental_filings)} symbols "
+                    f"with 10-K/10-Q filings..."
                 )
 
                 # Use a date range covering the lookback period
@@ -894,7 +906,7 @@ class DailyUpdateApp:
                 ).isoformat()
 
                 fundamental_stats = self.update_fundamental(
-                    symbols=list(symbols_with_filings),
+                    symbols=list(symbols_with_fundamental_filings),
                     start_date=start_date,
                     end_date=end_date,
                     update_raw=update_fundamental,
@@ -902,71 +914,8 @@ class DailyUpdateApp:
                     update_derived=update_derived
                 )
             else:
-                self.logger.info("No symbols with recent filings, skipping fundamental update")
+                self.logger.info("No symbols with 10-K/10-Q filings, skipping fundamental update")
 
         self.logger.info(f"=" * 80)
         self.logger.info(f"Daily update completed for {target_date}")
         self.logger.info(f"=" * 80)
-
-
-def main() -> None:
-    """Main entry point for daily update."""
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Run daily data lake update")
-    parser.add_argument(
-        '--date',
-        type=str,
-        help='Target date in YYYY-MM-DD format (default: yesterday)'
-    )
-    # Tick flags
-    parser.add_argument(
-        '--no-daily-ticks',
-        action='store_true',
-        help='Skip daily ticks update'
-    )
-    parser.add_argument(
-        '--no-minute-ticks',
-        action='store_true',
-        help='Skip minute ticks update'
-    )
-    # Fundamental flags
-    parser.add_argument(
-        '--no-fundamental',
-        action='store_true',
-        help='Skip raw fundamental update'
-    )
-    parser.add_argument(
-        '--no-ttm',
-        action='store_true',
-        help='Skip TTM fundamental update'
-    )
-    parser.add_argument(
-        '--no-derived',
-        action='store_true',
-        help='Skip derived metrics update'
-    )
-    parser.add_argument(
-        '--lookback',
-        type=int,
-        default=7,
-        help='Days to look back for EDGAR filings (default: 7)'
-    )
-
-    args = parser.parse_args()
-
-    if args.date:
-        target_date = dt.datetime.strptime(args.date, '%Y-%m-%d').date()
-    else:
-        target_date = None
-
-    app = DailyUpdateApp()
-    app.run_daily_update(
-        target_date=target_date,
-        update_daily_ticks=not args.no_daily_ticks,
-        update_minute_ticks=not args.no_minute_ticks,
-        update_fundamental=not args.no_fundamental,
-        update_ttm=not args.no_ttm,
-        update_derived=not args.no_derived,
-        fundamental_lookback_days=args.lookback
-    )

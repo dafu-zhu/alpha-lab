@@ -1,7 +1,21 @@
 name: Manual Daily Update
 
 on:
-  workflow_dispatch:  # Manual trigger only
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Target date (YYYY-MM-DD, default: yesterday)'
+        required: false
+        type: string
+      backfill_from:
+        description: 'Backfill from date (YYYY-MM-DD, max 30 days)'
+        required: false
+        type: string
+      no_ticks:
+        description: 'Skip ticks updates (only update fundamentals)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -34,7 +48,23 @@ jobs:
           echo "MAIL_SERVER: ${{ secrets.MAIL_SERVER != '' && 'SET' || 'MISSING' }}"
           echo "MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD != '' && 'SET' || 'MISSING' }}"
 
-      - name: Run daily update (all data types, WRDS-free)
+      - name: Build update command
+        id: cmd
+        run: |
+          CMD="uv run quantdl-update --no-wrds"
+          if [ -n "${{ github.event.inputs.date }}" ]; then
+            CMD="$CMD --date ${{ github.event.inputs.date }}"
+          fi
+          if [ -n "${{ github.event.inputs.backfill_from }}" ]; then
+            CMD="$CMD --backfill-from ${{ github.event.inputs.backfill_from }}"
+          fi
+          if [ "${{ github.event.inputs.no_ticks }}" = "true" ]; then
+            CMD="$CMD --no-ticks"
+          fi
+          echo "command=$CMD" >> $GITHUB_OUTPUT
+          echo "Running: $CMD"
+
+      - name: Run daily update
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
@@ -43,7 +73,7 @@ jobs:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
         run: |
           set -o pipefail
-          uv run quantdl-update --no-wrds 2>&1 | tee update.log
+          ${{ steps.cmd.outputs.command }} 2>&1 | tee update.log
 
       - name: Test consolidate_year functionality
         env:

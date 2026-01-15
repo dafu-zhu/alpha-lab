@@ -431,14 +431,15 @@ class TestGetSymbolsWithRecentFilings:
             }
 
         with patch.object(app, '_check_filing', side_effect=mock_check_filing):
-            result, filing_stats = app.get_symbols_with_recent_filings(
+            fundamental_filings, all_filings, filing_stats = app.get_symbols_with_recent_filings(
                 update_date=dt.date(2024, 6, 1),
                 symbols=['AAPL', 'MSFT', 'GOOGL'],
                 lookback_days=7
             )
 
-            # Only AAPL should have recent filings
-            assert result == {'AAPL'}
+            # Only AAPL should have recent filings (10-K is a fundamental filing)
+            assert fundamental_filings == {'AAPL'}
+            assert all_filings == {'AAPL'}
             assert filing_stats == {'10-K': 1}
 
             # Verify batch CIK resolver was called
@@ -487,7 +488,7 @@ class TestGetSymbolsWithRecentFilings:
             return {'symbol': symbol, 'cik': cik, 'has_recent_filing': False, 'filing_types': []}
 
         with patch.object(app, '_check_filing', side_effect=mock_check_filing):
-            result, filing_stats = app.get_symbols_with_recent_filings(
+            fundamental_filings, all_filings, filing_stats = app.get_symbols_with_recent_filings(
                 update_date=dt.date(2024, 6, 1),
                 symbols=symbols,
                 lookback_days=7
@@ -1514,7 +1515,7 @@ class TestRunDailyUpdate:
              patch.object(app, 'check_market_open', return_value=True), \
              patch.object(app, 'update_daily_ticks', return_value={'success': 2, 'failed': 0, 'skipped': 0}), \
              patch.object(app, 'update_minute_ticks', return_value={'success': 2, 'failed': 0, 'skipped': 0}), \
-             patch.object(app, 'get_symbols_with_recent_filings', return_value=({'AAPL'}, {'10-K': 1})), \
+             patch.object(app, 'get_symbols_with_recent_filings', return_value=({'AAPL'}, {'AAPL'}, {'10-K': 1})), \
              patch.object(app, 'update_fundamental', return_value={'success': 1, 'failed': 0, 'skipped': 0}):
 
             # Call method
@@ -1571,7 +1572,7 @@ class TestRunDailyUpdate:
              patch.object(app, 'check_market_open', return_value=False), \
              patch.object(app, 'update_daily_ticks') as mock_daily, \
              patch.object(app, 'update_minute_ticks') as mock_minute, \
-             patch.object(app, 'get_symbols_with_recent_filings', return_value=(set(), {})), \
+             patch.object(app, 'get_symbols_with_recent_filings', return_value=(set(), set(), {})), \
              patch.object(app, 'update_fundamental'):
 
             # Call method
@@ -1624,7 +1625,7 @@ class TestRunDailyUpdate:
              patch.object(app, 'check_market_open', return_value=True), \
              patch.object(app, 'update_daily_ticks', return_value={'success': 1, 'failed': 0, 'skipped': 0}), \
              patch.object(app, 'update_minute_ticks', return_value={'success': 1, 'failed': 0, 'skipped': 0}), \
-             patch.object(app, 'get_symbols_with_recent_filings', return_value=(set(), {})):
+             patch.object(app, 'get_symbols_with_recent_filings', return_value=(set(), set(), {})):
 
             # Call method without target_date
             app.run_daily_update(target_date=None)
@@ -1632,59 +1633,6 @@ class TestRunDailyUpdate:
             # Verify check_market_open was called with yesterday's date
             yesterday = dt.date.today() - dt.timedelta(days=1)
             app.check_market_open.assert_called_once_with(yesterday)
-
-
-class TestMainFunction:
-    """Test main entry point function"""
-
-    @patch('quantdl.update.app.DailyUpdateApp')
-    @patch('sys.argv', ['app.py', '--date', '2024-06-03'])
-    def test_main_with_date_argument(self, mock_app_class):
-        """Test main function with date argument"""
-        from quantdl.update.app import main
-
-        # Setup mock
-        mock_app_instance = Mock()
-        mock_app_class.return_value = mock_app_instance
-
-        # Call main
-        main()
-
-        # Verify app was initialized
-        mock_app_class.assert_called_once()
-
-        # Verify run_daily_update was called with correct date
-        mock_app_instance.run_daily_update.assert_called_once()
-        call_args = mock_app_instance.run_daily_update.call_args
-        assert call_args[1]['target_date'] == dt.date(2024, 6, 3)
-        assert call_args[1]['update_daily_ticks'] is True
-        assert call_args[1]['update_minute_ticks'] is True
-        assert call_args[1]['update_fundamental'] is True
-        assert call_args[1]['update_ttm'] is True
-        assert call_args[1]['update_derived'] is True
-        assert call_args[1]['fundamental_lookback_days'] == 7
-
-    @patch('quantdl.update.app.DailyUpdateApp')
-    @patch('sys.argv', ['app.py', '--no-daily-ticks', '--no-minute-ticks', '--no-fundamental', '--no-ttm', '--no-derived', '--lookback', '14'])
-    def test_main_with_flags(self, mock_app_class):
-        """Test main function with various flags"""
-        from quantdl.update.app import main
-
-        # Setup mock
-        mock_app_instance = Mock()
-        mock_app_class.return_value = mock_app_instance
-
-        # Call main
-        main()
-
-        # Verify run_daily_update was called with correct flags
-        call_args = mock_app_instance.run_daily_update.call_args
-        assert call_args[1]['update_daily_ticks'] is False
-        assert call_args[1]['update_minute_ticks'] is False
-        assert call_args[1]['update_fundamental'] is False
-        assert call_args[1]['update_ttm'] is False
-        assert call_args[1]['update_derived'] is False
-        assert call_args[1]['fundamental_lookback_days'] == 14
 
 
 class TestParallelFilingChecks:
@@ -1890,7 +1838,7 @@ class TestParallelFilingChecks:
         update_date = dt.date(2024, 6, 30)
         symbols = ['AAPL', 'MSFT', 'GOOGL']
 
-        result, filing_stats = app.get_symbols_with_recent_filings(update_date, symbols, lookback_days=7)
+        fundamental_filings, all_filings, filing_stats = app.get_symbols_with_recent_filings(update_date, symbols, lookback_days=7)
 
         # Verify batch CIK resolution was used
         mock_cik_resolver_instance.batch_prefetch_ciks.assert_called_once_with(
@@ -1900,8 +1848,9 @@ class TestParallelFilingChecks:
         # Verify parallel checks were executed
         assert app._check_filing.call_count == 3
 
-        # Verify result
-        assert result == {'AAPL', 'GOOGL'}
+        # Verify result - both 10-K and 10-Q are fundamental filings
+        assert fundamental_filings == {'AAPL', 'GOOGL'}
+        assert all_filings == {'AAPL', 'GOOGL'}
         assert filing_stats == {'10-K': 1, '10-Q': 1}
 
     @patch('quantdl.update.app.UniverseManager')
@@ -1944,7 +1893,7 @@ class TestParallelFilingChecks:
         update_date = dt.date(2024, 6, 30)
         symbols = ['AAPL', 'MSFT', 'GOOGL']
 
-        result, filing_stats = app.get_symbols_with_recent_filings(update_date, symbols, lookback_days=7)
+        fundamental_filings, all_filings, filing_stats = app.get_symbols_with_recent_filings(update_date, symbols, lookback_days=7)
 
         # Verify only 2 symbols checked (MSFT skipped due to NULL CIK)
         assert app._check_filing.call_count == 2
