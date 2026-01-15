@@ -572,9 +572,12 @@ class DailyUpdateAppNoWRDS:
         symbols: List[str],
         start_date: str,
         end_date: str,
+        update_raw: bool = True,
+        update_ttm: bool = True,
+        update_derived: bool = True,
         max_workers: int = 10
     ) -> Dict[str, int]:
-        """Update fundamental data for symbols with recent EDGAR filings."""
+        """Update fundamental data for symbols with recent EDGAR filings (selectively)."""
         self.logger.info(
             f"Updating fundamental data for {len(symbols)} symbols "
             f"from {start_date} to {end_date}"
@@ -595,46 +598,49 @@ class DailyUpdateAppNoWRDS:
         for sym, cik in symbol_to_cik.items():
             try:
                 # 1. Update raw fundamental data
-                result = self.data_publishers.publish_fundamental(
-                    sym=sym,
-                    start_date=start_date,
-                    end_date=end_date,
-                    cik=cik,
-                    sec_rate_limiter=self.sec_rate_limiter
-                )
-
-                if result['status'] == 'skipped':
-                    stats['skipped'] += 1
-                    continue
-                elif result['status'] == 'failed':
-                    stats['failed'] += 1
-                    continue
-
-                # 2. Update TTM features
-                ttm_result = self.data_publishers.publish_ttm_fundamental(
-                    sym=sym,
-                    start_date=start_date,
-                    end_date=end_date,
-                    cik=cik,
-                    sec_rate_limiter=self.sec_rate_limiter
-                )
-
-                # 3. Update derived metrics
-                derived_df, error = self.data_collectors.collect_derived_long(
-                    cik=cik,
-                    start_date=start_date,
-                    end_date=end_date,
-                    symbol=sym
-                )
-
-                if error is None and len(derived_df) > 0:
-                    self.data_publishers.publish_derived_fundamental(
+                if update_raw:
+                    result = self.data_publishers.publish_fundamental(
                         sym=sym,
                         start_date=start_date,
                         end_date=end_date,
-                        derived_df=derived_df,
-                        cik=cik
+                        cik=cik,
+                        sec_rate_limiter=self.sec_rate_limiter
                     )
+
+                    if result['status'] == 'skipped':
+                        stats['skipped'] += 1
+                        continue
+                    elif result['status'] == 'failed':
+                        stats['failed'] += 1
+                        continue
+
+                # 2. Update TTM features
+                if update_ttm:
+                    ttm_result = self.data_publishers.publish_ttm_fundamental(
+                        sym=sym,
+                        start_date=start_date,
+                        end_date=end_date,
+                        cik=cik,
+                        sec_rate_limiter=self.sec_rate_limiter
+                    )
+
+                # 3. Update derived metrics
+                if update_derived:
+                    derived_df, error = self.data_collectors.collect_derived_long(
+                        cik=cik,
+                        start_date=start_date,
+                        end_date=end_date,
+                        symbol=sym
+                    )
+
+                    if error is None and len(derived_df) > 0:
+                        self.data_publishers.publish_derived_fundamental(
+                            sym=sym,
+                            start_date=start_date,
+                            end_date=end_date,
+                            derived_df=derived_df,
+                            cik=cik
+                        )
 
                 stats['success'] += 1
                 self.logger.info(f"Successfully updated fundamental data for {sym}")
@@ -653,8 +659,11 @@ class DailyUpdateAppNoWRDS:
     def run_daily_update(
         self,
         target_date: Optional[dt.date] = None,
-        update_ticks: bool = True,
-        update_fundamentals: bool = True,
+        update_daily_ticks: bool = True,
+        update_minute_ticks: bool = True,
+        update_fundamental: bool = True,
+        update_ttm: bool = True,
+        update_derived: bool = True,
         fundamental_lookback_days: int = 7
     ):
         """Run complete daily update workflow (no WRDS required)."""
@@ -680,26 +689,28 @@ class DailyUpdateAppNoWRDS:
         symbols = self._get_symbols()
 
         # 1. Update ticks data (only if market was open)
-        if update_ticks:
+        if update_daily_ticks or update_minute_ticks:
             market_open = self.check_market_open(target_date)
 
             if market_open:
                 self.logger.info(f"Updating ticks data for {target_date}...")
 
                 # Update daily ticks
-                self.logger.info("Step 1/2: Updating daily ticks...")
-                daily_stats = self.update_daily_ticks(target_date, symbols)
+                if update_daily_ticks:
+                    self.logger.info("Updating daily ticks...")
+                    daily_stats = self.update_daily_ticks(target_date, symbols)
 
                 # Update minute ticks
-                self.logger.info("Step 2/2: Updating minute ticks...")
-                minute_stats = self.update_minute_ticks(target_date, symbols)
+                if update_minute_ticks:
+                    self.logger.info("Updating minute ticks...")
+                    minute_stats = self.update_minute_ticks(target_date, symbols)
             else:
                 self.logger.info(
                     f"Market was closed on {target_date}, skipping ticks update"
                 )
 
         # 2. Update fundamental data (check for recent filings)
-        if update_fundamentals:
+        if update_fundamental or update_ttm or update_derived:
             self.logger.info("Checking EDGAR for recent filings...")
 
             symbols_with_filings, filing_stats = self.get_symbols_with_recent_filings(
@@ -722,7 +733,10 @@ class DailyUpdateAppNoWRDS:
                 fundamental_stats = self.update_fundamental(
                     symbols=list(symbols_with_filings),
                     start_date=start_date,
-                    end_date=end_date
+                    end_date=end_date,
+                    update_raw=update_fundamental,
+                    update_ttm=update_ttm,
+                    update_derived=update_derived
                 )
             else:
                 self.logger.info("No symbols with recent filings, skipping fundamental update")

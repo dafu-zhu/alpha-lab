@@ -289,10 +289,10 @@ class DailyUpdateApp:
         max_workers: int = 50
     ) -> Dict[str, int]:
         """
-        Update daily ticks for a specific date.
+        Update daily ticks for a specific date using total refetch approach.
 
-        Uses monthly partitioning for current year to optimize updates.
-        Historical years stored in consolidated history.parquet file.
+        Fetches entire month-to-date from Alpaca and overwrites S3 file.
+        No merge logic - simpler and avoids S3 GET costs.
 
         Storage: data/raw/ticks/daily/{security_id}/{YYYY}/{MM}/ticks.parquet
 
@@ -308,29 +308,42 @@ class DailyUpdateApp:
         if symbols is None:
             symbols = self._get_symbols_for_year(year)
 
-        symbol_bars = self.alpaca_ticks.fetch_daily_day_bulk(
+        self.logger.info(
+            f"Fetching daily ticks for {len(symbols)} symbols "
+            f"(month-to-date: {year}-{month:02d}-01 to {update_date})"
+        )
+
+        # Fetch entire month-to-date from Alpaca (total refetch approach)
+        month_start = dt.date(year, month, 1)
+        start_str = dt.datetime.combine(
+            month_start, dt.time(0, 0), tzinfo=dt.timezone.utc
+        ).isoformat().replace("+00:00", "Z")
+        end_str = dt.datetime.combine(
+            update_date, dt.time(23, 59, 59), tzinfo=dt.timezone.utc
+        ).isoformat().replace("+00:00", "Z")
+
+        symbol_bars = self.alpaca_ticks.fetch_daily_range_bulk(
             symbols=symbols,
-            trade_day=update_date.isoformat(),
+            start_str=start_str,
+            end_str=end_str,
             sleep_time=0.2
         )
 
         self.logger.info(
-            f"Updating daily ticks for {len(symbols)} symbols for {update_date} "
+            f"Uploading daily ticks for {len(symbols)} symbols "
             f"(monthly partition: {year}/{month:02d})"
         )
 
-        # Check if month file exists for each symbol, download and merge if yes
-        # Otherwise just upload new data
         stats = {'success': 0, 'failed': 0, 'skipped': 0}
 
         import io
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         def process_symbol(sym: str) -> Dict[str, Optional[str]]:
-            """Process single symbol update"""
+            """Process single symbol update - total refetch, no merge"""
             try:
                 # Resolve symbol to security_id
-                security_id = self.crsp_ticks.security_master.get_security_id(
+                security_id = self.security_master.get_security_id(
                     sym, update_date.isoformat()
                 )
 
@@ -345,7 +358,7 @@ class DailyUpdateApp:
                 from dataclasses import asdict
                 ticks_data = [asdict(dp) for dp in parsed_ticks]
 
-                new_df = pl.DataFrame(ticks_data).with_columns([
+                month_df = pl.DataFrame(ticks_data).with_columns([
                     pl.col('timestamp').str.to_datetime(format='%Y-%m-%dT%H:%M:%S').dt.date().cast(pl.Utf8),
                     pl.col('open').cast(pl.Float64).round(4),
                     pl.col('high').cast(pl.Float64).round(4),
@@ -354,38 +367,9 @@ class DailyUpdateApp:
                     pl.col('volume').cast(pl.Int64)
                 ]).select(['timestamp', 'open', 'high', 'low', 'close', 'volume'])
 
-                if len(new_df) == 0:
+                if len(month_df) == 0:
                     self.logger.debug(f"Skipping {sym} daily ticks: empty DataFrame after parsing")
                     return {'symbol': sym, 'status': 'skipped', 'error': 'Empty DataFrame after parsing'}
-
-                # Check if monthly file exists (security_id-based path)
-                s3_key = f"data/raw/ticks/daily/{security_id}/{year}/{month:02d}/ticks.parquet"
-
-                try:
-                    response = self.s3_client.get_object(
-                        Bucket=self.data_publishers.bucket_name,
-                        Key=s3_key
-                    )
-                    existing_df = pl.read_parquet(response['Body'])
-
-                    # Remove existing data for this date (if any) and append new
-                    updated_df = pl.concat([
-                        existing_df.filter(pl.col('timestamp') != update_date.isoformat()),
-                        new_df
-                    ]).sort('timestamp')
-
-                except ClientError as e:
-                    if e.response['Error']['Code'] == 'NoSuchKey':
-                        # File doesn't exist yet, use new data only
-                        updated_df = new_df
-                    else:
-                        # Other S3 errors, log and use new data only
-                        self.logger.debug(f"Could not read existing file for {sym}: {e}, creating new file")
-                        updated_df = new_df
-                except Exception as e:
-                    # Other errors, log and use new data only
-                    self.logger.debug(f"Could not read existing file for {sym}: {e}, creating new file")
-                    updated_df = new_df
 
                 # Drop rows that only have timestamp (all other fields null)
                 null_row = (
@@ -395,11 +379,13 @@ class DailyUpdateApp:
                     & pl.col('close').is_null()
                     & pl.col('volume').is_null()
                 )
-                updated_df = updated_df.filter(~null_row)
+                month_df = month_df.filter(~null_row).sort('timestamp')
 
-                # Upload to S3
+                # Upload to S3 (overwrites existing file)
+                s3_key = f"data/raw/ticks/daily/{security_id}/{year}/{month:02d}/ticks.parquet"
+
                 buffer = io.BytesIO()
-                updated_df.write_parquet(buffer)
+                month_df.write_parquet(buffer)
                 buffer.seek(0)
 
                 metadata = {
@@ -409,7 +395,7 @@ class DailyUpdateApp:
                     'month': f"{month:02d}",
                     'data_type': 'daily_ticks',
                     'source': 'alpaca',
-                    'trading_days': str(len(updated_df)),
+                    'trading_days': str(len(month_df)),
                     'partition_type': 'monthly'
                 }
                 metadata_prepared = {
@@ -714,19 +700,25 @@ class DailyUpdateApp:
         symbols: List[str],
         start_date: str,
         end_date: str,
+        update_raw: bool = True,
+        update_ttm: bool = True,
+        update_derived: bool = True,
         max_workers: int = 10
     ) -> Dict[str, int]:
         """
         Update fundamental data for symbols with recent EDGAR filings.
 
-        Updates three types of fundamental data:
-        1. Raw fundamental data (data/raw/fundamental/{symbol}/fundamental.parquet)
-        2. TTM features (data/derived/features/fundamental/{symbol}/ttm.parquet)
-        3. Derived metrics (data/derived/features/fundamental/{symbol}/metrics.parquet)
+        Updates three types of fundamental data (selectively):
+        1. Raw fundamental data (data/raw/fundamental/{cik}/fundamental.parquet)
+        2. TTM features (data/derived/features/fundamental/{cik}/ttm.parquet)
+        3. Derived metrics (data/derived/features/fundamental/{cik}/metrics.parquet)
 
         :param symbols: List of symbols to update
         :param start_date: Start date for data collection (YYYY-MM-DD)
         :param end_date: End date for data collection (YYYY-MM-DD)
+        :param update_raw: Whether to update raw fundamental data
+        :param update_ttm: Whether to update TTM fundamental data
+        :param update_derived: Whether to update derived metrics
         :param max_workers: Number of concurrent workers
         :return: Dict with statistics
         """
@@ -750,46 +742,49 @@ class DailyUpdateApp:
         for sym, cik in symbol_to_cik.items():
             try:
                 # 1. Update raw fundamental data
-                result = self.data_publishers.publish_fundamental(
-                    sym=sym,
-                    start_date=start_date,
-                    end_date=end_date,
-                    cik=cik,
-                    sec_rate_limiter=self.sec_rate_limiter
-                )
-
-                if result['status'] == 'skipped':
-                    stats['skipped'] += 1
-                    continue
-                elif result['status'] == 'failed':
-                    stats['failed'] += 1
-                    continue
-
-                # 2. Update TTM features
-                ttm_result = self.data_publishers.publish_ttm_fundamental(
-                    sym=sym,
-                    start_date=start_date,
-                    end_date=end_date,
-                    cik=cik,
-                    sec_rate_limiter=self.sec_rate_limiter
-                )
-
-                # 3. Update derived metrics
-                derived_df, error = self.data_collectors.collect_derived_long(
-                    cik=cik,
-                    start_date=start_date,
-                    end_date=end_date,
-                    symbol=sym
-                )
-
-                if error is None and len(derived_df) > 0:
-                    self.data_publishers.publish_derived_fundamental(
+                if update_raw:
+                    result = self.data_publishers.publish_fundamental(
                         sym=sym,
                         start_date=start_date,
                         end_date=end_date,
-                        derived_df=derived_df,
-                        cik=cik
+                        cik=cik,
+                        sec_rate_limiter=self.sec_rate_limiter
                     )
+
+                    if result['status'] == 'skipped':
+                        stats['skipped'] += 1
+                        continue
+                    elif result['status'] == 'failed':
+                        stats['failed'] += 1
+                        continue
+
+                # 2. Update TTM features
+                if update_ttm:
+                    ttm_result = self.data_publishers.publish_ttm_fundamental(
+                        sym=sym,
+                        start_date=start_date,
+                        end_date=end_date,
+                        cik=cik,
+                        sec_rate_limiter=self.sec_rate_limiter
+                    )
+
+                # 3. Update derived metrics
+                if update_derived:
+                    derived_df, error = self.data_collectors.collect_derived_long(
+                        cik=cik,
+                        start_date=start_date,
+                        end_date=end_date,
+                        symbol=sym
+                    )
+
+                    if error is None and len(derived_df) > 0:
+                        self.data_publishers.publish_derived_fundamental(
+                            sym=sym,
+                            start_date=start_date,
+                            end_date=end_date,
+                            derived_df=derived_df,
+                            cik=cik
+                        )
 
                 stats['success'] += 1
                 self.logger.info(f"Successfully updated fundamental data for {sym}")
@@ -808,8 +803,11 @@ class DailyUpdateApp:
     def run_daily_update(
         self,
         target_date: Optional[dt.date] = None,
-        update_ticks: bool = True,
-        update_fundamentals: bool = True,
+        update_daily_ticks: bool = True,
+        update_minute_ticks: bool = True,
+        update_fundamental: bool = True,
+        update_ttm: bool = True,
+        update_derived: bool = True,
         fundamental_lookback_days: int = 7
     ):
         """
@@ -817,13 +815,16 @@ class DailyUpdateApp:
 
         Workflow:
         1. Check if market was open on target date
-        2. If yes: Update daily and minute ticks
+        2. If yes: Update daily and/or minute ticks
         3. Check EDGAR for recent filings
         4. Update fundamental data for symbols with new filings
 
         :param target_date: Date to update (default: yesterday)
-        :param update_ticks: Whether to update ticks data
-        :param update_fundamentals: Whether to update fundamental data
+        :param update_daily_ticks: Whether to update daily ticks data
+        :param update_minute_ticks: Whether to update minute ticks data
+        :param update_fundamental: Whether to update raw fundamental data
+        :param update_ttm: Whether to update TTM fundamental data
+        :param update_derived: Whether to update derived metrics
         :param fundamental_lookback_days: Days to look back for EDGAR filings
         """
         # Default to yesterday if no date specified
@@ -850,26 +851,28 @@ class DailyUpdateApp:
         symbols = self._get_symbols_for_year(year)
 
         # 1. Update ticks data (only if market was open)
-        if update_ticks:
+        if update_daily_ticks or update_minute_ticks:
             market_open = self.check_market_open(target_date)
 
             if market_open:
                 self.logger.info(f"Updating ticks data for {target_date}...")
 
                 # Update daily ticks
-                self.logger.info("Step 1/2: Updating daily ticks...")
-                daily_stats = self.update_daily_ticks(target_date, symbols)
+                if update_daily_ticks:
+                    self.logger.info("Updating daily ticks...")
+                    daily_stats = self.update_daily_ticks(target_date, symbols)
 
                 # Update minute ticks
-                self.logger.info("Step 2/2: Updating minute ticks...")
-                minute_stats = self.update_minute_ticks(target_date, symbols)
+                if update_minute_ticks:
+                    self.logger.info("Updating minute ticks...")
+                    minute_stats = self.update_minute_ticks(target_date, symbols)
             else:
                 self.logger.info(
                     f"Market was closed on {target_date}, skipping ticks update"
                 )
 
         # 2. Update fundamental data (check for recent filings)
-        if update_fundamentals:
+        if update_fundamental or update_ttm or update_derived:
             self.logger.info("Checking EDGAR for recent filings...")
 
             symbols_with_filings, filing_stats = self.get_symbols_with_recent_filings(
@@ -893,7 +896,10 @@ class DailyUpdateApp:
                 fundamental_stats = self.update_fundamental(
                     symbols=list(symbols_with_filings),
                     start_date=start_date,
-                    end_date=end_date
+                    end_date=end_date,
+                    update_raw=update_fundamental,
+                    update_ttm=update_ttm,
+                    update_derived=update_derived
                 )
             else:
                 self.logger.info("No symbols with recent filings, skipping fundamental update")
@@ -913,15 +919,32 @@ def main() -> None:
         type=str,
         help='Target date in YYYY-MM-DD format (default: yesterday)'
     )
+    # Tick flags
     parser.add_argument(
-        '--no-ticks',
+        '--no-daily-ticks',
         action='store_true',
-        help='Skip ticks data update'
+        help='Skip daily ticks update'
     )
     parser.add_argument(
-        '--no-fundamentals',
+        '--no-minute-ticks',
         action='store_true',
-        help='Skip fundamental data update'
+        help='Skip minute ticks update'
+    )
+    # Fundamental flags
+    parser.add_argument(
+        '--no-fundamental',
+        action='store_true',
+        help='Skip raw fundamental update'
+    )
+    parser.add_argument(
+        '--no-ttm',
+        action='store_true',
+        help='Skip TTM fundamental update'
+    )
+    parser.add_argument(
+        '--no-derived',
+        action='store_true',
+        help='Skip derived metrics update'
     )
     parser.add_argument(
         '--lookback',
@@ -940,7 +963,10 @@ def main() -> None:
     app = DailyUpdateApp()
     app.run_daily_update(
         target_date=target_date,
-        update_ticks=not args.no_ticks,
-        update_fundamentals=not args.no_fundamentals,
+        update_daily_ticks=not args.no_daily_ticks,
+        update_minute_ticks=not args.no_minute_ticks,
+        update_fundamental=not args.no_fundamental,
+        update_ttm=not args.no_ttm,
+        update_derived=not args.no_derived,
         fundamental_lookback_days=args.lookback
     )

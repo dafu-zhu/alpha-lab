@@ -11,15 +11,33 @@ def main():
         type=str,
         help='Target date in YYYY-MM-DD format (default: yesterday)'
     )
+    # Tick flags
     parser.add_argument(
-        '--no-ticks',
+        '--no-daily-ticks',
         action='store_true',
-        help='Skip ticks data update'
+        help='Skip daily ticks update'
     )
     parser.add_argument(
-        '--no-fundamentals',
+        '--no-minute-ticks',
         action='store_true',
-        help='Skip fundamental data update'
+        help='Skip minute ticks update'
+    )
+
+    # Fundamental flags
+    parser.add_argument(
+        '--no-fundamental',
+        action='store_true',
+        help='Skip raw fundamental update'
+    )
+    parser.add_argument(
+        '--no-ttm',
+        action='store_true',
+        help='Skip TTM fundamental update'
+    )
+    parser.add_argument(
+        '--no-derived',
+        action='store_true',
+        help='Skip derived metrics update'
     )
     parser.add_argument(
         '--lookback',
@@ -64,7 +82,10 @@ def main():
     # Run update
     app.run_daily_update(
         target_date=target_date,
-        update_ticks=not args.no_ticks,
-        update_fundamentals=not args.no_fundamentals,
+        update_daily_ticks=not args.no_daily_ticks,
+        update_minute_ticks=not args.no_minute_ticks,
+        update_fundamental=not args.no_fundamental,
+        update_ttm=not args.no_ttm,
+        update_derived=not args.no_derived,
         fundamental_lookback_days=args.lookback
     )

@@ -1001,7 +1001,14 @@ class TestDailyUpdateAppNoWRDSRunDailyUpdate:
         app.update_fundamental = Mock(return_value={'success': 1, 'failed': 0, 'skipped': 0})
 
         target_date = dt.date(2025, 1, 10)
-        app.run_daily_update(target_date=target_date, update_ticks=True, update_fundamentals=True)
+        app.run_daily_update(
+            target_date=target_date,
+            update_daily_ticks=True,
+            update_minute_ticks=True,
+            update_fundamental=True,
+            update_ttm=True,
+            update_derived=True
+        )
 
         # Verify all steps were called
         app.security_master.update_from_sec.assert_called_once()
@@ -1034,7 +1041,14 @@ class TestDailyUpdateAppNoWRDSRunDailyUpdate:
         app.update_fundamental = Mock()
 
         target_date = dt.date(2025, 1, 11)  # Weekend
-        app.run_daily_update(target_date=target_date, update_ticks=True, update_fundamentals=True)
+        app.run_daily_update(
+            target_date=target_date,
+            update_daily_ticks=True,
+            update_minute_ticks=True,
+            update_fundamental=True,
+            update_ttm=True,
+            update_derived=True
+        )
 
         # Ticks updates should NOT be called
         app.update_daily_ticks.assert_not_called()
@@ -1052,7 +1066,7 @@ class TestDailyUpdateAppNoWRDSRunDailyUpdate:
     def test_run_daily_update_ticks_only(
         self, mock_logger, mock_ticks, mock_config, mock_s3, mock_security_master, mock_calendar
     ):
-        """Test run_daily_update with update_fundamentals=False"""
+        """Test run_daily_update with fundamentals disabled"""
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
 
         app = DailyUpdateAppNoWRDS()
@@ -1068,8 +1082,11 @@ class TestDailyUpdateAppNoWRDSRunDailyUpdate:
         target_date = dt.date(2025, 1, 10)
         app.run_daily_update(
             target_date=target_date,
-            update_ticks=True,
-            update_fundamentals=False
+            update_daily_ticks=True,
+            update_minute_ticks=True,
+            update_fundamental=False,
+            update_ttm=False,
+            update_derived=False
         )
 
         # Ticks should be updated
@@ -1138,9 +1155,16 @@ class TestDailyUpdateAppNoWRDSRunDailyUpdate:
         app.update_fundamental = Mock()
 
         target_date = dt.date(2025, 1, 10)
-        app.run_daily_update(target_date=target_date, update_ticks=True, update_fundamentals=True)
+        app.run_daily_update(
+            target_date=target_date,
+            update_daily_ticks=True,
+            update_minute_ticks=True,
+            update_fundamental=True,
+            update_ttm=True,
+            update_derived=True
+        )
 
-        # Fundamental update should NOT be called
+        # Fundamental update should NOT be called (no recent filings)
         app.update_fundamental.assert_not_called()
 
     def test_get_cik_returns_none_for_empty_sec_map(self):

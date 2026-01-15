@@ -34,7 +34,7 @@ jobs:
           echo "MAIL_SERVER: ${{ secrets.MAIL_SERVER != '' && 'SET' || 'MISSING' }}"
           echo "MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD != '' && 'SET' || 'MISSING' }}"
 
-      - name: Run daily update with --no-ticks (faster, WRDS-free)
+      - name: Run daily update (all data types, WRDS-free)
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
@@ -43,7 +43,7 @@ jobs:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
         run: |
           set -o pipefail
-          uv run quantdl-update --no-ticks 2>&1 | tee update.log
+          uv run quantdl-update --no-wrds 2>&1 | tee update.log
 
       - name: Test consolidate_year functionality
         env:

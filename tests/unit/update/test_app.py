@@ -501,7 +501,7 @@ class TestGetSymbolsWithRecentFilings:
 
 
 class TestUpdateDailyTicks:
-    """Test update_daily_ticks method"""
+    """Test update_daily_ticks method (total refetch approach)"""
 
     @patch('quantdl.update.app.ThreadPoolExecutor')
     @patch('quantdl.update.app.UniverseManager')
@@ -520,19 +520,19 @@ class TestUpdateDailyTicks:
         'ALPACA_API_KEY': 'test_key',
         'ALPACA_API_SECRET': 'test_secret'
     })
-    def test_update_daily_ticks_new_file(
+    def test_update_daily_ticks_success(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
         mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe,
         mock_executor
     ):
-        """Test updating daily ticks when monthly file doesn't exist"""
+        """Test updating daily ticks with total refetch approach"""
         from quantdl.update.app import DailyUpdateApp
         from quantdl.collection.models import TickDataPoint
 
-        # Setup mocks
+        # Setup mocks - use fetch_daily_range_bulk for month-to-date fetch
         mock_ticks_instance = Mock()
-        mock_ticks_instance.fetch_daily_day_bulk.return_value = {
+        mock_ticks_instance.fetch_daily_range_bulk.return_value = {
             'AAPL': [{
                 't': '2024-06-03T00:00:00Z',
                 'o': 180.0,
@@ -556,10 +556,8 @@ class TestUpdateDailyTicks:
         ]
         mock_ticks.return_value = mock_ticks_instance
 
-        # Setup S3 client to raise NoSuchKey (file doesn't exist)
+        # Setup S3 client (no GET needed for total refetch)
         mock_s3_client = Mock()
-        mock_s3_client.exceptions.NoSuchKey = type('NoSuchKey', (Exception,), {})
-        mock_s3_client.get_object.side_effect = mock_s3_client.exceptions.NoSuchKey()
         mock_s3.return_value.client = mock_s3_client
 
         # Setup publishers mock
@@ -598,6 +596,9 @@ class TestUpdateDailyTicks:
         # Verify upload was called
         assert mock_publishers_instance.upload_fileobj.called
 
+        # Verify fetch_daily_range_bulk was called (not fetch_daily_day_bulk)
+        mock_ticks_instance.fetch_daily_range_bulk.assert_called_once()
+
     @patch('quantdl.update.app.ThreadPoolExecutor')
     @patch('quantdl.update.app.UniverseManager')
     @patch('quantdl.update.app.SECClient')
@@ -621,7 +622,7 @@ class TestUpdateDailyTicks:
         mock_collectors, mock_publishers, mock_sec_client, mock_universe,
         mock_executor
     ):
-        """Test update_daily_ticks when symbols=None, should load from universe (line 260)"""
+        """Test update_daily_ticks when symbols=None, should load from universe"""
         from quantdl.update.app import DailyUpdateApp
         from quantdl.collection.models import TickDataPoint
 
@@ -630,9 +631,9 @@ class TestUpdateDailyTicks:
         mock_universe_instance.load_symbols_for_year.return_value = ['AAPL', 'MSFT']
         mock_universe.return_value = mock_universe_instance
 
-        # Setup mocks
+        # Setup mocks - use fetch_daily_range_bulk
         mock_ticks_instance = Mock()
-        mock_ticks_instance.fetch_daily_day_bulk.return_value = {
+        mock_ticks_instance.fetch_daily_range_bulk.return_value = {
             'AAPL': [{
                 't': '2024-06-03T00:00:00Z',
                 'o': 180.0,
@@ -656,10 +657,8 @@ class TestUpdateDailyTicks:
         ]
         mock_ticks.return_value = mock_ticks_instance
 
-        # Setup S3 client
+        # Setup S3 client (no GET needed for total refetch)
         mock_s3_client = Mock()
-        mock_s3_client.exceptions.NoSuchKey = type('NoSuchKey', (Exception,), {})
-        mock_s3_client.get_object.side_effect = mock_s3_client.exceptions.NoSuchKey()
         mock_s3.return_value.client = mock_s3_client
 
         # Setup publishers mock
@@ -716,12 +715,12 @@ class TestUpdateDailyTicks:
         mock_collectors, mock_publishers, mock_sec_client, mock_universe,
         mock_executor
     ):
-        """Test skipping when no data from Alpaca (lines 286-287)"""
+        """Test skipping when no data from Alpaca"""
         from quantdl.update.app import DailyUpdateApp
 
-        # Setup mocks - no data from Alpaca
+        # Setup mocks - no data from Alpaca (total refetch)
         mock_ticks_instance = Mock()
-        mock_ticks_instance.fetch_daily_day_bulk.return_value = {
+        mock_ticks_instance.fetch_daily_range_bulk.return_value = {
             'AAPL': []  # Empty data
         }
         mock_ticks.return_value = mock_ticks_instance
@@ -785,18 +784,16 @@ class TestUpdateDailyTicks:
         mock_collectors, mock_publishers, mock_sec_client, mock_universe,
         mock_executor
     ):
-        """Test skipping when DataFrame is empty after parsing (lines 304-305)"""
+        """Test skipping when DataFrame is empty after parsing"""
         from quantdl.update.app import DailyUpdateApp
         from quantdl.collection.models import TickDataPoint
 
-        # Setup mocks - parse_ticks returns an empty list
-        # This creates a situation where we have data from Alpaca but parsing produces nothing
+        # Setup mocks - parse_ticks returns an empty list (total refetch)
         mock_ticks_instance = Mock()
-        mock_ticks_instance.fetch_daily_day_bulk.return_value = {
+        mock_ticks_instance.fetch_daily_range_bulk.return_value = {
             'AAPL': [{'some': 'data'}]
         }
-        # Return empty list from parsing - this causes pl.DataFrame() to create empty df
-        # and then with_columns will create a df with 0 rows
+        # Return empty list from parsing
         mock_ticks_instance.parse_ticks.return_value = []
         mock_ticks.return_value = mock_ticks_instance
 
@@ -817,8 +814,6 @@ class TestUpdateDailyTicks:
                 try:
                     future.result.return_value = fn(*args, **kwargs)
                 except Exception:
-                    # If there's an error creating DataFrame from empty list, it will be caught
-                    # and returned as a failed status
                     future.result.return_value = {'symbol': args[0] if args else 'AAPL', 'status': 'failed', 'error': 'Error processing'}
                 return future
             executor.submit = submit
@@ -836,206 +831,9 @@ class TestUpdateDailyTicks:
             symbols=['AAPL']
         )
 
-        # Verify stats - either skipped or failed depending on whether empty DataFrame
-        # creation succeeds or fails
+        # Verify stats - either skipped or failed
         assert result['success'] == 0
         assert result['skipped'] + result['failed'] == 1
-
-    @patch('quantdl.update.app.ThreadPoolExecutor')
-    @patch('quantdl.update.app.UniverseManager')
-    @patch('quantdl.update.app.SECClient')
-    @patch('quantdl.update.app.DataPublishers')
-    @patch('quantdl.update.app.DataCollectors')
-    @patch('quantdl.update.app.CIKResolver')
-    @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
-    @patch('quantdl.update.app.Ticks')
-    @patch('quantdl.update.app.TradingCalendar')
-    @patch('quantdl.update.app.setup_logger')
-    @patch('quantdl.update.app.S3Client')
-    @patch('quantdl.update.app.UploadConfig')
-    @patch.dict('os.environ', {
-        'ALPACA_API_KEY': 'test_key',
-        'ALPACA_API_SECRET': 'test_secret'
-    })
-    def test_update_daily_ticks_merge_with_existing(
-        self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
-        mock_collectors, mock_publishers, mock_sec_client, mock_universe,
-        mock_executor
-    ):
-        """Test merging with existing S3 file (lines 315, 318)"""
-        from quantdl.update.app import DailyUpdateApp
-        from quantdl.collection.models import TickDataPoint
-
-        # Setup mocks
-        mock_ticks_instance = Mock()
-        mock_ticks_instance.fetch_daily_day_bulk.return_value = {
-            'AAPL': [{
-                't': '2024-06-03T00:00:00Z',
-                'o': 180.0,
-                'h': 182.0,
-                'l': 179.0,
-                'c': 181.0,
-                'v': 50000000
-            }]
-        }
-        mock_ticks_instance.parse_ticks.return_value = [
-            TickDataPoint(
-                timestamp='2024-06-03T00:00:00',
-                open=180.0,
-                high=182.0,
-                low=179.0,
-                close=181.0,
-                volume=50000000,
-                num_trades=10000,
-                vwap=180.5
-            )
-        ]
-        mock_ticks.return_value = mock_ticks_instance
-
-        # Setup S3 client with existing file
-        existing_df = pl.DataFrame({
-            'timestamp': ['2024-06-01', '2024-06-02'],
-            'open': [175.0, 177.0],
-            'high': [176.0, 178.0],
-            'low': [174.0, 176.0],
-            'close': [175.5, 177.5],
-            'volume': [40000000, 45000000]
-        })
-
-        import io
-        buffer = io.BytesIO()
-        existing_df.write_parquet(buffer)
-        buffer.seek(0)
-
-        mock_s3_client = Mock()
-        mock_s3_client.exceptions.NoSuchKey = type('NoSuchKey', (Exception,), {})
-        mock_s3_client.get_object.return_value = {'Body': buffer}
-        mock_s3.return_value.client = mock_s3_client
-
-        # Setup publishers mock
-        mock_publishers_instance = Mock()
-        mock_publishers_instance.bucket_name = 'test-bucket'
-        mock_publishers_instance.upload_fileobj = Mock()
-        mock_publishers.return_value = mock_publishers_instance
-
-        # Setup executor mock
-        def immediate_executor(max_workers):
-            executor = Mock()
-            def submit(fn, *args, **kwargs):
-                future = Mock()
-                future.result.return_value = fn(*args, **kwargs)
-                return future
-            executor.submit = submit
-            executor.__enter__ = Mock(return_value=executor)
-            executor.__exit__ = Mock(return_value=False)
-            return executor
-
-        mock_executor.side_effect = immediate_executor
-
-        app = DailyUpdateApp()
-
-        # Call method
-        result = app.update_daily_ticks(
-            update_date=dt.date(2024, 6, 3),
-            symbols=['AAPL']
-        )
-
-        # Verify success
-        assert result['success'] == 1
-        assert result['failed'] == 0
-        assert result['skipped'] == 0
-
-    @patch('quantdl.update.app.ThreadPoolExecutor')
-    @patch('quantdl.update.app.UniverseManager')
-    @patch('quantdl.update.app.SECClient')
-    @patch('quantdl.update.app.DataPublishers')
-    @patch('quantdl.update.app.DataCollectors')
-    @patch('quantdl.update.app.CIKResolver')
-    @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
-    @patch('quantdl.update.app.Ticks')
-    @patch('quantdl.update.app.TradingCalendar')
-    @patch('quantdl.update.app.setup_logger')
-    @patch('quantdl.update.app.S3Client')
-    @patch('quantdl.update.app.UploadConfig')
-    @patch.dict('os.environ', {
-        'ALPACA_API_KEY': 'test_key',
-        'ALPACA_API_SECRET': 'test_secret'
-    })
-    def test_update_daily_ticks_s3_read_error(
-        self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
-        mock_collectors, mock_publishers, mock_sec_client, mock_universe,
-        mock_executor
-    ):
-        """Test handling S3 read errors (lines 328-329)"""
-        from quantdl.update.app import DailyUpdateApp
-        from quantdl.collection.models import TickDataPoint
-
-        # Setup mocks
-        mock_ticks_instance = Mock()
-        mock_ticks_instance.fetch_daily_day_bulk.return_value = {
-            'AAPL': [{
-                't': '2024-06-03T00:00:00Z',
-                'o': 180.0,
-                'h': 182.0,
-                'l': 179.0,
-                'c': 181.0,
-                'v': 50000000
-            }]
-        }
-        mock_ticks_instance.parse_ticks.return_value = [
-            TickDataPoint(
-                timestamp='2024-06-03T00:00:00',
-                open=180.0,
-                high=182.0,
-                low=179.0,
-                close=181.0,
-                volume=50000000,
-                num_trades=10000,
-                vwap=180.5
-            )
-        ]
-        mock_ticks.return_value = mock_ticks_instance
-
-        # Setup S3 client to raise generic error
-        mock_s3_client = Mock()
-        mock_s3_client.exceptions.NoSuchKey = type('NoSuchKey', (Exception,), {})
-        mock_s3_client.get_object.side_effect = Exception("S3 connection error")
-        mock_s3.return_value.client = mock_s3_client
-
-        # Setup publishers mock
-        mock_publishers_instance = Mock()
-        mock_publishers_instance.bucket_name = 'test-bucket'
-        mock_publishers_instance.upload_fileobj = Mock()
-        mock_publishers.return_value = mock_publishers_instance
-
-        # Setup executor mock
-        def immediate_executor(max_workers):
-            executor = Mock()
-            def submit(fn, *args, **kwargs):
-                future = Mock()
-                future.result.return_value = fn(*args, **kwargs)
-                return future
-            executor.submit = submit
-            executor.__enter__ = Mock(return_value=executor)
-            executor.__exit__ = Mock(return_value=False)
-            return executor
-
-        mock_executor.side_effect = immediate_executor
-
-        app = DailyUpdateApp()
-
-        # Call method - should succeed by creating new file
-        result = app.update_daily_ticks(
-            update_date=dt.date(2024, 6, 3),
-            symbols=['AAPL']
-        )
-
-        # Verify success (should handle error gracefully)
-        assert result['success'] == 1
 
     @patch('quantdl.update.app.ThreadPoolExecutor')
     @patch('quantdl.update.app.UniverseManager')
@@ -1060,12 +858,12 @@ class TestUpdateDailyTicks:
         mock_collectors, mock_publishers, mock_sec_client, mock_universe,
         mock_executor
     ):
-        """Test handling processing errors (lines 362-364, 378)"""
+        """Test handling processing errors"""
         from quantdl.update.app import DailyUpdateApp
 
-        # Setup mocks - parse_ticks will raise an exception
+        # Setup mocks - parse_ticks will raise an exception (total refetch)
         mock_ticks_instance = Mock()
-        mock_ticks_instance.fetch_daily_day_bulk.return_value = {
+        mock_ticks_instance.fetch_daily_range_bulk.return_value = {
             'AAPL': [{'some': 'data'}]
         }
         mock_ticks_instance.parse_ticks.side_effect = Exception("Parse error")
@@ -1131,13 +929,13 @@ class TestUpdateDailyTicks:
         mock_collectors, mock_publishers, mock_sec_client, mock_universe,
         mock_executor
     ):
-        """Test progress logging every 100 symbols (line 383)"""
+        """Test progress logging every 100 symbols"""
         from quantdl.update.app import DailyUpdateApp
 
-        # Setup mocks - create 150 symbols with no data to skip quickly
+        # Setup mocks - create 150 symbols with no data to skip quickly (total refetch)
         symbols = [f'SYM{i:03d}' for i in range(150)]
         mock_ticks_instance = Mock()
-        mock_ticks_instance.fetch_daily_day_bulk.return_value = {
+        mock_ticks_instance.fetch_daily_range_bulk.return_value = {
             sym: [] for sym in symbols  # All empty
         }
         mock_ticks.return_value = mock_ticks_instance
@@ -1722,8 +1520,11 @@ class TestRunDailyUpdate:
             # Call method
             app.run_daily_update(
                 target_date=dt.date(2024, 6, 3),
-                update_ticks=True,
-                update_fundamentals=True,
+                update_daily_ticks=True,
+                update_minute_ticks=True,
+                update_fundamental=True,
+                update_ttm=True,
+                update_derived=True,
                 fundamental_lookback_days=7
             )
 
@@ -1776,8 +1577,11 @@ class TestRunDailyUpdate:
             # Call method
             app.run_daily_update(
                 target_date=dt.date(2024, 6, 1),  # Saturday
-                update_ticks=True,
-                update_fundamentals=True
+                update_daily_ticks=True,
+                update_minute_ticks=True,
+                update_fundamental=True,
+                update_ttm=True,
+                update_derived=True
             )
 
             # Verify ticks updates were skipped
@@ -1853,12 +1657,15 @@ class TestMainFunction:
         mock_app_instance.run_daily_update.assert_called_once()
         call_args = mock_app_instance.run_daily_update.call_args
         assert call_args[1]['target_date'] == dt.date(2024, 6, 3)
-        assert call_args[1]['update_ticks'] is True
-        assert call_args[1]['update_fundamentals'] is True
+        assert call_args[1]['update_daily_ticks'] is True
+        assert call_args[1]['update_minute_ticks'] is True
+        assert call_args[1]['update_fundamental'] is True
+        assert call_args[1]['update_ttm'] is True
+        assert call_args[1]['update_derived'] is True
         assert call_args[1]['fundamental_lookback_days'] == 7
 
     @patch('quantdl.update.app.DailyUpdateApp')
-    @patch('sys.argv', ['app.py', '--no-ticks', '--no-fundamentals', '--lookback', '14'])
+    @patch('sys.argv', ['app.py', '--no-daily-ticks', '--no-minute-ticks', '--no-fundamental', '--no-ttm', '--no-derived', '--lookback', '14'])
     def test_main_with_flags(self, mock_app_class):
         """Test main function with various flags"""
         from quantdl.update.app import main
@@ -1872,8 +1679,11 @@ class TestMainFunction:
 
         # Verify run_daily_update was called with correct flags
         call_args = mock_app_instance.run_daily_update.call_args
-        assert call_args[1]['update_ticks'] is False
-        assert call_args[1]['update_fundamentals'] is False
+        assert call_args[1]['update_daily_ticks'] is False
+        assert call_args[1]['update_minute_ticks'] is False
+        assert call_args[1]['update_fundamental'] is False
+        assert call_args[1]['update_ttm'] is False
+        assert call_args[1]['update_derived'] is False
         assert call_args[1]['fundamental_lookback_days'] == 14
 
 

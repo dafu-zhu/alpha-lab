@@ -19,13 +19,16 @@ class TestUpdateCLI:
         mock_app_class.assert_called_once()
         call_args = mock_app_instance.run_daily_update.call_args
         assert call_args[1]['target_date'] == dt.date(2024, 6, 3)
-        assert call_args[1]['update_ticks'] is True
-        assert call_args[1]['update_fundamentals'] is True
+        assert call_args[1]['update_daily_ticks'] is True
+        assert call_args[1]['update_minute_ticks'] is True
+        assert call_args[1]['update_fundamental'] is True
+        assert call_args[1]['update_ttm'] is True
+        assert call_args[1]['update_derived'] is True
         assert call_args[1]['fundamental_lookback_days'] == 7
 
     @patch.dict(os.environ, {'WRDS_USERNAME': 'test_user', 'WRDS_PASSWORD': 'test_pass'})
     @patch('quantdl.update.app.DailyUpdateApp')
-    @patch('sys.argv', ['cli.py', '--no-ticks', '--no-fundamentals', '--lookback', '14'])
+    @patch('sys.argv', ['cli.py', '--no-daily-ticks', '--no-minute-ticks', '--no-fundamental', '--no-ttm', '--no-derived', '--lookback', '14'])
     def test_main_with_flags(self, mock_app_class):
         """Test CLI with flags (uses WRDS mode when credentials available)"""
         from quantdl.update.cli import main
@@ -37,8 +40,11 @@ class TestUpdateCLI:
 
         call_args = mock_app_instance.run_daily_update.call_args
         assert call_args[1]['target_date'] is None
-        assert call_args[1]['update_ticks'] is False
-        assert call_args[1]['update_fundamentals'] is False
+        assert call_args[1]['update_daily_ticks'] is False
+        assert call_args[1]['update_minute_ticks'] is False
+        assert call_args[1]['update_fundamental'] is False
+        assert call_args[1]['update_ttm'] is False
+        assert call_args[1]['update_derived'] is False
         assert call_args[1]['fundamental_lookback_days'] == 14
 
     @patch.dict(os.environ, {}, clear=True)
@@ -77,7 +83,7 @@ class TestUpdateCLI:
 
     @patch.dict(os.environ, {}, clear=True)
     @patch('quantdl.update.app_no_wrds.DailyUpdateAppNoWRDS')
-    @patch('sys.argv', ['cli.py', '--no-wrds', '--no-ticks'])
+    @patch('sys.argv', ['cli.py', '--no-wrds', '--no-daily-ticks', '--no-minute-ticks'])
     def test_main_wrds_free_with_flags(self, mock_app_class):
         """Test WRDS-free mode with additional flags"""
         from quantdl.update.cli import main
@@ -89,5 +95,6 @@ class TestUpdateCLI:
 
         mock_app_class.assert_called_once()
         call_args = mock_app_instance.run_daily_update.call_args
-        assert call_args[1]['update_ticks'] is False
-        assert call_args[1]['update_fundamentals'] is True
+        assert call_args[1]['update_daily_ticks'] is False
+        assert call_args[1]['update_minute_ticks'] is False
+        assert call_args[1]['update_fundamental'] is True
