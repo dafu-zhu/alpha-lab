@@ -1,4 +1,5 @@
 import argparse
+import datetime as dt
 
 from quantdl.storage.app import UploadApp
 
@@ -25,10 +26,15 @@ def main() -> None:
 
     parser.add_argument("--max-workers", type=int, default=50)
     parser.add_argument("--minute-workers", type=int, default=50)
-    parser.add_argument("--minute-chunk-size", type=int, default=30)
-    parser.add_argument("--minute-sleep-time", type=float, default=0.02)
+    parser.add_argument("--minute-chunk-size", type=int, default=500)
+    parser.add_argument("--minute-sleep-time", type=float, default=0.0)
 
     args = parser.parse_args()
+
+    # Validate end_year not in future
+    today = dt.date.today()
+    if args.end_year > today.year:
+        parser.error(f"--end-year {args.end_year} cannot exceed current year {today.year}")
 
     app = UploadApp(
         alpaca_start_year=args.alpaca_start_year

@@ -126,6 +126,41 @@ class TestValidator:
 
         assert result is False
 
+    def test_get_existing_minute_days_returns_day_set(self):
+        """Test batch listing of existing minute tick days."""
+        from quantdl.storage.validation import Validator
+
+        mock_s3_client = Mock()
+        mock_s3_client.list_objects_v2.return_value = {
+            'CommonPrefixes': [
+                {'Prefix': 'data/raw/ticks/minute/12345/2024/06/03/'},
+                {'Prefix': 'data/raw/ticks/minute/12345/2024/06/04/'},
+                {'Prefix': 'data/raw/ticks/minute/12345/2024/06/15/'},
+            ]
+        }
+
+        validator = Validator(s3_client=mock_s3_client, bucket_name="test-bucket")
+        result = validator.get_existing_minute_days(12345, 2024, 6)
+
+        mock_s3_client.list_objects_v2.assert_called_once_with(
+            Bucket="test-bucket",
+            Prefix='data/raw/ticks/minute/12345/2024/06/',
+            Delimiter='/'
+        )
+        assert result == {'03', '04', '15'}
+
+    def test_get_existing_minute_days_empty(self):
+        """Test batch listing returns empty set when no days exist."""
+        from quantdl.storage.validation import Validator
+
+        mock_s3_client = Mock()
+        mock_s3_client.list_objects_v2.return_value = {}
+
+        validator = Validator(s3_client=mock_s3_client, bucket_name="test-bucket")
+        result = validator.get_existing_minute_days(12345, 2024, 6)
+
+        assert result == set()
+
     def test_top_3000_exists_error_logging(self):
         """Test top_3000_exists logs error on non-404 errors - covers lines 191-192."""
         from quantdl.storage.validation import Validator

@@ -138,6 +138,42 @@ class Validator:
                 self.logger.error(f'Error checking {s3_key}: {error}')
                 return False
     
+    def get_existing_minute_days(
+            self,
+            security_id: int,
+            year: int,
+            month: int,
+            data_tier: str = "raw"
+        ) -> set[str]:
+        """
+        List all existing minute tick days for a symbol/month with single S3 call.
+        Returns set of day strings (DD format) that exist.
+
+        :param security_id: Security ID for ticks data
+        :param year: Year (YYYY)
+        :param month: Month (1-12)
+        :param data_tier: "raw" or "derived" (default: "raw")
+        :return: Set of existing day strings (e.g., {'01', '02', '15'})
+        """
+        prefix = f"data/{data_tier}/ticks/minute/{security_id}/{year}/{month:02d}/"
+        existing_days = set()
+
+        try:
+            response = self.s3_client.list_objects_v2(
+                Bucket=self.bucket_name,
+                Prefix=prefix,
+                Delimiter='/'
+            )
+            # CommonPrefixes contains subdirectories (day folders)
+            for prefix_info in response.get('CommonPrefixes', []):
+                # prefix_info['Prefix'] = 'data/raw/ticks/minute/12345/2024/01/15/'
+                day = prefix_info['Prefix'].rstrip('/').split('/')[-1]
+                existing_days.add(day)
+        except Exception as e:
+            self.logger.error(f'Error listing {prefix}: {e}')
+
+        return existing_days
+
     def top_3000_exists(self, year: int, month: int) -> bool:
         s3_key = f"data/symbols/{year}/{month:02d}/top3000.txt"
         try:

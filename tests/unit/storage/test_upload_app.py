@@ -436,7 +436,8 @@ class TestUploadApp:
         app = _make_app()
         app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT"]
         app.calendar.load_trading_days.return_value = ["2024-06-03", "2024-06-04"]
-        app.validator.data_exists.side_effect = [True, True, False]
+        # AAPL: all days exist; MSFT: missing day 04
+        app.validator.get_existing_minute_days.side_effect = [{'03', '04'}, {'03'}]
 
         df = pl.DataFrame({
             "timestamp": ["2024-06-03T09:30:00"],
@@ -467,7 +468,8 @@ class TestUploadApp:
         app = _make_app()
         app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
         app.calendar.load_trading_days.return_value = ["2024-06-03", "2024-06-04"]
-        app.validator.data_exists.return_value = True
+        # All days exist for AAPL
+        app.validator.get_existing_minute_days.return_value = {'03', '04'}
         app.data_collectors.fetch_minute_month.return_value = {}
 
         app.upload_minute_ticks(2024, 6, overwrite=False, num_workers=1, chunk_size=1, sleep_time=0.0)
@@ -961,7 +963,7 @@ class TestUploadApp:
 
     def test_run_minute_ticks_runs_all_months(self):
         app = _make_app()
-        app.upload_minute_ticks = Mock()
+        app.upload_minute_ticks_year = Mock()
 
         app.run(
             start_year=2017,
@@ -971,7 +973,10 @@ class TestUploadApp:
             run_minute_ticks=True
         )
 
-        assert app.upload_minute_ticks.call_count == 12
+        # Now calls upload_minute_ticks_year once per year (not 12 times)
+        app.upload_minute_ticks_year.assert_called_once_with(
+            2017, overwrite=False, resume=False, num_workers=1, chunk_size=500, sleep_time=0.0
+        )
 
     def test_run_passes_daily_chunk_and_sleep(self):
         app = _make_app()
@@ -1944,7 +1949,7 @@ class TestUploadApp:
         app.upload_ttm_fundamental = Mock()
         app._upload_crsp_bulk_history = Mock()
         app.upload_daily_ticks = Mock()
-        app.upload_minute_ticks = Mock()
+        app.upload_minute_ticks_year = Mock()
         app.upload_top_3000_monthly = Mock()
 
         app.run(
