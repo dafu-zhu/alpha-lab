@@ -651,15 +651,14 @@ class DailyUpdateApp:
 
         # Upload data
         stats = {'success': 0, 'failed': 0, 'skipped': 0}
+        import io
 
-        pbar = tqdm(parsed_data.items(), desc="Minute ticks", unit="sym-day")
-        for (sym, day), minute_df in pbar:
+        def upload_minute_tick(item):
+            """Upload single symbol-day minute tick data"""
+            (sym, day), minute_df = item
             try:
                 if len(minute_df) == 0:
-                    self.logger.debug(f"Skipping {sym} minute ticks for {day}: empty DataFrame")
-                    stats['skipped'] += 1
-                    pbar.set_postfix(ok=stats['success'], fail=stats['failed'], skip=stats['skipped'])
-                    continue
+                    return {'symbol': sym, 'status': 'skipped', 'error': 'Empty DataFrame'}
 
                 # Resolve symbol to security_id at trade day
                 security_id = self.security_master.get_security_id(sym, day)
@@ -670,7 +669,6 @@ class DailyUpdateApp:
                 month_str = date_obj.strftime('%m')
                 day_str = date_obj.strftime('%d')
 
-                import io
                 buffer = io.BytesIO()
                 minute_df.write_parquet(buffer)
                 buffer.seek(0)
@@ -683,13 +681,29 @@ class DailyUpdateApp:
                     'data_type': 'ticks'
                 })
 
-                stats['success'] += 1
+                return {'symbol': sym, 'status': 'success', 'error': None}
 
             except Exception as e:
                 self.logger.error(f"Error uploading minute ticks for {sym} on {day}: {e}")
-                stats['failed'] += 1
+                return {'symbol': sym, 'status': 'failed', 'error': str(e)}
 
-            pbar.set_postfix(ok=stats['success'], fail=stats['failed'], skip=stats['skipped'])
+        # Process uploads concurrently
+        items = list(parsed_data.items())
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(upload_minute_tick, item): item for item in items}
+
+            pbar = tqdm(as_completed(futures), total=len(items), desc="Minute ticks", unit="sym-day")
+            for future in pbar:
+                result = future.result()
+
+                if result['status'] == 'success':
+                    stats['success'] += 1
+                elif result['status'] == 'skipped':
+                    stats['skipped'] += 1
+                else:
+                    stats['failed'] += 1
+
+                pbar.set_postfix(ok=stats['success'], fail=stats['failed'], skip=stats['skipped'])
 
         self.logger.info(
             f"Minute ticks: {stats['success']} ok, {stats['failed']} fail, {stats['skipped']} skip"
