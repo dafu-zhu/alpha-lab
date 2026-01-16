@@ -133,24 +133,6 @@ jobs:
           # Run unit tests for consolidate_year
           uv run pytest tests/unit/update/test_app.py::TestConsolidateYear -v 2>&1 | tee consolidate_test.log
 
-      - name: Read logs
-        id: read-logs
-        if: always()
-        run: |
-          if [ -f update.log ]; then
-            echo "content<<EOF" >> $GITHUB_OUTPUT
-            echo "=== DAILY UPDATE SUMMARY ===" >> $GITHUB_OUTPUT
-            grep '\[EMAIL\]' update.log | sed -E 's/^[0-9-]+ ([0-9:]+),[0-9]+ .* \[EMAIL\] (.*)$/[\1] \2/' >> $GITHUB_OUTPUT || echo "No summary lines found"
-            echo "" >> $GITHUB_OUTPUT
-            echo "=== CONSOLIDATE YEAR TEST LOG ===" >> $GITHUB_OUTPUT
-            if [ -f consolidate_test.log ]; then
-              tail -n 50 consolidate_test.log >> $GITHUB_OUTPUT
-            else
-              echo "(No consolidate test log found)" >> $GITHUB_OUTPUT
-            fi
-            echo "EOF" >> $GITHUB_OUTPUT
-          fi
-
       - name: Send email
         if: always()
         uses: dawidd6/action-send-mail@v3
@@ -166,11 +148,6 @@ jobs:
             Manual daily update run completed at ${{ github.event.repository.updated_at }}
 
             Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-            ============================================
-            LOGS:
-            ============================================
-            ${{ steps.read-logs.outputs.content }}
           attachments: |
             update.log
             consolidate_test.log

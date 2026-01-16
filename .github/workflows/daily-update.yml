@@ -109,17 +109,6 @@ jobs:
           set -o pipefail
           ${{ steps.cmd.outputs.command }} 2>&1 | tee update.log
 
-      - name: Read logs
-        id: read-logs
-        if: always()
-        run: |
-          if [ -f update.log ]; then
-            # Extract [EMAIL] summary lines: "[HH:MM:SS] Update X started/successful"
-            echo "content<<EOF" >> $GITHUB_OUTPUT
-            grep '\[EMAIL\]' update.log | sed -E 's/^[0-9-]+ ([0-9:]+),[0-9]+ .* \[EMAIL\] (.*)$/[\1] \2/' >> $GITHUB_OUTPUT || echo "No summary lines found"
-            echo "EOF" >> $GITHUB_OUTPUT
-          fi
-
       - name: Send success email
         if: success()
         uses: dawidd6/action-send-mail@v3
@@ -135,11 +124,6 @@ jobs:
             Daily update completed successfully at ${{ github.event.repository.updated_at }}
 
             Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-            ============================================
-            LOGS:
-            ============================================
-            ${{ steps.read-logs.outputs.content }}
           attachments: update.log
 
       - name: Send failure email
@@ -157,9 +141,4 @@ jobs:
             Daily update FAILED at ${{ github.event.repository.updated_at }}
 
             Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-            ============================================
-            ERROR LOGS:
-            ============================================
-            ${{ steps.read-logs.outputs.content }}
           attachments: update.log
