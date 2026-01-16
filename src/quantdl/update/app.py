@@ -875,13 +875,15 @@ class DailyUpdateApp:
 
                 # Update daily ticks
                 if update_daily_ticks:
-                    self.logger.info("Updating daily ticks...")
+                    self.logger.info("[EMAIL] Update daily ticks started")
                     daily_stats = self.update_daily_ticks(target_date, symbols)
+                    self.logger.info("[EMAIL] Update daily ticks successful")
 
                 # Update minute ticks
                 if update_minute_ticks:
-                    self.logger.info("Updating minute ticks...")
+                    self.logger.info("[EMAIL] Update minute ticks started")
                     minute_stats = self.update_minute_ticks(target_date, symbols)
+                    self.logger.info("[EMAIL] Update minute ticks successful")
             else:
                 self.logger.info(
                     f"Market was closed on {target_date}, skipping ticks update"
@@ -909,6 +911,14 @@ class DailyUpdateApp:
                     dt.date.today() - dt.timedelta(days=fundamental_lookback_days)
                 ).isoformat()
 
+                # Log [EMAIL] markers for each enabled type
+                if update_fundamental:
+                    self.logger.info("[EMAIL] Update raw fundamental started")
+                if update_ttm:
+                    self.logger.info("[EMAIL] Update ttm fundamental started")
+                if update_derived:
+                    self.logger.info("[EMAIL] Update derived fundamental started")
+
                 fundamental_stats = self.update_fundamental(
                     symbols=list(symbols_with_fundamental_filings),
                     start_date=start_date,
@@ -917,6 +927,14 @@ class DailyUpdateApp:
                     update_ttm=update_ttm,
                     update_derived=update_derived
                 )
+
+                # Log [EMAIL] success markers
+                if update_fundamental:
+                    self.logger.info("[EMAIL] Update raw fundamental successful")
+                if update_ttm:
+                    self.logger.info("[EMAIL] Update ttm fundamental successful")
+                if update_derived:
+                    self.logger.info("[EMAIL] Update derived fundamental successful")
             else:
                 self.logger.info("No symbols with 10-K/10-Q filings, skipping fundamental update")
 

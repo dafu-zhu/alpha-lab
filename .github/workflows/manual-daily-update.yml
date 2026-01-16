@@ -139,8 +139,8 @@ jobs:
         run: |
           if [ -f update.log ]; then
             echo "content<<EOF" >> $GITHUB_OUTPUT
-            echo "=== DAILY UPDATE LOG ===" >> $GITHUB_OUTPUT
-            tail -n 50 update.log >> $GITHUB_OUTPUT
+            echo "=== DAILY UPDATE SUMMARY ===" >> $GITHUB_OUTPUT
+            grep '\[EMAIL\]' update.log | sed -E 's/^[0-9-]+ ([0-9:]+),[0-9]+ .* \[EMAIL\] (.*)$/[\1] \2/' >> $GITHUB_OUTPUT || echo "No summary lines found"
             echo "" >> $GITHUB_OUTPUT
             echo "=== CONSOLIDATE YEAR TEST LOG ===" >> $GITHUB_OUTPUT
             if [ -f consolidate_test.log ]; then
