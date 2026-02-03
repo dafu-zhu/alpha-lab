@@ -335,7 +335,7 @@ class TestValidatorIntegration:
 
         assert exists is True
         mock_s3_client.head_object.assert_called_once_with(
-            Bucket='us-equity-datalake',
+            Bucket='test-bucket',
             Key='data/symbols/2024/06/top3000.txt'
         )
 
