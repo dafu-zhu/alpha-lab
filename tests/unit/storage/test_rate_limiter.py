@@ -5,7 +5,7 @@ Tests thread-safe rate limiting functionality
 import pytest
 import time
 import threading
-from quantdl.storage.rate_limiter import RateLimiter
+from quantdl.storage.utils import RateLimiter
 
 
 class TestRateLimiter:

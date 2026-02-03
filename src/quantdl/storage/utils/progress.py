@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timezone
 from typing import Set, Union, Literal
 from botocore.exceptions import ClientError
-from quantdl.storage.exceptions import NoSuchKeyError
+from quantdl.storage.utils.exceptions import NoSuchKeyError
 
 KeyType = Union[int, str]
 

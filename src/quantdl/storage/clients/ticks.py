@@ -13,7 +13,7 @@ from typing import Optional, Dict, Tuple
 import polars as pl
 import logging
 from botocore.exceptions import ClientError
-from quantdl.storage.exceptions import NoSuchKeyError
+from quantdl.storage.utils import NoSuchKeyError
 
 from quantdl.master.security_master import SecurityMaster
 

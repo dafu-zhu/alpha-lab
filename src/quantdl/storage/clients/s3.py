@@ -3,7 +3,7 @@ from typing import Dict, Any
 from dotenv import load_dotenv
 import boto3
 from botocore.config import Config
-from quantdl.storage.config_loader import UploadConfig
+from quantdl.storage.utils import UploadConfig
 
 load_dotenv()
 
@@ -108,7 +108,7 @@ class S3Client:
         """
         if self._backend == 'local':
             if self._local_client is None:
-                from quantdl.storage.local_client import LocalStorageClient
+                from quantdl.storage.clients.local import LocalStorageClient
                 self._local_client = LocalStorageClient(self._local_path)
             return self._local_client
 

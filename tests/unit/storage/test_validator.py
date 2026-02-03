@@ -14,7 +14,7 @@ class TestValidator:
 
     def test_data_exists_monthly_partition(self):
         """Test data_exists with monthly partition - covers line 145."""
-        from quantdl.storage.validation import Validator
+        from quantdl.storage.pipeline import Validator
 
         mock_s3_client = Mock()
         mock_logger = Mock()
@@ -32,7 +32,7 @@ class TestValidator:
 
     def test_data_exists_monthly_partition_with_security_id(self):
         """Test data_exists with security_id uses security_id-based path."""
-        from quantdl.storage.validation import Validator
+        from quantdl.storage.pipeline import Validator
 
         mock_s3_client = Mock()
         mock_s3_client.head_object.return_value = {}
@@ -49,7 +49,7 @@ class TestValidator:
 
     def test_data_exists_yearly_with_security_id_uses_history_path(self):
         """Test data_exists with security_id and year (no month) uses history.parquet path."""
-        from quantdl.storage.validation import Validator
+        from quantdl.storage.pipeline import Validator
 
         mock_s3_client = Mock()
         mock_s3_client.head_object.return_value = {}
@@ -66,7 +66,7 @@ class TestValidator:
 
     def test_data_exists_yearly_without_security_id_uses_legacy_path(self):
         """Test data_exists without security_id uses legacy yearly partition path."""
-        from quantdl.storage.validation import Validator
+        from quantdl.storage.pipeline import Validator
 
         mock_s3_client = Mock()
         mock_s3_client.head_object.return_value = {}
@@ -83,7 +83,7 @@ class TestValidator:
 
     def test_data_exists_minute_ticks_with_security_id(self):
         """Test data_exists for minute ticks with security_id uses security_id in path."""
-        from quantdl.storage.validation import Validator
+        from quantdl.storage.pipeline import Validator
 
         mock_s3_client = Mock()
         mock_s3_client.head_object.return_value = {}
@@ -100,7 +100,7 @@ class TestValidator:
 
     def test_data_exists_minute_ticks_without_security_id(self):
         """Test data_exists for minute ticks without security_id uses symbol in path."""
-        from quantdl.storage.validation import Validator
+        from quantdl.storage.pipeline import Validator
 
         mock_s3_client = Mock()
         mock_s3_client.head_object.return_value = {}
@@ -117,7 +117,7 @@ class TestValidator:
 
     def test_data_exists_not_found(self):
         """Test data_exists returns False when object not found (404)."""
-        from quantdl.storage.validation import Validator
+        from quantdl.storage.pipeline import Validator
 
         mock_s3_client = Mock()
         error_response = {'Error': {'Code': '404', 'Message': 'Not Found'}}
@@ -130,7 +130,7 @@ class TestValidator:
 
     def test_get_existing_minute_days_returns_day_set(self):
         """Test batch listing of existing minute tick days."""
-        from quantdl.storage.validation import Validator
+        from quantdl.storage.pipeline import Validator
 
         mock_s3_client = Mock()
         mock_s3_client.list_objects_v2.return_value = {
@@ -153,7 +153,7 @@ class TestValidator:
 
     def test_get_existing_minute_days_empty(self):
         """Test batch listing returns empty set when no days exist."""
-        from quantdl.storage.validation import Validator
+        from quantdl.storage.pipeline import Validator
 
         mock_s3_client = Mock()
         mock_s3_client.list_objects_v2.return_value = {}
@@ -165,7 +165,7 @@ class TestValidator:
 
     def test_top_3000_exists_error_logging(self):
         """Test top_3000_exists logs error on non-404 errors - covers lines 191-192."""
-        from quantdl.storage.validation import Validator
+        from quantdl.storage.pipeline import Validator
 
         mock_s3_client = Mock()
         mock_logger = Mock()
@@ -175,7 +175,7 @@ class TestValidator:
         mock_s3_client.head_object.side_effect = ClientError(error_response, 'HeadObject')
 
         # Patch setup_logger to return our mock logger
-        with patch('quantdl.storage.validation.setup_logger', return_value=mock_logger):
+        with patch('quantdl.storage.pipeline.validation.setup_logger', return_value=mock_logger):
             validator = Validator(s3_client=mock_s3_client, bucket_name="test-bucket")
             result = validator.top_3000_exists(2024, 6)
 

@@ -16,8 +16,7 @@ from botocore.exceptions import ClientError
 from quantdl.utils.logger import setup_logger
 from quantdl.universe.current import fetch_all_stocks
 from quantdl.utils.wrds import raw_sql_with_retry
-from quantdl.storage.rate_limiter import RateLimiter
-from quantdl.storage.exceptions import NoSuchKeyError
+from quantdl.storage.utils import RateLimiter, NoSuchKeyError
 
 load_dotenv()
 

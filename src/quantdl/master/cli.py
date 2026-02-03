@@ -4,7 +4,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from quantdl.master.security_master import SecurityMaster
-from quantdl.storage.s3_client import S3Client
+from quantdl.storage.clients import S3Client
 from quantdl.utils.logger import setup_logger
 
 load_dotenv()

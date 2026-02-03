@@ -17,7 +17,7 @@ class TestTicksDataCollector:
 
     def test_initialization(self):
         """Test TicksDataCollector initialization with dependency injection"""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         mock_crsp = Mock()
         mock_alpaca = Mock()
@@ -38,7 +38,7 @@ class TestTicksDataCollector:
 
     def test_collect_daily_ticks_year_crsp(self):
         """Test collecting daily ticks for year < 2025 (uses CRSP)"""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         mock_crsp = Mock()
         mock_crsp.collect_daily_ticks.return_value = [
@@ -62,7 +62,7 @@ class TestTicksDataCollector:
 
     def test_collect_daily_ticks_year_crsp_raises_on_other_errors(self):
         """CRSP path re-raises unexpected errors."""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         mock_crsp = Mock()
         mock_crsp.collect_daily_ticks.side_effect = ValueError("boom")
@@ -80,7 +80,7 @@ class TestTicksDataCollector:
 
     def test_collect_daily_ticks_year_crsp_empty_returns_empty(self):
         """CRSP path returns empty DataFrame when no months return data."""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         mock_crsp = Mock()
         mock_crsp.collect_daily_ticks.side_effect = [[] for _ in range(12)]
@@ -99,7 +99,7 @@ class TestTicksDataCollector:
 
     def test_collect_daily_ticks_year_alpaca(self):
         """Test collecting daily ticks for year >= 2025 (uses Alpaca)"""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
         from quantdl.collection.models import TickDataPoint
 
         mock_crsp = Mock()
@@ -151,7 +151,7 @@ class TestTicksDataCollector:
 
     def test_fetch_minute_month(self):
         """Test fetching minute data for month"""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         mock_alpaca = Mock()
         mock_alpaca.fetch_minute_month_bulk.return_value = {
@@ -173,7 +173,7 @@ class TestTicksDataCollector:
 
     def test_fetch_minute_day(self):
         """Test fetching minute data for day."""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         mock_alpaca = Mock()
         mock_alpaca.fetch_minute_day_bulk.return_value = {"AAPL": []}
@@ -193,7 +193,7 @@ class TestTicksDataCollector:
 
     def test_collect_daily_ticks_year_crsp_skips_inactive_months(self):
         """CRSP path skips inactive months and formats output."""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         mock_crsp = Mock()
         mock_alpaca = Mock()
@@ -220,7 +220,7 @@ class TestTicksDataCollector:
 
     def test_collect_daily_ticks_year_alpaca_failure(self):
         """Alpaca path returns empty on exceptions."""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         mock_crsp = Mock()
         mock_alpaca = Mock()
@@ -240,7 +240,7 @@ class TestTicksDataCollector:
 
     def test_collect_daily_ticks_year_bulk_crsp_delegates(self):
         """CRSP bulk year fetch delegates and returns mapping."""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         mock_crsp = Mock()
         mock_crsp.collect_daily_ticks_year_bulk.return_value = {"AAPL": pl.DataFrame()}
@@ -262,7 +262,7 @@ class TestTicksDataCollector:
 
     def test_collect_daily_ticks_year_bulk_alpaca(self):
         """Bulk Alpaca year fetch returns normalized DataFrames."""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
         from quantdl.collection.models import TickDataPoint
 
         mock_crsp = Mock()
@@ -309,7 +309,7 @@ class TestTicksDataCollector:
 
     def test_parse_minute_bars_to_daily_empty(self):
         """Empty bars -> empty frames for each day."""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         collector = TicksDataCollector(
             crsp_ticks=Mock(),
@@ -324,7 +324,7 @@ class TestTicksDataCollector:
 
     def test_parse_minute_bars_to_daily_success(self):
         """Valid bars are split by trade day."""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
         from quantdl.collection.models import TickField
 
         collector = TicksDataCollector(
@@ -363,7 +363,7 @@ class TestTicksDataCollector:
 
     def test_parse_minute_bars_to_daily_missing_day_empty(self):
         """Days without data return empty DataFrames."""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
         from quantdl.collection.models import TickField
 
         collector = TicksDataCollector(
@@ -392,7 +392,7 @@ class TestTicksDataCollector:
 
     def test_parse_minute_bars_to_daily_error(self):
         """Invalid bars return empty frames and log error."""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         mock_logger = Mock(spec=logging.Logger)
         collector = TicksDataCollector(
@@ -408,7 +408,7 @@ class TestTicksDataCollector:
 
     def test_parse_minute_bars_to_daily_nanosecond_timestamps(self):
         """Alpaca returns RFC-3339 timestamps with nanoseconds - verify parsing works."""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
         from quantdl.collection.models import TickField
 
         collector = TicksDataCollector(
@@ -452,7 +452,7 @@ class TestTicksDataCollector:
 
     def test_collect_daily_ticks_month_filters_correctly(self):
         """Test that collect_daily_ticks_month calls month-specific API for Alpaca (2025+)"""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
         from quantdl.collection.models import TickDataPoint
 
         mock_crsp = Mock()
@@ -510,7 +510,7 @@ class TestTicksDataCollector:
 
     def test_collect_daily_ticks_month_uses_year_df(self):
         """Test that collect_daily_ticks_month filters from provided year_df."""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         mock_crsp = Mock()
         mock_alpaca = Mock()
@@ -540,7 +540,7 @@ class TestTicksDataCollector:
 
     def test_collect_daily_ticks_month_year_df_empty(self):
         """Year DF empty returns empty."""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         collector = TicksDataCollector(
             crsp_ticks=Mock(),
@@ -555,7 +555,7 @@ class TestTicksDataCollector:
 
     def test_collect_daily_ticks_month_year_df_filtered_empty(self):
         """Year DF with other months returns empty."""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         collector = TicksDataCollector(
             crsp_ticks=Mock(),
@@ -579,7 +579,7 @@ class TestTicksDataCollector:
 
     def test_collect_daily_ticks_month_empty_when_no_data(self):
         """Test that collect_daily_ticks_month returns empty when month has no data (Alpaca)"""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         mock_crsp = Mock()
         mock_alpaca = Mock()
@@ -609,7 +609,7 @@ class TestTicksDataCollector:
 
     def test_collect_daily_ticks_month_bulk_alpaca(self):
         """Bulk month fetch returns normalized DataFrames for Alpaca years."""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
         from quantdl.collection.models import TickDataPoint
 
         mock_crsp = Mock()
@@ -661,7 +661,7 @@ class TestTicksDataCollector:
 
     def test_collect_daily_ticks_month_crsp(self):
         """Test that collect_daily_ticks_month calls CRSP API for years < 2025"""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         mock_crsp = Mock()
         mock_alpaca = Mock()
@@ -703,7 +703,7 @@ class TestTicksDataCollector:
 
     def test_collect_daily_ticks_month_crsp_empty(self):
         """Test that collect_daily_ticks_month returns empty when CRSP has no data"""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         mock_crsp = Mock()
         mock_alpaca = Mock()
@@ -734,7 +734,7 @@ class TestTicksDataCollector:
 
     def test_collect_daily_ticks_month_crsp_not_active(self):
         """Test that collect_daily_ticks_month handles 'not active' errors from CRSP"""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         mock_crsp = Mock()
         mock_alpaca = Mock()
@@ -756,7 +756,7 @@ class TestTicksDataCollector:
 
     def test_collect_daily_ticks_month_crsp_other_error_raises(self):
         """Unexpected CRSP errors are re-raised."""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         mock_crsp = Mock()
         mock_crsp.collect_daily_ticks.side_effect = ValueError("boom")
@@ -773,7 +773,7 @@ class TestTicksDataCollector:
 
     def test_collect_daily_ticks_month_alpaca_exception(self):
         """Alpaca path returns empty and logs warning on exception."""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         mock_crsp = Mock()
         mock_alpaca = Mock()
@@ -794,7 +794,7 @@ class TestTicksDataCollector:
 
     def test_collect_daily_ticks_month_year_df_aligns_calendar(self, tmp_path):
         """Year_df branch aligns calendar when calendar file exists."""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         mock_crsp = Mock()
         mock_crsp.calendar_path = str(tmp_path / "calendar.csv")
@@ -826,7 +826,7 @@ class TestTicksDataCollector:
             "volume": 50000000
         }]
 
-        with patch('quantdl.storage.data_collectors.align_calendar', return_value=aligned) as mock_align:
+        with patch('quantdl.storage.pipeline.collectors.align_calendar', return_value=aligned) as mock_align:
             result = collector.collect_daily_ticks_month("AAPL", 2024, 6, year_df=year_df)
 
         assert result["timestamp"][0] == "2024-06-30"
@@ -834,7 +834,7 @@ class TestTicksDataCollector:
 
     def test_collect_daily_ticks_month_year_df_aligns_december_end(self, tmp_path):
         """Calendar alignment uses December 31 as end date."""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         mock_crsp = Mock()
         mock_crsp.calendar_path = str(tmp_path / "calendar.csv")
@@ -856,7 +856,7 @@ class TestTicksDataCollector:
             "volume": [100]
         })
 
-        with patch('quantdl.storage.data_collectors.align_calendar', return_value=year_df.to_dicts()) as mock_align:
+        with patch('quantdl.storage.pipeline.collectors.align_calendar', return_value=year_df.to_dicts()) as mock_align:
             collector.collect_daily_ticks_month("AAPL", 2024, 12, year_df=year_df)
 
         call_args = mock_align.call_args[0]
@@ -865,7 +865,7 @@ class TestTicksDataCollector:
 
     def test_collect_daily_ticks_month_bulk_crsp(self):
         """Bulk month fetch uses per-symbol CRSP path for years < 2025."""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         mock_crsp = Mock()
         mock_alpaca = Mock()
@@ -895,7 +895,7 @@ class TestTicksDataCollector:
 
     def test_normalize_daily_df_adds_missing_columns(self):
         """Missing columns are added and types normalized."""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
 
         collector = TicksDataCollector(
             crsp_ticks=Mock(),
@@ -921,7 +921,7 @@ class TestFundamentalDataCollector:
 
     def test_initialization_with_logger(self):
         """Test FundamentalDataCollector initialization with logger"""
-        from quantdl.storage.data_collectors import FundamentalDataCollector
+        from quantdl.storage.pipeline import FundamentalDataCollector
 
         mock_logger = Mock(spec=logging.Logger)
         collector = FundamentalDataCollector(logger=mock_logger)
@@ -930,10 +930,10 @@ class TestFundamentalDataCollector:
         assert isinstance(collector._fundamental_cache, OrderedDict)
         assert isinstance(collector._fundamental_cache_lock, type(threading.Lock()))
 
-    @patch('quantdl.storage.data_collectors.setup_logger')
+    @patch('quantdl.storage.pipeline.collectors.setup_logger')
     def test_initialization_without_logger(self, mock_setup_logger):
         """Test FundamentalDataCollector creates logger if not provided"""
-        from quantdl.storage.data_collectors import FundamentalDataCollector
+        from quantdl.storage.pipeline import FundamentalDataCollector
 
         mock_logger = Mock(spec=logging.Logger)
         mock_setup_logger.return_value = mock_logger
@@ -945,7 +945,7 @@ class TestFundamentalDataCollector:
 
     def test_shared_cache_initialization(self):
         """Test FundamentalDataCollector uses shared cache when provided"""
-        from quantdl.storage.data_collectors import FundamentalDataCollector
+        from quantdl.storage.pipeline import FundamentalDataCollector
 
         shared_cache = OrderedDict()
         shared_lock = threading.Lock()
@@ -963,7 +963,7 @@ class TestFundamentalDataCollector:
 
     def test_load_concepts_with_provided_list(self):
         """Test _load_concepts returns provided list"""
-        from quantdl.storage.data_collectors import FundamentalDataCollector
+        from quantdl.storage.pipeline import FundamentalDataCollector
 
         mock_logger = Mock(spec=logging.Logger)
         collector = FundamentalDataCollector(logger=mock_logger)
@@ -977,7 +977,7 @@ class TestFundamentalDataCollector:
     @patch('yaml.safe_load')
     def test_load_concepts_from_config(self, mock_yaml_load, mock_open):
         """Test _load_concepts loads from config file"""
-        from quantdl.storage.data_collectors import FundamentalDataCollector
+        from quantdl.storage.pipeline import FundamentalDataCollector
         from pathlib import Path
 
         mock_yaml_load.return_value = {'Revenue': 'mapping1', 'Assets': 'mapping2'}
@@ -991,12 +991,12 @@ class TestFundamentalDataCollector:
 
     def test_get_or_create_fundamental_cache(self):
         """Cache hit returns same object; LRU eviction occurs."""
-        from quantdl.storage import data_collectors as dc
+        from quantdl.storage.pipeline import collectors as dc
 
         mock_logger = Mock(spec=logging.Logger)
         collector = dc.FundamentalDataCollector(logger=mock_logger, fundamental_cache_size=1)
 
-        with patch('quantdl.storage.data_collectors.Fundamental') as mock_fundamental:
+        with patch('quantdl.storage.pipeline.collectors.Fundamental') as mock_fundamental:
             f1 = Mock()
             f2 = Mock()
             f3 = Mock()
@@ -1012,12 +1012,12 @@ class TestFundamentalDataCollector:
 
     def test_get_or_create_fundamental_no_cache(self):
         """Cache size <= 0 returns new instance each time."""
-        from quantdl.storage import data_collectors as dc
+        from quantdl.storage.pipeline import collectors as dc
 
         mock_logger = Mock(spec=logging.Logger)
         collector = dc.FundamentalDataCollector(logger=mock_logger, fundamental_cache_size=0)
 
-        with patch('quantdl.storage.data_collectors.Fundamental') as mock_fundamental:
+        with patch('quantdl.storage.pipeline.collectors.Fundamental') as mock_fundamental:
             f1 = Mock()
             f2 = Mock()
             mock_fundamental.side_effect = [f1, f2]
@@ -1031,13 +1031,13 @@ class TestFundamentalDataCollector:
 
     def test_get_or_create_fundamental_cache_hit(self):
         """Cache hit returns existing instance without creating new one."""
-        from quantdl.storage import data_collectors as dc
+        from quantdl.storage.pipeline import collectors as dc
 
         collector = dc.FundamentalDataCollector(logger=Mock(spec=logging.Logger))
         cached = Mock()
         collector._fundamental_cache = OrderedDict([("0001", cached)])
 
-        with patch('quantdl.storage.data_collectors.Fundamental') as mock_fundamental:
+        with patch('quantdl.storage.pipeline.collectors.Fundamental') as mock_fundamental:
             result = collector._get_or_create_fundamental("0001")
 
         assert result is cached
@@ -1045,7 +1045,7 @@ class TestFundamentalDataCollector:
 
     def test_get_or_create_fundamental_cache_hit_moves_to_end(self):
         """Cache hit moves item to end (LRU behavior) - covers lines 466-467."""
-        from quantdl.storage import data_collectors as dc
+        from quantdl.storage.pipeline import collectors as dc
 
         collector = dc.FundamentalDataCollector(logger=Mock(spec=logging.Logger), fundamental_cache_size=3)
         cached1 = Mock()
@@ -1059,7 +1059,7 @@ class TestFundamentalDataCollector:
             ("0003", cached3)
         ])
 
-        with patch('quantdl.storage.data_collectors.Fundamental') as mock_fundamental:
+        with patch('quantdl.storage.pipeline.collectors.Fundamental') as mock_fundamental:
             # Access the first item
             result = collector._get_or_create_fundamental("0001")
 
@@ -1073,11 +1073,11 @@ class TestFundamentalDataCollector:
 
     def test_get_or_create_fundamental_evicts_oldest(self):
         """Cache evicts oldest when capacity exceeded."""
-        from quantdl.storage import data_collectors as dc
+        from quantdl.storage.pipeline import collectors as dc
 
         collector = dc.FundamentalDataCollector(logger=Mock(spec=logging.Logger), fundamental_cache_size=1)
 
-        with patch('quantdl.storage.data_collectors.Fundamental') as mock_fundamental:
+        with patch('quantdl.storage.pipeline.collectors.Fundamental') as mock_fundamental:
             f1 = Mock()
             f2 = Mock()
             mock_fundamental.side_effect = [f1, f2]
@@ -1090,7 +1090,7 @@ class TestFundamentalDataCollector:
 
     def test_collect_fundamental_long_records(self):
         """Builds records from concept data within date range."""
-        from quantdl.storage.data_collectors import FundamentalDataCollector
+        from quantdl.storage.pipeline import FundamentalDataCollector
 
         collector = FundamentalDataCollector(logger=Mock(spec=logging.Logger))
         dp = Mock()
@@ -1120,7 +1120,7 @@ class TestFundamentalDataCollector:
 
     def test_collect_fundamental_long_handles_concept_error(self):
         """Errors in one concept don't block others."""
-        from quantdl.storage.data_collectors import FundamentalDataCollector
+        from quantdl.storage.pipeline import FundamentalDataCollector
 
         collector = FundamentalDataCollector(logger=Mock(spec=logging.Logger))
         dp = Mock()
@@ -1150,7 +1150,7 @@ class TestFundamentalDataCollector:
 
     def test_collect_fundamental_long_no_records(self):
         """No records returns empty and logs warning."""
-        from quantdl.storage.data_collectors import FundamentalDataCollector
+        from quantdl.storage.pipeline import FundamentalDataCollector
 
         mock_logger = Mock(spec=logging.Logger)
         collector = FundamentalDataCollector(logger=mock_logger)
@@ -1171,7 +1171,7 @@ class TestFundamentalDataCollector:
 
     def test_collect_fundamental_long_outer_exception(self):
         """Outer exception returns empty and logs error."""
-        from quantdl.storage.data_collectors import FundamentalDataCollector
+        from quantdl.storage.pipeline import FundamentalDataCollector
 
         mock_logger = Mock(spec=logging.Logger)
         collector = FundamentalDataCollector(logger=mock_logger)
@@ -1189,7 +1189,7 @@ class TestFundamentalDataCollector:
 
     def test_collect_fundamental_long_filters_out_of_range_records(self):
         """Records outside date range are skipped - covers line 511."""
-        from quantdl.storage.data_collectors import FundamentalDataCollector
+        from quantdl.storage.pipeline import FundamentalDataCollector
 
         collector = FundamentalDataCollector(logger=Mock(spec=logging.Logger))
 
@@ -1232,7 +1232,7 @@ class TestFundamentalDataCollector:
 
     def test_collect_ttm_long_range_filters_dates(self):
         """TTM data is filtered to date range."""
-        from quantdl.storage import data_collectors as dc
+        from quantdl.storage.pipeline import collectors as dc
 
         collector = dc.FundamentalDataCollector(logger=Mock(spec=logging.Logger))
         dp = Mock()
@@ -1255,7 +1255,7 @@ class TestFundamentalDataCollector:
             "value": [123.0]
         })
 
-        with patch('quantdl.storage.data_collectors.compute_ttm_long', return_value=ttm_df):
+        with patch('quantdl.storage.pipeline.collectors.compute_ttm_long', return_value=ttm_df):
             result = collector.collect_ttm_long_range(
                 cik="0001",
                 start_date="2024-01-01",
@@ -1268,7 +1268,7 @@ class TestFundamentalDataCollector:
 
     def test_collect_ttm_long_range_skips_after_end_date(self):
         """Records after end_date are skipped leading to empty output."""
-        from quantdl.storage.data_collectors import FundamentalDataCollector
+        from quantdl.storage.pipeline import FundamentalDataCollector
 
         mock_logger = Mock(spec=logging.Logger)
         collector = FundamentalDataCollector(logger=mock_logger)
@@ -1298,7 +1298,7 @@ class TestFundamentalDataCollector:
 
     def test_collect_ttm_long_range_concept_error(self):
         """Concept extraction errors are logged and skipped."""
-        from quantdl.storage.data_collectors import FundamentalDataCollector
+        from quantdl.storage.pipeline import FundamentalDataCollector
 
         mock_logger = Mock(spec=logging.Logger)
         collector = FundamentalDataCollector(logger=mock_logger)
@@ -1319,7 +1319,7 @@ class TestFundamentalDataCollector:
 
     def test_collect_ttm_long_range_empty_ttm_df(self):
         """Empty TTM result returns empty DataFrame."""
-        from quantdl.storage.data_collectors import FundamentalDataCollector
+        from quantdl.storage.pipeline import FundamentalDataCollector
 
         collector = FundamentalDataCollector(logger=Mock(spec=logging.Logger))
         dp = Mock()
@@ -1335,7 +1335,7 @@ class TestFundamentalDataCollector:
         fund.get_concept_data.return_value = [dp]
         collector._get_or_create_fundamental = Mock(return_value=fund)
 
-        with patch('quantdl.storage.data_collectors.compute_ttm_long', return_value=pl.DataFrame()):
+        with patch('quantdl.storage.pipeline.collectors.compute_ttm_long', return_value=pl.DataFrame()):
             result = collector.collect_ttm_long_range(
                 cik="0001",
                 start_date="2024-01-01",
@@ -1348,7 +1348,7 @@ class TestFundamentalDataCollector:
 
     def test_collect_ttm_long_range_outer_exception(self):
         """Outer exception returns empty and logs error."""
-        from quantdl.storage.data_collectors import FundamentalDataCollector
+        from quantdl.storage.pipeline import FundamentalDataCollector
 
         mock_logger = Mock(spec=logging.Logger)
         collector = FundamentalDataCollector(logger=mock_logger)
@@ -1366,7 +1366,7 @@ class TestFundamentalDataCollector:
 
     def test_collect_ttm_long_range_skips_empty_concept_data(self):
         """Empty concept data is skipped - covers line 577."""
-        from quantdl.storage.data_collectors import FundamentalDataCollector
+        from quantdl.storage.pipeline import FundamentalDataCollector
 
         mock_logger = Mock(spec=logging.Logger)
         collector = FundamentalDataCollector(logger=mock_logger)
@@ -1392,7 +1392,7 @@ class TestFundamentalDataCollector:
             "value": [123.0]
         })
 
-        with patch('quantdl.storage.data_collectors.compute_ttm_long', return_value=ttm_df):
+        with patch('quantdl.storage.pipeline.collectors.compute_ttm_long', return_value=ttm_df):
             result = collector.collect_ttm_long_range(
                 cik="0001",
                 start_date="2024-01-01",
@@ -1407,7 +1407,7 @@ class TestFundamentalDataCollector:
 
     def test_build_metrics_wide_no_ttm_records(self):
         """No duration concept records returns empty output."""
-        from quantdl.storage import data_collectors as dc
+        from quantdl.storage.pipeline import collectors as dc
 
         collector = dc.FundamentalDataCollector(logger=Mock(spec=logging.Logger))
 
@@ -1415,7 +1415,7 @@ class TestFundamentalDataCollector:
         fund.get_concept_data.return_value = []
         collector._get_or_create_fundamental = Mock(return_value=fund)
 
-        with patch('quantdl.storage.data_collectors.DURATION_CONCEPTS', ["rev"]):
+        with patch('quantdl.storage.pipeline.collectors.DURATION_CONCEPTS', ["rev"]):
             metrics_df, metadata = collector._build_metrics_wide(
                 cik="0001",
                 start_date="2024-01-01",
@@ -1429,7 +1429,7 @@ class TestFundamentalDataCollector:
 
     def test_build_metrics_wide_fundamental_init_error(self):
         """Initialization failure returns empty output and None metadata."""
-        from quantdl.storage import data_collectors as dc
+        from quantdl.storage.pipeline import collectors as dc
 
         mock_logger = Mock(spec=logging.Logger)
         collector = dc.FundamentalDataCollector(logger=mock_logger)
@@ -1449,7 +1449,7 @@ class TestFundamentalDataCollector:
 
     def test_build_metrics_wide_handles_concept_error(self):
         """Concept errors are logged and skipped."""
-        from quantdl.storage import data_collectors as dc
+        from quantdl.storage.pipeline import collectors as dc
 
         mock_logger = Mock(spec=logging.Logger)
         collector = dc.FundamentalDataCollector(logger=mock_logger)
@@ -1471,7 +1471,7 @@ class TestFundamentalDataCollector:
 
     def test_build_metrics_wide_empty_ttm_df(self):
         """Empty TTM output returns empty metrics."""
-        from quantdl.storage import data_collectors as dc
+        from quantdl.storage.pipeline import collectors as dc
 
         collector = dc.FundamentalDataCollector(logger=Mock(spec=logging.Logger))
         dp = Mock()
@@ -1487,8 +1487,8 @@ class TestFundamentalDataCollector:
         fund.get_concept_data.return_value = [dp]
         collector._get_or_create_fundamental = Mock(return_value=fund)
 
-        with patch('quantdl.storage.data_collectors.DURATION_CONCEPTS', ["rev"]):
-            with patch('quantdl.storage.data_collectors.compute_ttm_long', return_value=pl.DataFrame()):
+        with patch('quantdl.storage.pipeline.collectors.DURATION_CONCEPTS', ["rev"]):
+            with patch('quantdl.storage.pipeline.collectors.compute_ttm_long', return_value=pl.DataFrame()):
                 metrics_df, metadata = collector._build_metrics_wide(
                     cik="0001",
                     start_date="2024-01-01",
@@ -1502,7 +1502,7 @@ class TestFundamentalDataCollector:
 
     def test_build_metrics_wide_filters_out_of_range(self):
         """TTM data outside date range returns empty."""
-        from quantdl.storage import data_collectors as dc
+        from quantdl.storage.pipeline import collectors as dc
 
         collector = dc.FundamentalDataCollector(logger=Mock(spec=logging.Logger))
         dp = Mock()
@@ -1528,8 +1528,8 @@ class TestFundamentalDataCollector:
             "frame": ["CY2023"]
         })
 
-        with patch('quantdl.storage.data_collectors.DURATION_CONCEPTS', ["rev"]):
-            with patch('quantdl.storage.data_collectors.compute_ttm_long', return_value=ttm_df):
+        with patch('quantdl.storage.pipeline.collectors.DURATION_CONCEPTS', ["rev"]):
+            with patch('quantdl.storage.pipeline.collectors.compute_ttm_long', return_value=ttm_df):
                 metrics_df, metadata = collector._build_metrics_wide(
                     cik="0001",
                     start_date="2024-01-01",
@@ -1543,7 +1543,7 @@ class TestFundamentalDataCollector:
 
     def test_build_metrics_wide_raw_records_empty(self):
         """No stock concepts in range still returns duration data with nulls."""
-        from quantdl.storage import data_collectors as dc
+        from quantdl.storage.pipeline import collectors as dc
 
         collector = dc.FundamentalDataCollector(logger=Mock(spec=logging.Logger))
         dp = Mock()
@@ -1569,8 +1569,8 @@ class TestFundamentalDataCollector:
             "frame": ["CY2024Q2"]
         })
 
-        with patch('quantdl.storage.data_collectors.DURATION_CONCEPTS', ["rev"]):
-            with patch('quantdl.storage.data_collectors.compute_ttm_long', return_value=ttm_df):
+        with patch('quantdl.storage.pipeline.collectors.DURATION_CONCEPTS', ["rev"]):
+            with patch('quantdl.storage.pipeline.collectors.compute_ttm_long', return_value=ttm_df):
                 metrics_df, metadata = collector._build_metrics_wide(
                     cik="0001",
                     start_date="2024-01-01",
@@ -1584,7 +1584,7 @@ class TestFundamentalDataCollector:
 
     def test_build_metrics_wide_missing_duration_columns(self):
         """Missing duration columns are added with nulls."""
-        from quantdl.storage import data_collectors as dc
+        from quantdl.storage.pipeline import collectors as dc
 
         collector = dc.FundamentalDataCollector(logger=Mock(spec=logging.Logger))
         dp = Mock()
@@ -1610,8 +1610,8 @@ class TestFundamentalDataCollector:
             "frame": ["CY2024Q2"]
         })
 
-        with patch('quantdl.storage.data_collectors.DURATION_CONCEPTS', ["rev", "eps"]):
-            with patch('quantdl.storage.data_collectors.compute_ttm_long', return_value=ttm_df):
+        with patch('quantdl.storage.pipeline.collectors.DURATION_CONCEPTS', ["rev", "eps"]):
+            with patch('quantdl.storage.pipeline.collectors.compute_ttm_long', return_value=ttm_df):
                 metrics_df, metadata = collector._build_metrics_wide(
                     cik="0001",
                     start_date="2024-01-01",
@@ -1624,7 +1624,7 @@ class TestFundamentalDataCollector:
 
     def test_build_metrics_wide_missing_stock_columns_added(self):
         """Missing stock columns are added when not present after join."""
-        from quantdl.storage import data_collectors as dc
+        from quantdl.storage.pipeline import collectors as dc
 
         collector = dc.FundamentalDataCollector(logger=Mock(spec=logging.Logger))
         dp_duration = Mock()
@@ -1666,8 +1666,8 @@ class TestFundamentalDataCollector:
             "frame": ["CY2024Q2"]
         })
 
-        with patch('quantdl.storage.data_collectors.DURATION_CONCEPTS', ["rev"]):
-            with patch('quantdl.storage.data_collectors.compute_ttm_long', return_value=ttm_df):
+        with patch('quantdl.storage.pipeline.collectors.DURATION_CONCEPTS', ["rev"]):
+            with patch('quantdl.storage.pipeline.collectors.compute_ttm_long', return_value=ttm_df):
                 metrics_df, metadata = collector._build_metrics_wide(
                     cik="0001",
                     start_date="2024-01-01",
@@ -1680,7 +1680,7 @@ class TestFundamentalDataCollector:
 
     def test_build_metrics_wide_adds_missing_stock_cols_when_raw_empty(self):
         """When raw_long is empty, missing stock columns are added with nulls - covers lines 751-754."""
-        from quantdl.storage import data_collectors as dc
+        from quantdl.storage.pipeline import collectors as dc
 
         collector = dc.FundamentalDataCollector(logger=Mock(spec=logging.Logger))
 
@@ -1714,8 +1714,8 @@ class TestFundamentalDataCollector:
             "frame": ["CY2024Q2"]
         })
 
-        with patch('quantdl.storage.data_collectors.DURATION_CONCEPTS', ["rev"]):
-            with patch('quantdl.storage.data_collectors.compute_ttm_long', return_value=ttm_df):
+        with patch('quantdl.storage.pipeline.collectors.DURATION_CONCEPTS', ["rev"]):
+            with patch('quantdl.storage.pipeline.collectors.compute_ttm_long', return_value=ttm_df):
                 metrics_df, metadata = collector._build_metrics_wide(
                     cik="0001",
                     start_date="2024-01-01",
@@ -1733,7 +1733,7 @@ class TestFundamentalDataCollector:
 
     def test_collect_derived_long_derived_empty(self):
         """Derived empty returns reason."""
-        from quantdl.storage import data_collectors as dc
+        from quantdl.storage.pipeline import collectors as dc
 
         collector = dc.FundamentalDataCollector(logger=Mock(spec=logging.Logger))
         collector._build_metrics_wide = Mock(return_value=(pl.DataFrame({
@@ -1742,7 +1742,7 @@ class TestFundamentalDataCollector:
             "rev": [100.0]
         }), None))
 
-        with patch('quantdl.storage.data_collectors.compute_derived', return_value=pl.DataFrame()):
+        with patch('quantdl.storage.pipeline.collectors.compute_derived', return_value=pl.DataFrame()):
             result, reason = collector.collect_derived_long(
                 cik="0001",
                 start_date="2024-01-01",
@@ -1756,7 +1756,7 @@ class TestFundamentalDataCollector:
 
     def test_collect_derived_long_empty_metrics(self):
         """Derived returns reason when metrics_wide is empty."""
-        from quantdl.storage.data_collectors import FundamentalDataCollector
+        from quantdl.storage.pipeline import FundamentalDataCollector
 
         collector = FundamentalDataCollector(logger=Mock(spec=logging.Logger))
         collector._build_metrics_wide = Mock(return_value=(pl.DataFrame(), None))
@@ -1774,7 +1774,7 @@ class TestFundamentalDataCollector:
 
     def test_collect_derived_long_filters_dates(self):
         """Derived output is filtered to date range."""
-        from quantdl.storage.data_collectors import FundamentalDataCollector
+        from quantdl.storage.pipeline import FundamentalDataCollector
 
         collector = FundamentalDataCollector(logger=Mock(spec=logging.Logger))
         collector._build_metrics_wide = Mock(return_value=(pl.DataFrame({
@@ -1790,7 +1790,7 @@ class TestFundamentalDataCollector:
             "value": [1.0, 2.0]
         })
 
-        with patch('quantdl.storage.data_collectors.compute_derived', return_value=derived_df):
+        with patch('quantdl.storage.pipeline.collectors.compute_derived', return_value=derived_df):
             result, reason = collector.collect_derived_long(
                 cik="0001",
                 start_date="2024-01-01",
@@ -1808,17 +1808,17 @@ class TestUniverseDataCollector:
 
     def test_initialization_with_logger(self):
         """Test UniverseDataCollector initialization with logger"""
-        from quantdl.storage.data_collectors import UniverseDataCollector
+        from quantdl.storage.pipeline import UniverseDataCollector
 
         mock_logger = Mock(spec=logging.Logger)
         collector = UniverseDataCollector(logger=mock_logger)
 
         assert collector.logger == mock_logger
 
-    @patch('quantdl.storage.data_collectors.setup_logger')
+    @patch('quantdl.storage.pipeline.collectors.setup_logger')
     def test_initialization_without_logger(self, mock_setup_logger):
         """Test UniverseDataCollector creates logger if not provided"""
-        from quantdl.storage.data_collectors import UniverseDataCollector
+        from quantdl.storage.pipeline import UniverseDataCollector
 
         mock_logger = Mock(spec=logging.Logger)
         mock_setup_logger.return_value = mock_logger
@@ -1828,10 +1828,10 @@ class TestUniverseDataCollector:
         mock_setup_logger.assert_called_once()
         assert collector.logger == mock_logger
 
-    @patch('quantdl.storage.data_collectors.fetch_all_stocks')
+    @patch('quantdl.storage.pipeline.collectors.fetch_all_stocks')
     def test_collect_current_universe(self, mock_fetch):
         """Test collecting current universe"""
-        from quantdl.storage.data_collectors import UniverseDataCollector
+        from quantdl.storage.pipeline import UniverseDataCollector
 
         mock_stocks = pl.DataFrame({
             'Ticker': ['AAPL', 'MSFT', 'GOOGL'],
@@ -1847,10 +1847,10 @@ class TestUniverseDataCollector:
         assert len(result) == 3
         mock_fetch.assert_called_with(with_filter=True, refresh=False)
 
-    @patch('quantdl.storage.data_collectors.fetch_all_stocks')
+    @patch('quantdl.storage.pipeline.collectors.fetch_all_stocks')
     def test_collect_universe_with_filter(self, mock_fetch):
         """Test collecting universe with filter"""
-        from quantdl.storage.data_collectors import UniverseDataCollector
+        from quantdl.storage.pipeline import UniverseDataCollector
 
         mock_stocks = pl.DataFrame({
             'Ticker': ['AAPL', 'MSFT'],
@@ -1871,7 +1871,7 @@ class TestDataCollectorsOrchestrator:
 
     def test_initialization_creates_specialized_collectors(self):
         """Test DataCollectors creates all specialized collectors"""
-        from quantdl.storage.data_collectors import DataCollectors
+        from quantdl.storage.pipeline import DataCollectors
 
         mock_crsp = Mock()
         mock_alpaca = Mock()
@@ -1892,7 +1892,7 @@ class TestDataCollectorsOrchestrator:
 
     def test_shared_fundamental_cache(self):
         """Test DataCollectors creates shared fundamental cache"""
-        from quantdl.storage.data_collectors import DataCollectors
+        from quantdl.storage.pipeline import DataCollectors
 
         mock_logger = Mock(spec=logging.Logger)
         orchestrator = DataCollectors(
@@ -1913,7 +1913,7 @@ class TestDataCollectorsOrchestrator:
 
     def test_delegation_to_ticks_collector(self):
         """Test DataCollectors delegates to TicksDataCollector"""
-        from quantdl.storage.data_collectors import DataCollectors
+        from quantdl.storage.pipeline import DataCollectors
 
         mock_alpaca = Mock()
         mock_alpaca.fetch_daily_year_bulk.return_value = {}
@@ -1934,7 +1934,7 @@ class TestDataCollectorsOrchestrator:
 
     def test_delegation_to_ticks_collector_month_bulk(self):
         """Delegates bulk month fetch to TicksDataCollector."""
-        from quantdl.storage.data_collectors import DataCollectors
+        from quantdl.storage.pipeline import DataCollectors
 
         mock_logger = Mock(spec=logging.Logger)
         orchestrator = DataCollectors(
@@ -1954,7 +1954,7 @@ class TestDataCollectorsOrchestrator:
 
     def test_delegation_to_ticks_collector_month(self):
         """Delegates single month fetch to TicksDataCollector."""
-        from quantdl.storage.data_collectors import DataCollectors
+        from quantdl.storage.pipeline import DataCollectors
 
         mock_logger = Mock(spec=logging.Logger)
         orchestrator = DataCollectors(
@@ -1974,7 +1974,7 @@ class TestDataCollectorsOrchestrator:
 
     def test_delegation_to_ticks_collector_year_bulk(self):
         """Delegates yearly bulk fetch to TicksDataCollector."""
-        from quantdl.storage.data_collectors import DataCollectors
+        from quantdl.storage.pipeline import DataCollectors
 
         mock_logger = Mock(spec=logging.Logger)
         orchestrator = DataCollectors(
@@ -1994,7 +1994,7 @@ class TestDataCollectorsOrchestrator:
 
     def test_delegation_to_ticks_collector_fetch_minute_month(self):
         """Delegates minute month fetch to TicksDataCollector."""
-        from quantdl.storage.data_collectors import DataCollectors
+        from quantdl.storage.pipeline import DataCollectors
 
         mock_logger = Mock(spec=logging.Logger)
         orchestrator = DataCollectors(
@@ -2014,7 +2014,7 @@ class TestDataCollectorsOrchestrator:
 
     def test_delegation_to_ticks_collector_fetch_minute_day(self):
         """Delegates minute day fetch to TicksDataCollector."""
-        from quantdl.storage.data_collectors import DataCollectors
+        from quantdl.storage.pipeline import DataCollectors
 
         mock_logger = Mock(spec=logging.Logger)
         orchestrator = DataCollectors(
@@ -2034,7 +2034,7 @@ class TestDataCollectorsOrchestrator:
 
     def test_delegation_to_ticks_collector_parse_minute_bars(self):
         """Delegates minute bars parsing to TicksDataCollector."""
-        from quantdl.storage.data_collectors import DataCollectors
+        from quantdl.storage.pipeline import DataCollectors
 
         mock_logger = Mock(spec=logging.Logger)
         orchestrator = DataCollectors(
@@ -2054,7 +2054,7 @@ class TestDataCollectorsOrchestrator:
 
     def test_delegation_to_fundamental_collector(self):
         """Test DataCollectors delegates to FundamentalDataCollector"""
-        from quantdl.storage.data_collectors import DataCollectors
+        from quantdl.storage.pipeline import DataCollectors
 
         mock_logger = Mock(spec=logging.Logger)
         orchestrator = DataCollectors(
@@ -2077,7 +2077,7 @@ class TestDataCollectorsOrchestrator:
 
     def test_delegation_to_fundamental_collector_load_concepts(self):
         """Delegates _load_concepts to FundamentalDataCollector."""
-        from quantdl.storage.data_collectors import DataCollectors
+        from quantdl.storage.pipeline import DataCollectors
 
         mock_logger = Mock(spec=logging.Logger)
         orchestrator = DataCollectors(
@@ -2096,7 +2096,7 @@ class TestDataCollectorsOrchestrator:
 
     def test_delegation_to_fundamental_collector_ttm(self):
         """Delegates collect_ttm_long_range to FundamentalDataCollector."""
-        from quantdl.storage.data_collectors import DataCollectors
+        from quantdl.storage.pipeline import DataCollectors
 
         mock_logger = Mock(spec=logging.Logger)
         orchestrator = DataCollectors(
@@ -2116,7 +2116,7 @@ class TestDataCollectorsOrchestrator:
 
     def test_delegation_to_fundamental_collector_derived(self):
         """Delegates collect_derived_long to FundamentalDataCollector."""
-        from quantdl.storage.data_collectors import DataCollectors
+        from quantdl.storage.pipeline import DataCollectors
 
         mock_logger = Mock(spec=logging.Logger)
         orchestrator = DataCollectors(
@@ -2134,10 +2134,10 @@ class TestDataCollectorsOrchestrator:
             '320193', '2024-01-01', '2024-12-31', 'AAPL', None, None
         )
 
-    @patch('quantdl.storage.data_collectors.fetch_all_stocks')
+    @patch('quantdl.storage.pipeline.collectors.fetch_all_stocks')
     def test_backward_compatibility(self, mock_fetch):
         """Test DataCollectors maintains backward compatibility"""
-        from quantdl.storage.data_collectors import DataCollectors
+        from quantdl.storage.pipeline import DataCollectors
 
         mock_fetch.return_value = pl.DataFrame({'Ticker': ['AAPL']})
         mock_logger = Mock(spec=logging.Logger)
@@ -2165,7 +2165,7 @@ class TestDataCollectorInheritance:
 
     def test_ticks_collector_inherits_datacollector(self):
         """Test TicksDataCollector inherits from DataCollector"""
-        from quantdl.storage.data_collectors import TicksDataCollector
+        from quantdl.storage.pipeline import TicksDataCollector
         from quantdl.collection.models import DataCollector
 
         mock_logger = Mock(spec=logging.Logger)
@@ -2181,7 +2181,7 @@ class TestDataCollectorInheritance:
 
     def test_fundamental_collector_inherits_datacollector(self):
         """Test FundamentalDataCollector inherits from DataCollector"""
-        from quantdl.storage.data_collectors import FundamentalDataCollector
+        from quantdl.storage.pipeline import FundamentalDataCollector
         from quantdl.collection.models import DataCollector
 
         mock_logger = Mock(spec=logging.Logger)
@@ -2192,7 +2192,7 @@ class TestDataCollectorInheritance:
 
     def test_universe_collector_inherits_datacollector(self):
         """Test UniverseDataCollector inherits from DataCollector"""
-        from quantdl.storage.data_collectors import UniverseDataCollector
+        from quantdl.storage.pipeline import UniverseDataCollector
         from quantdl.collection.models import DataCollector
 
         mock_logger = Mock(spec=logging.Logger)
@@ -2207,7 +2207,7 @@ class TestFundamentalDataCollectorCaching:
 
     def test_fundamental_cache_race_condition(self):
         """Test cache returns existing entry on race condition (lines 466,467)."""
-        from quantdl.storage.data_collectors import FundamentalDataCollector
+        from quantdl.storage.pipeline import FundamentalDataCollector
 
         mock_logger = Mock(spec=logging.Logger)
         collector = FundamentalDataCollector(
@@ -2220,7 +2220,7 @@ class TestFundamentalDataCollectorCaching:
         collector._fundamental_cache['0000320193'] = mock_fundamental
 
         # Now try to get the same CIK - should return cached value
-        with patch('quantdl.storage.data_collectors.Fundamental') as MockFundamental:
+        with patch('quantdl.storage.pipeline.collectors.Fundamental') as MockFundamental:
             MockFundamental.return_value = Mock()
             result = collector._get_or_create_fundamental('0000320193', 'AAPL')
 
@@ -2230,7 +2230,7 @@ class TestFundamentalDataCollectorCaching:
 
     def test_ttm_long_empty_stock_long_handling(self):
         """Test collect_ttm_long_range handles empty stock_long DataFrame (lines 751-754)."""
-        from quantdl.storage.data_collectors import FundamentalDataCollector
+        from quantdl.storage.pipeline import FundamentalDataCollector
 
         mock_logger = Mock(spec=logging.Logger)
         collector = FundamentalDataCollector(
