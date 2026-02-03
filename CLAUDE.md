@@ -16,32 +16,22 @@ US Equity Data Lake: Self-hosted, automated market data infrastructure for US eq
 
 ### Environment Setup
 ```bash
-# Install dependencies
 uv sync
 
-# Set up .env file with:
-# - WRDS_USERNAME, WRDS_PASSWORD
-# - ALPACA_API_KEY, ALPACA_API_SECRET
-# - AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
-# - SEC_USER_AGENT
+# Required .env variables:
+# WRDS_USERNAME, WRDS_PASSWORD (for CRSP)
+# ALPACA_API_KEY, ALPACA_API_SECRET (for minute ticks)
+# AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY (for S3)
+# SEC_USER_AGENT (for EDGAR API, e.g., your_name@example.com)
 ```
 
 ### Testing
 ```bash
-# Run all tests with coverage
-uv run pytest --cov=src/quantdl
-
-# Run only unit tests (fast)
-uv run pytest -m unit
-
-# Run only integration tests
-uv run pytest -m integration
-
-# Run specific test file
-uv run pytest tests/unit/collection/test_fundamental.py
-
-# Run with parallel execution
-uv run pytest -n auto
+uv run pytest --cov=src/quantdl     # All tests with coverage
+uv run pytest -m unit               # Unit tests only (fast)
+uv run pytest -m integration        # Integration tests only
+uv run pytest tests/unit/collection/test_fundamental.py  # Single file
+uv run pytest -n auto               # Parallel execution
 ```
 
 ### Data Operations
@@ -57,11 +47,17 @@ uv run quantdl-storage --run-derived-fundamental
 
 # Daily update (incremental)
 uv run quantdl-update --date 2025-01-10
-uv run quantdl-update  # defaults to yesterday
-uv run quantdl-update --no-ticks  # skip ticks, only fundamentals
+uv run quantdl-update                    # defaults to yesterday
+uv run quantdl-update --no-ticks         # fundamentals only
+uv run quantdl-update --no-wrds          # WRDS-free mode (GitHub Actions)
 
-# Year consolidation (run on Jan 1 to consolidate previous year)
-uv run quantdl-consolidate --year 2025  # consolidates 2025 monthly → history.parquet
+# Year consolidation (run on Jan 1)
+uv run quantdl-consolidate --year 2025   # merge monthly → history.parquet
+uv run quantdl-consolidate --year 2025 --force  # overwrite if exists
+
+# Security master export
+uv run quantdl-export-security-master --export
+uv run quantdl-export-security-master --export --force-rebuild  # skip S3 cache
 ```
 
 ## Architecture
@@ -97,11 +93,15 @@ uv run quantdl-consolidate --year 2025  # consolidates 2025 monthly → history.
 
 **6. Update Apps** (`src/quantdl/update/`)
 - `app.py`: `DailyUpdateApp` orchestrates daily incremental updates
+- `app_no_wrds.py`: WRDS-free version using Nasdaq FTP + SEC API (for GitHub Actions)
 - `cli.py`: CLI entry point for daily updates
 
 **7. Upload Apps** (`src/quantdl/storage/`)
 - `app.py`: `UploadApp` orchestrates full backfill uploads
 - `cli.py`: CLI entry point for initial uploads
+
+**8. Consolidate** (`src/quantdl/consolidate/`)
+- `cli.py`: Merges monthly Parquet files into history.parquet for completed years
 
 ### Data Flow
 
@@ -180,6 +180,12 @@ data/derived/
 - Read-modify-write pattern for monthly Parquet files (~5 KB, fast updates)
 - Year consolidation: Jan 1 consolidates previous year into history.parquet
 
+**6. WRDS-Free Mode**
+- `--no-wrds` flag enables GitHub Actions deployment without WRDS access
+- Uses Nasdaq FTP for current universe + SEC API for CIK mapping
+- `SimpleCIKResolver` in `app_no_wrds.py` handles ticker→CIK resolution
+- Suitable for recent data (2025+) where current SEC mapping is accurate
+
 ## Testing
 
 ### Test Structure
@@ -231,26 +237,6 @@ tests/
 1. Update path constants in `UploadConfig` (storage/config_loader.py)
 2. Update corresponding publisher methods in `data_publishers.py`
 3. Update validation logic in `validation.py`
-
-## Environment Variables
-
-Required in `.env`:
-```bash
-# WRDS (for CRSP data)
-WRDS_USERNAME=your_username
-WRDS_PASSWORD=your_password
-
-# Alpaca (for minute ticks)
-ALPACA_API_KEY=your_api_key
-ALPACA_API_SECRET=your_secret_key
-
-# AWS (for S3 storage)
-AWS_ACCESS_KEY_ID=your_access_key
-AWS_SECRET_ACCESS_KEY=your_secret_key
-
-# SEC EDGAR (User-Agent required by API)
-SEC_USER_AGENT=your_name@example.com
-```
 
 ## Known Limitations
 

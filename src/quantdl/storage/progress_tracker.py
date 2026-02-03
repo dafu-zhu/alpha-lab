@@ -6,6 +6,7 @@ import json
 from datetime import datetime, timezone
 from typing import Set, Union, Literal
 from botocore.exceptions import ClientError
+from quantdl.storage.exceptions import NoSuchKeyError
 
 KeyType = Union[int, str]
 
@@ -72,7 +73,7 @@ class UploadProgressTracker:
             self._completed = set(data.get('completed', []))
             self._stats = data.get('stats', self._stats)
             self._loaded = True
-        except ClientError as e:
+        except (ClientError, NoSuchKeyError) as e:
             if e.response.get('Error', {}).get('Code') == 'NoSuchKey':
                 # No progress file yet - start fresh
                 self._completed = set()

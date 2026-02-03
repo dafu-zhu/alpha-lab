@@ -22,6 +22,7 @@ import requests
 import polars as pl
 from boto3.s3.transfer import TransferConfig
 from botocore.exceptions import ClientError
+from quantdl.storage.exceptions import NoSuchKeyError
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -245,7 +246,7 @@ class DataPublishers:
                         ~pl.col('timestamp').str.starts_with(str(year))
                     )
                     combined_df = pl.concat([history_df, df]).sort('timestamp')
-                except ClientError as e:
+                except (ClientError, NoSuchKeyError) as e:
                     if e.response['Error']['Code'] == 'NoSuchKey':
                         # No existing history, use new data only
                         combined_df = df

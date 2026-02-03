@@ -8,6 +8,135 @@ from pathlib import Path
 import tempfile
 import yaml
 
+from quantdl.storage.local_client import LocalStorageClient
+
+
+class TestS3ClientBackendSelection:
+    """Test S3Client backend selection (local vs S3)"""
+
+    def test_local_backend_returns_local_storage_client(self, tmp_path):
+        """Test STORAGE_BACKEND=local returns LocalStorageClient"""
+        from quantdl.storage.s3_client import S3Client
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+            config = {'client': {'region_name': 'us-east-1'}}
+            yaml.dump(config, f)
+            config_path = f.name
+
+        try:
+            with patch('quantdl.storage.s3_client.UploadConfig') as mock_config_class:
+                mock_config_instance = Mock()
+                mock_config_instance.client = config['client']
+                mock_config_class.return_value = mock_config_instance
+
+                with patch.dict('os.environ', {
+                    'STORAGE_BACKEND': 'local',
+                    'LOCAL_STORAGE_PATH': str(tmp_path)
+                }):
+                    s3_client_wrapper = S3Client(config_path=config_path)
+                    client = s3_client_wrapper.client
+
+                    assert isinstance(client, LocalStorageClient)
+                    assert s3_client_wrapper.is_local is True
+        finally:
+            import os
+            os.unlink(config_path)
+
+    def test_local_backend_requires_path(self):
+        """Test STORAGE_BACKEND=local raises error without LOCAL_STORAGE_PATH"""
+        from quantdl.storage.s3_client import S3Client
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+            config = {'client': {'region_name': 'us-east-1'}}
+            yaml.dump(config, f)
+            config_path = f.name
+
+        try:
+            with patch('quantdl.storage.s3_client.UploadConfig') as mock_config_class:
+                mock_config_instance = Mock()
+                mock_config_instance.client = config['client']
+                mock_config_class.return_value = mock_config_instance
+
+                with patch.dict('os.environ', {'STORAGE_BACKEND': 'local'}, clear=False):
+                    # Remove LOCAL_STORAGE_PATH if set
+                    import os
+                    os.environ.pop('LOCAL_STORAGE_PATH', None)
+
+                    with pytest.raises(ValueError) as exc_info:
+                        S3Client(config_path=config_path)
+
+                    assert 'LOCAL_STORAGE_PATH' in str(exc_info.value)
+        finally:
+            import os
+            os.unlink(config_path)
+
+    @patch('quantdl.storage.s3_client.boto3.client')
+    def test_s3_backend_is_default(self, mock_boto_client):
+        """Test default backend is S3 when STORAGE_BACKEND not set"""
+        from quantdl.storage.s3_client import S3Client
+
+        mock_client_instance = Mock()
+        mock_boto_client.return_value = mock_client_instance
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+            config = {'client': {'region_name': 'us-east-1'}}
+            yaml.dump(config, f)
+            config_path = f.name
+
+        try:
+            with patch('quantdl.storage.s3_client.UploadConfig') as mock_config_class:
+                mock_config_instance = Mock()
+                mock_config_instance.client = config['client']
+                mock_config_class.return_value = mock_config_instance
+
+                with patch.dict('os.environ', {
+                    'AWS_ACCESS_KEY_ID': 'key',
+                    'AWS_SECRET_ACCESS_KEY': 'secret'
+                }, clear=False):
+                    # Ensure STORAGE_BACKEND is not set
+                    import os
+                    os.environ.pop('STORAGE_BACKEND', None)
+
+                    s3_client_wrapper = S3Client(config_path=config_path)
+                    client = s3_client_wrapper.client
+
+                    assert client == mock_client_instance
+                    assert s3_client_wrapper.is_local is False
+        finally:
+            import os
+            os.unlink(config_path)
+
+    def test_local_client_is_cached(self, tmp_path):
+        """Test LocalStorageClient is cached after first access"""
+        from quantdl.storage.s3_client import S3Client
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+            config = {'client': {'region_name': 'us-east-1'}}
+            yaml.dump(config, f)
+            config_path = f.name
+
+        try:
+            with patch('quantdl.storage.s3_client.UploadConfig') as mock_config_class:
+                mock_config_instance = Mock()
+                mock_config_instance.client = config['client']
+                mock_config_class.return_value = mock_config_instance
+
+                with patch.dict('os.environ', {
+                    'STORAGE_BACKEND': 'local',
+                    'LOCAL_STORAGE_PATH': str(tmp_path)
+                }):
+                    s3_client_wrapper = S3Client(config_path=config_path)
+
+                    # Access client twice
+                    client1 = s3_client_wrapper.client
+                    client2 = s3_client_wrapper.client
+
+                    # Should be the same instance
+                    assert client1 is client2
+        finally:
+            import os
+            os.unlink(config_path)
+
 
 class TestS3Client:
     """Test S3Client class"""
