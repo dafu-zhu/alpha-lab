@@ -4,6 +4,7 @@ import logging
 import os
 from dotenv import load_dotenv
 from botocore.exceptions import ClientError
+from quantdl.storage.exceptions import NoSuchKeyError
 from quantdl.storage.s3_client import S3Client
 from typing import Optional
 from quantdl.utils.logger import setup_logger
@@ -131,8 +132,8 @@ class Validator:
                 Key = s3_key
             )
             return True
-        except ClientError as error:
-            if error.response.get('Error', {}).get('Code') == '404':
+        except (ClientError, NoSuchKeyError) as error:
+            if error.response.get('Error', {}).get('Code') in ('404', 'NoSuchKey'):
                 return False
             else:
                 self.logger.error(f'Error checking {s3_key}: {error}')
@@ -179,8 +180,8 @@ class Validator:
         try:
             self.s3_client.head_object(Bucket="us-equity-datalake", Key=s3_key)
             return True
-        except ClientError as error:
-            if error.response.get('Error', {}).get('Code') == '404':
+        except (ClientError, NoSuchKeyError) as error:
+            if error.response.get('Error', {}).get('Code') in ('404', 'NoSuchKey'):
                 return False
             self.logger.error(f"Error checking {s3_key}: {error}")
             return False

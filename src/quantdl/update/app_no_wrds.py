@@ -20,6 +20,7 @@ import requests
 import polars as pl
 from dotenv import load_dotenv
 from botocore.exceptions import ClientError
+from quantdl.storage.exceptions import NoSuchKeyError
 import time
 from threading import Semaphore
 
@@ -432,7 +433,7 @@ class DailyUpdateAppNoWRDS:
                         new_df
                     ]).sort('timestamp')
 
-                except ClientError as e:
+                except (ClientError, NoSuchKeyError) as e:
                     if e.response['Error']['Code'] == 'NoSuchKey':
                         updated_df = new_df  # File doesn't exist yet - OK
                     else:

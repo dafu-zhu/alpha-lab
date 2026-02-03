@@ -7,18 +7,35 @@ from quantdl.storage.config_loader import UploadConfig
 
 load_dotenv()
 
+
 class S3Client:
     """
-    Load config with config_path
-    Returns a S3 client instance by calling 'create' method
-    """
-    def __init__(self, config_path: str="configs/storage.yaml"):
-        self.config = UploadConfig(config_path)
-        self.boto_config = self._create_boto_config()
+    Storage client factory that returns either boto3 S3 client or LocalStorageClient
+    based on STORAGE_BACKEND environment variable.
 
-        # Load key and secrets from .env
-        self.aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID')
-        self.aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+    Environment variables:
+        STORAGE_BACKEND: 'local' for filesystem, 's3' (default) for AWS S3
+        LOCAL_STORAGE_PATH: Required when STORAGE_BACKEND=local, path to storage root
+    """
+    def __init__(self, config_path: str = "configs/storage.yaml"):
+        self.config = UploadConfig(config_path)
+
+        # Check storage backend
+        self._backend = os.getenv('STORAGE_BACKEND', 's3').lower()
+        self._local_path = os.getenv('LOCAL_STORAGE_PATH')
+
+        if self._backend == 'local':
+            if not self._local_path:
+                raise ValueError(
+                    "LOCAL_STORAGE_PATH environment variable required when "
+                    "STORAGE_BACKEND=local"
+                )
+            self._local_client = None
+        else:
+            self.boto_config = self._create_boto_config()
+            # Load key and secrets from .env
+            self.aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID')
+            self.aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY')
 
     def _create_boto_config(self) -> Config:
         """
@@ -83,9 +100,26 @@ class S3Client:
     
     @property
     def client(self):
+        """
+        Return storage client based on configured backend.
+
+        For STORAGE_BACKEND=local: Returns LocalStorageClient
+        For STORAGE_BACKEND=s3 (default): Returns boto3 S3 client
+        """
+        if self._backend == 'local':
+            if self._local_client is None:
+                from quantdl.storage.local_client import LocalStorageClient
+                self._local_client = LocalStorageClient(self._local_path)
+            return self._local_client
+
         return boto3.client(
-            's3', 
+            's3',
             config=self.boto_config,
             aws_access_key_id=self.aws_access_key_id,
-            aws_secret_access_key=self.aws_secret_access_key 
+            aws_secret_access_key=self.aws_secret_access_key
         )
+
+    @property
+    def is_local(self) -> bool:
+        """Return True if using local filesystem storage backend."""
+        return self._backend == 'local'

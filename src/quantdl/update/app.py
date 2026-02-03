@@ -20,6 +20,7 @@ import requests
 import polars as pl
 from dotenv import load_dotenv
 from botocore.exceptions import ClientError
+from quantdl.storage.exceptions import NoSuchKeyError
 import time
 from threading import Semaphore
 
@@ -499,7 +500,7 @@ class DailyUpdateApp:
                             Key=s3_key
                         )
                         monthly_dfs.append(pl.read_parquet(response['Body']))
-                    except ClientError as e:
+                    except (ClientError, NoSuchKeyError) as e:
                         if e.response['Error']['Code'] == 'NoSuchKey':
                             # Month file doesn't exist, skip
                             continue
@@ -541,7 +542,7 @@ class DailyUpdateApp:
                     )
                     # Append new year data
                     combined_df = pl.concat([history_df, year_df]).sort('timestamp')
-                except ClientError as e:
+                except (ClientError, NoSuchKeyError) as e:
                     if e.response['Error']['Code'] == 'NoSuchKey':
                         # No history file yet, use year data only
                         combined_df = year_df

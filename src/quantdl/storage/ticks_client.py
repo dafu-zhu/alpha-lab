@@ -13,6 +13,7 @@ from typing import Optional, Dict, Tuple
 import polars as pl
 import logging
 from botocore.exceptions import ClientError
+from quantdl.storage.exceptions import NoSuchKeyError
 
 from quantdl.master.security_master import SecurityMaster
 
@@ -117,7 +118,7 @@ class TicksClient:
 
             return df
 
-        except ClientError as e:
+        except (ClientError, NoSuchKeyError) as e:
             if e.response['Error']['Code'] == 'NoSuchKey':
                 raise ValueError(
                     f"No historical data found for {symbol} (security_id={security_id}). "
@@ -205,7 +206,7 @@ class TicksClient:
 
             return df
 
-        except ClientError as e:
+        except (ClientError, NoSuchKeyError) as e:
             if e.response['Error']['Code'] == 'NoSuchKey':
                 raise ValueError(
                     f"No historical data found for security_id={security_id}. "
@@ -244,7 +245,7 @@ class TicksClient:
                     Key=s3_key
                 )
                 monthly_dfs.append(pl.read_parquet(response['Body']))
-            except ClientError as e:
+            except (ClientError, NoSuchKeyError) as e:
                 if e.response['Error']['Code'] == 'NoSuchKey':
                     # Month doesn't exist, skip
                     self.logger.debug(f"Month file not found: {s3_key}")

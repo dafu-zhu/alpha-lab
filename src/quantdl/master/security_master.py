@@ -12,10 +12,12 @@ import logging
 import io
 import pyarrow.parquet as pq
 
+from botocore.exceptions import ClientError
 from quantdl.utils.logger import setup_logger
 from quantdl.universe.current import fetch_all_stocks
 from quantdl.utils.wrds import raw_sql_with_retry
 from quantdl.storage.rate_limiter import RateLimiter
+from quantdl.storage.exceptions import NoSuchKeyError
 
 load_dotenv()
 
@@ -534,7 +536,9 @@ class SecurityMaster:
 
         Schema: (security_id, permno, symbol, cik, start_date, end_date)
         """
-        assert self.cik_cusip is not None, "cik_cusip not initialized (loaded from S3?)"
+        # When loaded from S3, master_tb already contains the security_map result
+        if self.cik_cusip is None:
+            return self.master_tb
 
         # Step 1: Group by (permno, symbol) to collect ALL CIKs for each symbol period
         # This handles the case where the same symbol has multiple overlapping CIK records
@@ -1152,8 +1156,11 @@ class SecurityMaster:
             prev_date = data.get('date')
             self.logger.info(f"Loaded prev_universe: {len(prev_universe)} tickers from {prev_date}")
             return prev_universe, prev_date
-        except s3_client.exceptions.NoSuchKey:
-            self.logger.info("No prev_universe found, will bootstrap from current Nasdaq list")
+        except (ClientError, NoSuchKeyError) as e:
+            if e.response.get('Error', {}).get('Code') == 'NoSuchKey':
+                self.logger.info("No prev_universe found, will bootstrap from current Nasdaq list")
+                return set(), None
+            self.logger.warning(f"Failed to load prev_universe: {e}, bootstrapping")
             return set(), None
         except Exception as e:
             self.logger.warning(f"Failed to load prev_universe: {e}, bootstrapping")
