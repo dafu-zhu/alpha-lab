@@ -9,8 +9,8 @@ import os
 from pathlib import Path
 from unittest.mock import Mock, MagicMock, patch
 from botocore.exceptions import ClientError
-from quantdl.storage.s3_client import S3Client
-from quantdl.storage.validation import Validator
+from quantdl.storage.clients import S3Client
+from quantdl.storage.pipeline import Validator
 
 
 @pytest.mark.integration

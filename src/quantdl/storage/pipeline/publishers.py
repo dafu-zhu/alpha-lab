@@ -22,7 +22,7 @@ import requests
 import polars as pl
 from boto3.s3.transfer import TransferConfig
 from botocore.exceptions import ClientError
-from quantdl.storage.exceptions import NoSuchKeyError
+from quantdl.storage.utils import NoSuchKeyError
 from dotenv import load_dotenv
 
 load_dotenv()

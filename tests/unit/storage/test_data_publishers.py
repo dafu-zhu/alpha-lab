@@ -14,7 +14,7 @@ import requests
 
 
 def _make_publisher():
-    from quantdl.storage.data_publishers import DataPublishers
+    from quantdl.storage.pipeline import DataPublishers
 
     s3_client = Mock()
     upload_config = SimpleNamespace(transfer={})

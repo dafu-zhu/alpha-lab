@@ -7,7 +7,7 @@ import json
 from unittest.mock import Mock, patch
 from botocore.exceptions import ClientError
 
-from quantdl.storage.progress_tracker import UploadProgressTracker
+from quantdl.storage.utils import UploadProgressTracker
 
 
 class TestUploadProgressTracker:

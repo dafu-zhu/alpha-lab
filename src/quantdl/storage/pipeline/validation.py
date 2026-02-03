@@ -4,7 +4,7 @@ import logging
 import os
 from dotenv import load_dotenv
 from botocore.exceptions import ClientError
-from quantdl.storage.s3_client import S3Client
+from quantdl.storage.clients import S3Client
 from typing import Optional
 from quantdl.utils.logger import setup_logger
 

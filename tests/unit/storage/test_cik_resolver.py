@@ -7,7 +7,7 @@ from unittest.mock import Mock
 
 import polars as pl
 
-from quantdl.storage.cik_resolver import CIKResolver
+from quantdl.storage.utils import CIKResolver
 
 
 class TestCIKResolver:

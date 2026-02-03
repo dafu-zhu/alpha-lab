@@ -7,7 +7,7 @@ import tempfile
 import yaml
 from unittest.mock import patch
 from pathlib import Path
-from quantdl.storage.config_loader import UploadConfig
+from quantdl.storage.utils import UploadConfig
 
 
 class TestUploadConfig:

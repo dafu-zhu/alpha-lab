@@ -4,17 +4,23 @@ Sentiment upload handler.
 Handles parallel SEC fetches + sequential GPU inference for sentiment analysis.
 """
 
+from __future__ import annotations
+
 import io
 import time
 import logging
 import threading
 from queue import Queue, Empty
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Tuple, Optional, Any
+from typing import TYPE_CHECKING, Dict, List, Tuple, Optional, Any
 
 from tqdm import tqdm
 
-from quantdl.storage.rate_limiter import RateLimiter
+from quantdl.storage.utils import RateLimiter
+
+if TYPE_CHECKING:
+    from quantdl.storage.utils import CIKResolver
+    from quantdl.universe.manager import UniverseManager
 
 
 class SentimentHandler:
@@ -31,8 +37,8 @@ class SentimentHandler:
         self,
         s3_client,
         bucket: str,
-        cik_resolver,
-        universe_manager,
+        cik_resolver: CIKResolver,
+        universe_manager: UniverseManager,
         logger: logging.Logger
     ):
         self.s3_client = s3_client

@@ -8,7 +8,7 @@ from pathlib import Path
 import tempfile
 import yaml
 
-from quantdl.storage.local_client import LocalStorageClient
+from quantdl.storage.clients import LocalStorageClient
 
 
 class TestS3ClientBackendSelection:
@@ -16,7 +16,7 @@ class TestS3ClientBackendSelection:
 
     def test_local_backend_returns_local_storage_client(self, tmp_path):
         """Test STORAGE_BACKEND=local returns LocalStorageClient"""
-        from quantdl.storage.s3_client import S3Client
+        from quantdl.storage.clients import S3Client
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
             config = {'client': {'region_name': 'us-east-1'}}
@@ -24,7 +24,7 @@ class TestS3ClientBackendSelection:
             config_path = f.name
 
         try:
-            with patch('quantdl.storage.s3_client.UploadConfig') as mock_config_class:
+            with patch('quantdl.storage.clients.s3.UploadConfig') as mock_config_class:
                 mock_config_instance = Mock()
                 mock_config_instance.client = config['client']
                 mock_config_class.return_value = mock_config_instance
@@ -44,7 +44,7 @@ class TestS3ClientBackendSelection:
 
     def test_local_backend_requires_path(self):
         """Test STORAGE_BACKEND=local raises error without LOCAL_STORAGE_PATH"""
-        from quantdl.storage.s3_client import S3Client
+        from quantdl.storage.clients import S3Client
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
             config = {'client': {'region_name': 'us-east-1'}}
@@ -52,7 +52,7 @@ class TestS3ClientBackendSelection:
             config_path = f.name
 
         try:
-            with patch('quantdl.storage.s3_client.UploadConfig') as mock_config_class:
+            with patch('quantdl.storage.clients.s3.UploadConfig') as mock_config_class:
                 mock_config_instance = Mock()
                 mock_config_instance.client = config['client']
                 mock_config_class.return_value = mock_config_instance
@@ -70,10 +70,10 @@ class TestS3ClientBackendSelection:
             import os
             os.unlink(config_path)
 
-    @patch('quantdl.storage.s3_client.boto3.client')
+    @patch('quantdl.storage.clients.s3.boto3.client')
     def test_s3_backend_is_default(self, mock_boto_client):
         """Test default backend is S3 when STORAGE_BACKEND not set"""
-        from quantdl.storage.s3_client import S3Client
+        from quantdl.storage.clients import S3Client
 
         mock_client_instance = Mock()
         mock_boto_client.return_value = mock_client_instance
@@ -84,7 +84,7 @@ class TestS3ClientBackendSelection:
             config_path = f.name
 
         try:
-            with patch('quantdl.storage.s3_client.UploadConfig') as mock_config_class:
+            with patch('quantdl.storage.clients.s3.UploadConfig') as mock_config_class:
                 mock_config_instance = Mock()
                 mock_config_instance.client = config['client']
                 mock_config_class.return_value = mock_config_instance
@@ -108,7 +108,7 @@ class TestS3ClientBackendSelection:
 
     def test_local_client_is_cached(self, tmp_path):
         """Test LocalStorageClient is cached after first access"""
-        from quantdl.storage.s3_client import S3Client
+        from quantdl.storage.clients import S3Client
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
             config = {'client': {'region_name': 'us-east-1'}}
@@ -116,7 +116,7 @@ class TestS3ClientBackendSelection:
             config_path = f.name
 
         try:
-            with patch('quantdl.storage.s3_client.UploadConfig') as mock_config_class:
+            with patch('quantdl.storage.clients.s3.UploadConfig') as mock_config_class:
                 mock_config_instance = Mock()
                 mock_config_instance.client = config['client']
                 mock_config_class.return_value = mock_config_instance
@@ -141,11 +141,11 @@ class TestS3ClientBackendSelection:
 class TestS3Client:
     """Test S3Client class"""
 
-    @patch.dict('os.environ', {'AWS_ACCESS_KEY_ID': 'test_key', 'AWS_SECRET_ACCESS_KEY': 'test_secret'})
-    @patch('quantdl.storage.s3_client.boto3.client')
+    @patch.dict('os.environ', {'AWS_ACCESS_KEY_ID': 'test_key', 'AWS_SECRET_ACCESS_KEY': 'test_secret', 'STORAGE_BACKEND': 's3'})
+    @patch('quantdl.storage.clients.s3.boto3.client')
     def test_create_boto_config_with_all_optional_params(self, mock_boto_client):
         """Test _create_boto_config with all optional parameters - covers lines 65, 71, 74, 77, 80"""
-        from quantdl.storage.s3_client import S3Client
+        from quantdl.storage.clients import S3Client
 
         # Create a temporary config file with all optional parameters
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
@@ -167,7 +167,7 @@ class TestS3Client:
 
         try:
             # Create S3Client with the config file
-            with patch('quantdl.storage.s3_client.UploadConfig') as mock_config_class:
+            with patch('quantdl.storage.clients.s3.UploadConfig') as mock_config_class:
                 mock_config_instance = Mock()
                 mock_config_instance.client = config['client']
                 mock_config_instance.load.return_value = config
@@ -196,11 +196,11 @@ class TestS3Client:
             import os
             os.unlink(config_path)
 
-    @patch.dict('os.environ', {'AWS_ACCESS_KEY_ID': 'test_key', 'AWS_SECRET_ACCESS_KEY': 'test_secret'})
-    @patch('quantdl.storage.s3_client.boto3.client')
+    @patch.dict('os.environ', {'AWS_ACCESS_KEY_ID': 'test_key', 'AWS_SECRET_ACCESS_KEY': 'test_secret', 'STORAGE_BACKEND': 's3'})
+    @patch('quantdl.storage.clients.s3.boto3.client')
     def test_us_east_1_regional_endpoint_parameter(self, mock_boto_client):
         """Test us_east_1_regional_endpoint parameter - covers line 65"""
-        from quantdl.storage.s3_client import S3Client
+        from quantdl.storage.clients import S3Client
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
             config = {
@@ -215,7 +215,7 @@ class TestS3Client:
             config_path = f.name
 
         try:
-            with patch('quantdl.storage.s3_client.UploadConfig') as mock_config_class:
+            with patch('quantdl.storage.clients.s3.UploadConfig') as mock_config_class:
                 mock_config_instance = Mock()
                 mock_config_instance.client = config['client']
                 mock_config_instance.load.return_value = config
@@ -233,11 +233,11 @@ class TestS3Client:
             import os
             os.unlink(config_path)
 
-    @patch.dict('os.environ', {'AWS_ACCESS_KEY_ID': 'test_key', 'AWS_SECRET_ACCESS_KEY': 'test_secret'})
-    @patch('quantdl.storage.s3_client.boto3.client')
+    @patch.dict('os.environ', {'AWS_ACCESS_KEY_ID': 'test_key', 'AWS_SECRET_ACCESS_KEY': 'test_secret', 'STORAGE_BACKEND': 's3'})
+    @patch('quantdl.storage.clients.s3.boto3.client')
     def test_request_min_compression_size_bytes_parameter(self, mock_boto_client):
         """Test request_min_compression_size_bytes parameter - covers line 71"""
-        from quantdl.storage.s3_client import S3Client
+        from quantdl.storage.clients import S3Client
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
             config = {
@@ -250,7 +250,7 @@ class TestS3Client:
             config_path = f.name
 
         try:
-            with patch('quantdl.storage.s3_client.UploadConfig') as mock_config_class:
+            with patch('quantdl.storage.clients.s3.UploadConfig') as mock_config_class:
                 mock_config_instance = Mock()
                 mock_config_instance.client = config['s3']
                 mock_config_instance.load.return_value = config
@@ -268,11 +268,11 @@ class TestS3Client:
             import os
             os.unlink(config_path)
 
-    @patch.dict('os.environ', {'AWS_ACCESS_KEY_ID': 'test_key', 'AWS_SECRET_ACCESS_KEY': 'test_secret'})
-    @patch('quantdl.storage.s3_client.boto3.client')
+    @patch.dict('os.environ', {'AWS_ACCESS_KEY_ID': 'test_key', 'AWS_SECRET_ACCESS_KEY': 'test_secret', 'STORAGE_BACKEND': 's3'})
+    @patch('quantdl.storage.clients.s3.boto3.client')
     def test_disable_request_compression_parameter(self, mock_boto_client):
         """Test disable_request_compression parameter - covers line 74"""
-        from quantdl.storage.s3_client import S3Client
+        from quantdl.storage.clients import S3Client
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
             config = {
@@ -285,7 +285,7 @@ class TestS3Client:
             config_path = f.name
 
         try:
-            with patch('quantdl.storage.s3_client.UploadConfig') as mock_config_class:
+            with patch('quantdl.storage.clients.s3.UploadConfig') as mock_config_class:
                 mock_config_instance = Mock()
                 mock_config_instance.client = config['s3']
                 mock_config_instance.load.return_value = config
@@ -303,11 +303,11 @@ class TestS3Client:
             import os
             os.unlink(config_path)
 
-    @patch.dict('os.environ', {'AWS_ACCESS_KEY_ID': 'test_key', 'AWS_SECRET_ACCESS_KEY': 'test_secret'})
-    @patch('quantdl.storage.s3_client.boto3.client')
+    @patch.dict('os.environ', {'AWS_ACCESS_KEY_ID': 'test_key', 'AWS_SECRET_ACCESS_KEY': 'test_secret', 'STORAGE_BACKEND': 's3'})
+    @patch('quantdl.storage.clients.s3.boto3.client')
     def test_request_checksum_calculation_parameter(self, mock_boto_client):
         """Test request_checksum_calculation parameter - covers line 77"""
-        from quantdl.storage.s3_client import S3Client
+        from quantdl.storage.clients import S3Client
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
             config = {
@@ -320,7 +320,7 @@ class TestS3Client:
             config_path = f.name
 
         try:
-            with patch('quantdl.storage.s3_client.UploadConfig') as mock_config_class:
+            with patch('quantdl.storage.clients.s3.UploadConfig') as mock_config_class:
                 mock_config_instance = Mock()
                 mock_config_instance.client = config['s3']
                 mock_config_instance.load.return_value = config
@@ -338,11 +338,11 @@ class TestS3Client:
             import os
             os.unlink(config_path)
 
-    @patch.dict('os.environ', {'AWS_ACCESS_KEY_ID': 'test_key', 'AWS_SECRET_ACCESS_KEY': 'test_secret'})
-    @patch('quantdl.storage.s3_client.boto3.client')
+    @patch.dict('os.environ', {'AWS_ACCESS_KEY_ID': 'test_key', 'AWS_SECRET_ACCESS_KEY': 'test_secret', 'STORAGE_BACKEND': 's3'})
+    @patch('quantdl.storage.clients.s3.boto3.client')
     def test_response_checksum_validation_parameter(self, mock_boto_client):
         """Test response_checksum_validation parameter - covers line 80"""
-        from quantdl.storage.s3_client import S3Client
+        from quantdl.storage.clients import S3Client
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
             config = {
@@ -355,7 +355,7 @@ class TestS3Client:
             config_path = f.name
 
         try:
-            with patch('quantdl.storage.s3_client.UploadConfig') as mock_config_class:
+            with patch('quantdl.storage.clients.s3.UploadConfig') as mock_config_class:
                 mock_config_instance = Mock()
                 mock_config_instance.client = config['s3']
                 mock_config_instance.load.return_value = config
@@ -373,11 +373,11 @@ class TestS3Client:
             import os
             os.unlink(config_path)
 
-    @patch.dict('os.environ', {'AWS_ACCESS_KEY_ID': 'test_key', 'AWS_SECRET_ACCESS_KEY': 'test_secret'})
-    @patch('quantdl.storage.s3_client.boto3.client')
+    @patch.dict('os.environ', {'AWS_ACCESS_KEY_ID': 'test_key', 'AWS_SECRET_ACCESS_KEY': 'test_secret', 'STORAGE_BACKEND': 's3'})
+    @patch('quantdl.storage.clients.s3.boto3.client')
     def test_client_property_returns_boto_client(self, mock_boto_client):
         """Test client property returns boto3 S3 client"""
-        from quantdl.storage.s3_client import S3Client
+        from quantdl.storage.clients import S3Client
 
         mock_client_instance = Mock()
         mock_boto_client.return_value = mock_client_instance
@@ -388,7 +388,7 @@ class TestS3Client:
             config_path = f.name
 
         try:
-            with patch('quantdl.storage.s3_client.UploadConfig') as mock_config_class:
+            with patch('quantdl.storage.clients.s3.UploadConfig') as mock_config_class:
                 mock_config_instance = Mock()
                 mock_config_instance.client = config['s3']
                 mock_config_instance.load.return_value = config

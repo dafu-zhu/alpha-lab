@@ -490,7 +490,7 @@ class TestUploadApp:
         executor.__exit__ = Mock(return_value=False)
         executor.submit = Mock(return_value=futures[0])
 
-        with patch('quantdl.storage.app.ThreadPoolExecutor', return_value=executor):
+        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
             with patch('quantdl.storage.app.as_completed', return_value=futures):
                 app.upload_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
 
@@ -510,7 +510,7 @@ class TestUploadApp:
         executor.__exit__ = Mock(return_value=False)
         executor.submit = Mock(return_value=future)
 
-        with patch('quantdl.storage.app.ThreadPoolExecutor', return_value=executor):
+        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
             with patch('quantdl.storage.app.as_completed', return_value=[future]):
                 app.upload_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
 
@@ -528,7 +528,7 @@ class TestUploadApp:
         executor.__exit__ = Mock(return_value=False)
         executor.submit = Mock(return_value=future)
 
-        with patch('quantdl.storage.app.ThreadPoolExecutor', return_value=executor):
+        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
             with patch('quantdl.storage.app.as_completed', return_value=[future]):
                 app.upload_ttm_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
 
@@ -548,7 +548,7 @@ class TestUploadApp:
         executor.__exit__ = Mock(return_value=False)
         executor.submit = Mock(return_value=future)
 
-        with patch('quantdl.storage.app.ThreadPoolExecutor', return_value=executor):
+        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
             with patch('quantdl.storage.app.as_completed', return_value=[future]):
                 app.upload_derived_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
 
@@ -705,7 +705,7 @@ class TestUploadApp:
         executor.__exit__ = Mock(return_value=False)
         executor.submit = Mock(return_value=future)
 
-        with patch('quantdl.storage.app.ThreadPoolExecutor', return_value=executor):
+        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
             with patch('quantdl.storage.app.as_completed', return_value=[future]):
                 app.upload_derived_fundamental("2024-01-01", "2025-12-31", max_workers=1, overwrite=False)
 
@@ -1118,7 +1118,7 @@ class TestUploadApp:
         executor.__exit__ = Mock(return_value=False)
         executor.submit = Mock(side_effect=[future1, future2])
 
-        with patch('quantdl.storage.app.ThreadPoolExecutor', return_value=executor):
+        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
             with patch('quantdl.storage.app.as_completed', return_value=[future1, future2]):
                 app.upload_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
 
@@ -1152,7 +1152,7 @@ class TestUploadApp:
         executor.__exit__ = Mock(return_value=False)
         executor.submit = Mock(return_value=future)
 
-        with patch('quantdl.storage.app.ThreadPoolExecutor', return_value=executor):
+        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
             with patch('quantdl.storage.app.as_completed', return_value=[future]):
                 app.upload_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
 
@@ -1178,7 +1178,7 @@ class TestUploadApp:
         executor.__exit__ = Mock(return_value=False)
         executor.submit = Mock(return_value=future)
 
-        with patch('quantdl.storage.app.ThreadPoolExecutor', return_value=executor):
+        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
             with patch('quantdl.storage.app.as_completed', return_value=[future] * 10):
                 app.upload_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
 
@@ -1205,7 +1205,7 @@ class TestUploadApp:
         executor.__exit__ = Mock(return_value=False)
         executor.submit = Mock(return_value=future)
 
-        with patch('quantdl.storage.app.ThreadPoolExecutor', return_value=executor):
+        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
             with patch('quantdl.storage.app.as_completed', return_value=[future]):
                 app.upload_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
 
@@ -1238,7 +1238,7 @@ class TestUploadApp:
         executor.__exit__ = Mock(return_value=False)
         executor.submit = Mock(side_effect=[future1, future2])
 
-        with patch('quantdl.storage.app.ThreadPoolExecutor', return_value=executor):
+        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
             with patch('quantdl.storage.app.as_completed', return_value=[future1, future2]):
                 app.upload_ttm_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
 
@@ -1268,7 +1268,7 @@ class TestUploadApp:
         executor.__exit__ = Mock(return_value=False)
         executor.submit = Mock(side_effect=futures)
 
-        with patch('quantdl.storage.app.ThreadPoolExecutor', return_value=executor):
+        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
             with patch('quantdl.storage.app.as_completed', return_value=futures):
                 app.upload_ttm_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
 
@@ -1297,7 +1297,7 @@ class TestUploadApp:
         executor.__exit__ = Mock(return_value=False)
         executor.submit = Mock(side_effect=futures)
 
-        with patch('quantdl.storage.app.ThreadPoolExecutor', return_value=executor):
+        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
             with patch('quantdl.storage.app.as_completed', return_value=futures):
                 app.upload_derived_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
 
@@ -1394,7 +1394,7 @@ class TestUploadApp:
         executor.__exit__ = Mock(return_value=False)
         executor.submit = Mock(return_value=future)
 
-        with patch('quantdl.storage.app.ThreadPoolExecutor', return_value=executor):
+        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
             with patch('quantdl.storage.app.as_completed', return_value=[future, future, future]):
                 app.upload_fundamental("2024-01-01", "2025-12-31", max_workers=1, overwrite=False)
 
@@ -1577,7 +1577,7 @@ class TestUploadApp:
         executor.__exit__ = Mock(return_value=False)
         executor.submit = Mock(return_value=future)
 
-        with patch('quantdl.storage.app.ThreadPoolExecutor', return_value=executor):
+        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
             with patch('quantdl.storage.app.as_completed', return_value=[future]):
                 app.upload_fundamental("2024-01-01", "2025-12-31", max_workers=1, overwrite=False)
 
@@ -1603,7 +1603,7 @@ class TestUploadApp:
         executor.__exit__ = Mock(return_value=False)
         executor.submit = Mock(side_effect=[future1, future2])
 
-        with patch('quantdl.storage.app.ThreadPoolExecutor', return_value=executor):
+        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
             with patch('quantdl.storage.app.as_completed', return_value=[future1, future2]):
                 app.upload_fundamental("2024-01-01", "2024-12-31", max_workers=2, overwrite=False)
 
@@ -1629,7 +1629,7 @@ class TestUploadApp:
         executor.__exit__ = Mock(return_value=False)
         executor.submit = Mock(side_effect=[future1, future2])
 
-        with patch('quantdl.storage.app.ThreadPoolExecutor', return_value=executor):
+        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
             with patch('quantdl.storage.app.as_completed', return_value=[future1, future2]):
                 app.upload_fundamental("2024-01-01", "2024-12-31", max_workers=2, overwrite=False)
 
@@ -1661,7 +1661,7 @@ class TestUploadApp:
         executor.__exit__ = Mock(return_value=False)
         executor.submit = Mock(return_value=future)
 
-        with patch('quantdl.storage.app.ThreadPoolExecutor', return_value=executor):
+        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
             with patch('quantdl.storage.app.as_completed', return_value=[future]):
                 app.upload_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
 
@@ -1689,7 +1689,7 @@ class TestUploadApp:
         executor.__exit__ = Mock(return_value=False)
         executor.submit = Mock(return_value=future)
 
-        with patch('quantdl.storage.app.ThreadPoolExecutor', return_value=executor):
+        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
             with patch('quantdl.storage.app.as_completed', return_value=[future] * 10):
                 app.upload_ttm_fundamental("2024-01-01", "2024-12-31", max_workers=2, overwrite=False)
 
@@ -1733,7 +1733,7 @@ class TestUploadApp:
         executor.__exit__ = Mock(return_value=False)
         executor.submit = Mock(side_effect=submit_side_effect)
 
-        with patch('quantdl.storage.app.ThreadPoolExecutor', return_value=executor):
+        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
             with patch('quantdl.storage.app.as_completed', side_effect=lambda futures: futures):
                 app.upload_derived_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
 
@@ -1763,7 +1763,7 @@ class TestUploadApp:
         executor.__exit__ = Mock(return_value=False)
         executor.submit = Mock(return_value=future)
 
-        with patch('quantdl.storage.app.ThreadPoolExecutor', return_value=executor):
+        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
             with patch('quantdl.storage.app.as_completed', return_value=[future] * 10):
                 app.upload_derived_fundamental("2024-01-01", "2024-12-31", max_workers=2, overwrite=False)
 
@@ -1937,7 +1937,7 @@ class TestUploadApp:
         executor.__exit__ = Mock(return_value=False)
         executor.submit = Mock(return_value=future)
 
-        with patch('quantdl.storage.app.ThreadPoolExecutor', return_value=executor):
+        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
             with patch('quantdl.storage.app.as_completed', return_value=[future]):
                 app.upload_ttm_fundamental("2024-01-01", "2025-12-31", max_workers=1, overwrite=False)
 
