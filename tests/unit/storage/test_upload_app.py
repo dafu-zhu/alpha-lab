@@ -1,28 +1,34 @@
 """
 Unit tests for storage.app module
-Focus on upload flows with injected dependencies
+Focus on UploadApp initialization and handler delegation
 """
 import pytest
-from unittest.mock import Mock, patch
-from itertools import cycle
+from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
 import datetime as dt
 import logging
-import queue
-import threading
+import os
 import polars as pl
 from botocore.exceptions import ClientError
 
 
 def _make_app():
+    """Create a minimal mock UploadApp for testing."""
     from quantdl.storage.app import UploadApp
 
     app = UploadApp.__new__(UploadApp)
     app.logger = Mock()
-    # Mock S3 client - simulate no progress file exists (fresh start)
+
+    # Mock S3 client - simulate no progress file exists
     app.client = Mock()
     error_response = {'Error': {'Code': 'NoSuchKey', 'Message': 'Not Found'}}
     app.client.get_object.side_effect = ClientError(error_response, 'GetObject')
+
+    # Mock config
+    app.config = Mock()
+    app.config.bucket = 'test-bucket'
+
+    # Mock dependencies
     app.validator = Mock()
     app.data_collectors = Mock()
     app.data_publishers = Mock()
@@ -32,12 +38,21 @@ def _make_app():
     app.cik_resolver = Mock()
     app.sec_rate_limiter = Mock()
     app.crsp_ticks = Mock()
-    app._wrds_available = True  # Mock WRDS availability
     app.security_master = Mock()
+    app._wrds_available = True
+    app._alpaca_start_year = 2025
+    app.headers = {
+        "APCA-API-KEY-ID": "test_key",
+        "APCA-API-SECRET-KEY": "test_secret"
+    }
+    app.alpaca_ticks = Mock()
+
     return app
 
 
-class TestUploadApp:
+class TestUploadAppInitialization:
+    """Test UploadApp constructor and initialization."""
+
     @patch('quantdl.storage.app.DataPublishers')
     @patch('quantdl.storage.app.DataCollectors')
     @patch('quantdl.storage.app.CIKResolver')
@@ -106,1861 +121,425 @@ class TestUploadApp:
         assert app.headers["APCA-API-KEY-ID"] == "test_key"
         assert app.headers["APCA-API-SECRET-KEY"] == "test_secret"
 
-    def test_upload_daily_ticks_success_monthly(self):
-        """Test upload with monthly partitions (default behavior)"""
+
+class TestUploadAppDailyTicks:
+    """Test daily ticks upload delegation to handler."""
+
+    def test_upload_daily_ticks_delegates_to_handler(self):
+        """Test upload_daily_ticks creates handler and calls upload_year."""
         app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT"]
-        app.validator.data_exists.return_value = False
+        mock_handler = Mock()
+        mock_handler.upload_year.return_value = None
 
-        df = pl.DataFrame({
-            "timestamp": ["2024-06-30"],
-            "open": [190.0],
-            "high": [195.0],
-            "low": [189.0],
-            "close": [193.0],
-            "volume": [50000000]
-        })
-        app.data_collectors.collect_daily_ticks_month.return_value = df
-        app.data_publishers.publish_daily_ticks.return_value = {
-            "status": "success",
-            "error": None
-        }
+        with patch.object(app, '_get_daily_ticks_handler', return_value=mock_handler):
+            result = app.upload_daily_ticks(
+                year=2024,
+                overwrite=True,
+                chunk_size=100,
+                sleep_time=0.5,
+                current_year=2024
+            )
 
-        result = app.upload_daily_ticks(2024, use_monthly_partitions=True, current_year=2024)
-
+        mock_handler.upload_year.assert_called_once_with(
+            year=2024,
+            overwrite=True,
+            chunk_size=100,
+            sleep_time=0.5,
+            current_year=2024
+        )
         assert result is None
-        # Should be called for 2 symbols × 12 months = 24 times
-        assert app.data_collectors.collect_daily_ticks_month.call_count == 24
-        assert app.data_publishers.publish_daily_ticks.call_count == 24
 
-    def test_upload_daily_ticks_success_yearly(self):
-        """Test upload with yearly partitions (legacy)"""
+    def test_upload_daily_ticks_default_params(self):
+        """Test upload_daily_ticks uses default parameters."""
         app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT"]
-        app.validator.data_exists.return_value = False
+        mock_handler = Mock()
 
-        df = pl.DataFrame({
-            "timestamp": ["2024-06-30"],
-            "open": [190.0],
-            "high": [195.0],
-            "low": [189.0],
-            "close": [193.0],
-            "volume": [50000000]
-        })
-        app.data_collectors.collect_daily_ticks_year.return_value = df
-        app.data_publishers.publish_daily_ticks.return_value = {
-            "status": "success",
-            "error": None
-        }
+        with patch.object(app, '_get_daily_ticks_handler', return_value=mock_handler):
+            app.upload_daily_ticks(year=2024)
 
-        result = app.upload_daily_ticks(2024, use_monthly_partitions=False)
-
-        assert result is None
-        assert app.data_collectors.collect_daily_ticks_year.call_count == 2
-        assert app.data_publishers.publish_daily_ticks.call_count == 2
-
-    def test_upload_daily_ticks_by_year(self):
-        """Test upload with monthly partitions using by_year publishing."""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT"]
-        app.validator.data_exists.return_value = False
-        app.data_collectors.collect_daily_ticks_year_bulk.return_value = {}
-        app.data_publishers.publish_daily_ticks.return_value = {
-            "status": "success",
-            "error": None
-        }
-
-        result = app.upload_daily_ticks(2024, use_monthly_partitions=True, by_year=True, current_year=2024)
-
-        assert result is None
-        app.data_collectors.collect_daily_ticks_year_bulk.assert_called_once_with(["AAPL", "MSFT"], 2024)
-        assert app.data_publishers.publish_daily_ticks.call_count == 2
-        app.data_collectors.collect_daily_ticks_month.assert_not_called()
-        app.data_collectors.collect_daily_ticks_year.assert_not_called()
-
-    def test_upload_daily_ticks_yearly_crsp_failed_status_counts(self):
-        """Yearly CRSP path handles failed status branch."""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.data_collectors.ticks_collector.alpaca_start_year = 2025
-        app.validator.data_exists.return_value = False
-        app._publish_single_daily_ticks = Mock(return_value={"status": "failed"})
-
-        app.upload_daily_ticks(2024, use_monthly_partitions=False)
-
-        assert app._publish_single_daily_ticks.called
-
-    def test_upload_daily_ticks_monthly_alpaca_calls_bulk_with_sleep(self):
-        """Monthly Alpaca path calls bulk fetch with sleep_time."""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.validator.data_exists.return_value = False
-
-        df = pl.DataFrame({
-            "timestamp": ["2025-06-30"],
-            "open": [1.0],
-            "high": [1.1],
-            "low": [0.9],
-            "close": [1.0],
-            "volume": [100]
-        })
-        app.data_collectors.collect_daily_ticks_month_bulk.return_value = {"AAPL": df}
-        app.data_publishers.publish_daily_ticks.return_value = {"status": "failed"}
-
-        app.upload_daily_ticks(2025, use_monthly_partitions=True, by_year=False, chunk_size=1, sleep_time=0.25, current_year=2025)
-
-        calls = app.data_collectors.collect_daily_ticks_month_bulk.call_args_list
-        assert any(
-            call.args[0] == ["AAPL"]
-            and call.args[1] == 2025
-            and call.args[2] == 1
-            and call.kwargs.get("sleep_time") == 0.25
-            for call in calls
+        mock_handler.upload_year.assert_called_once_with(
+            year=2024,
+            overwrite=False,
+            chunk_size=200,
+            sleep_time=0.2,
+            current_year=None
         )
 
-    def test_upload_daily_ticks_monthly_alpaca_failed_status_counts(self):
-        """Failed status increments failed counter in monthly Alpaca path."""
+
+class TestUploadAppMinuteTicks:
+    """Test minute ticks upload delegation to handler."""
+
+    def test_upload_minute_ticks_delegates_to_handler(self):
+        """Test upload_minute_ticks creates handler and calls upload_year."""
         app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.validator.data_exists.return_value = False
-
-        df = pl.DataFrame({
-            "timestamp": ["2025-06-30"],
-            "open": [1.0],
-            "high": [1.1],
-            "low": [0.9],
-            "close": [1.0],
-            "volume": [100]
-        })
-        app.data_collectors.collect_daily_ticks_month_bulk.return_value = {"AAPL": df}
-        app.data_publishers.publish_daily_ticks.return_value = {"status": "failed"}
-
-        app.upload_daily_ticks(2025, use_monthly_partitions=True, by_year=False, chunk_size=1, current_year=2025)
-
-        info_calls = [str(call) for call in app.logger.info.call_args_list]
-        completed_logs = [
-            c for c in info_calls
-            if "completed:" in c and "1 failed" in c and "0 success" in c
-        ]
-        assert len(completed_logs) > 0
-
-    def test_upload_daily_ticks_uses_alpaca_start_year_from_collectors(self):
-        """Data source selection respects ticks_collector.alpaca_start_year."""
-        app = _make_app()
-        app.data_collectors.ticks_collector.alpaca_start_year = 2030
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.validator.data_exists.return_value = False
-        app.data_collectors.collect_daily_ticks_year_bulk.return_value = {}
-        app.data_publishers.publish_daily_ticks.return_value = {"status": "success"}
-
-        app.upload_daily_ticks(2025, use_monthly_partitions=True, by_year=True)
-
-        info_calls = [str(call) for call in app.logger.info.call_args_list]
-        source_logs = [c for c in info_calls if "source=crsp" in c]
-        assert len(source_logs) > 0
-
-    def test_upload_daily_ticks_skips_existing_yearly(self):
-        """Test that existing data is skipped for yearly partitions"""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.validator.data_exists.return_value = True
-
-        result = app.upload_daily_ticks(2024, use_monthly_partitions=False)
-
-        assert result is None
-        app.data_collectors.collect_daily_ticks_year.assert_not_called()
-        app.data_publishers.publish_daily_ticks.assert_not_called()
-
-    def test_upload_daily_ticks_collection_error(self):
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.validator.data_exists.return_value = False
-        app.data_collectors.collect_daily_ticks_year.side_effect = Exception("Collection failed")
-
-        try:
-            app.upload_daily_ticks(2024)
-            assert False, "Expected exception"
-        except Exception:
-            pass
-
-    def test_upload_daily_ticks_publish_error(self):
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.validator.data_exists.return_value = False
-
-        df = pl.DataFrame({
-            "timestamp": ["2024-06-30"],
-            "open": [190.0],
-            "high": [195.0],
-            "low": [189.0],
-            "close": [193.0],
-            "volume": [50000000]
-        })
-        app.data_collectors.collect_daily_ticks_year.return_value = df
-        app.data_publishers.publish_daily_ticks.side_effect = Exception("Upload failed")
-
-        try:
-            app.upload_daily_ticks(2024)
-            assert False, "Expected exception"
-        except Exception:
-            pass
-
-    def test_publish_single_daily_ticks_skips_existing_yearly(self):
-        """Test that existing data is skipped for yearly partitions"""
-        app = _make_app()
-        app.validator.data_exists.return_value = True
-
-        result = app._publish_single_daily_ticks("AAPL", 2024, overwrite=False, use_monthly_partitions=False)
-
-        assert result["status"] == "canceled"
-        app.data_collectors.collect_daily_ticks_year.assert_not_called()
-        app.data_publishers.publish_daily_ticks.assert_not_called()
-
-    def test_publish_single_daily_ticks_skips_existing_monthly(self):
-        """Test that existing data is skipped for monthly partitions"""
-        app = _make_app()
-        app.validator.data_exists.return_value = True
-
-        result = app._publish_single_daily_ticks("AAPL", 2024, month=6, overwrite=False, use_monthly_partitions=True)
-
-        assert result["status"] == "canceled"
-        app.data_collectors.collect_daily_ticks_month.assert_not_called()
-        app.data_publishers.publish_daily_ticks.assert_not_called()
-
-    def test_publish_single_daily_ticks_success_yearly(self):
-        """Test successful publish with yearly partition"""
-        app = _make_app()
-        app.validator.data_exists.return_value = False
-        df = pl.DataFrame({
-            "timestamp": ["2024-06-30"],
-            "open": [190.0],
-            "high": [195.0],
-            "low": [189.0],
-            "close": [193.0],
-            "volume": [50000000]
-        })
-        app.data_collectors.collect_daily_ticks_year.return_value = df
-        app.data_publishers.publish_daily_ticks.return_value = {"status": "success"}
-
-        result = app._publish_single_daily_ticks("AAPL", 2024, overwrite=False, use_monthly_partitions=False)
-
-        assert result["status"] == "success"
-        app.data_collectors.collect_daily_ticks_year.assert_called_once()
-        # Check publish_daily_ticks was called (can't use assert_called_once_with due to Polars DataFrame comparison issues)
-        app.data_publishers.publish_daily_ticks.assert_called_once()
-        call_args = app.data_publishers.publish_daily_ticks.call_args
-        assert call_args[0][0] == "AAPL"  # symbol
-        assert call_args[0][1] == 2024  # year
-        # call_args[0][2] is security_id
-        # call_args[0][3] is df (can't compare directly)
-
-    def test_publish_single_daily_ticks_success_monthly(self):
-        """Test successful publish with monthly partition"""
-        app = _make_app()
-        app.validator.data_exists.return_value = False
-        df = pl.DataFrame({
-            "timestamp": ["2024-06-30"],
-            "open": [190.0],
-            "high": [195.0],
-            "low": [189.0],
-            "close": [193.0],
-            "volume": [50000000]
-        })
-        app.data_collectors.collect_daily_ticks_month.return_value = df
-        app.data_publishers.publish_daily_ticks.return_value = {"status": "success"}
-
-        result = app._publish_single_daily_ticks("AAPL", 2024, month=6, overwrite=False, use_monthly_partitions=True)
-
-        assert result["status"] == "success"
-        app.data_collectors.collect_daily_ticks_month.assert_called_once_with("AAPL", 2024, 6)
-        # Check publish_daily_ticks was called (can't use assert_called_once_with due to Polars DataFrame comparison issues)
-        app.data_publishers.publish_daily_ticks.assert_called_once()
-        call_args = app.data_publishers.publish_daily_ticks.call_args
-        assert call_args[0][0] == "AAPL"  # symbol
-        assert call_args[0][1] == 2024  # year
-        # call_args[0][2] is security_id
-        # call_args[0][3] is df (can't compare directly)
-        assert call_args[1]['month'] == 6
-
-    def test_publish_single_daily_ticks_overwrite_ignores_existing(self):
-        """Test that overwrite ignores existing check"""
-        app = _make_app()
-        app.validator.data_exists.return_value = True
-        df = pl.DataFrame({
-            "timestamp": ["2024-06-30"],
-            "open": [190.0],
-            "high": [195.0],
-            "low": [189.0],
-            "close": [193.0],
-            "volume": [50000000]
-        })
-        app.data_collectors.collect_daily_ticks_year.return_value = df
-        app.data_publishers.publish_daily_ticks.return_value = {"status": "success"}
-
-        result = app._publish_single_daily_ticks("AAPL", 2024, overwrite=True, use_monthly_partitions=False)
-
-        assert result["status"] == "success"
-        app.data_collectors.collect_daily_ticks_year.assert_called_once()
-        app.data_publishers.publish_daily_ticks.assert_called_once()
-
-    def test_upload_minute_ticks_basic_flow(self):
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.calendar.load_trading_days.return_value = ["2024-06-03"]
-        app.validator.data_exists.return_value = False
-
-        df = pl.DataFrame({
-            "timestamp": ["2024-06-03T09:30:00"],
-            "open": [1.0],
-            "high": [1.1],
-            "low": [0.9],
-            "close": [1.0],
-            "volume": [100]
-        })
-        app.data_collectors.fetch_minute_month.return_value = {"AAPL": []}
-        app.data_collectors.parse_minute_bars_to_daily.return_value = {("AAPL", "2024-06-03"): df}
-
-        def worker(data_queue, stats, stats_lock):
-            while True:
-                item = data_queue.get()
-                if item is None:
-                    break
-                with stats_lock:
-                    stats["success"] += 1
-
-        app.data_publishers.minute_ticks_worker = worker
-
-        app.upload_minute_ticks(2024, 6, overwrite=True, num_workers=1, chunk_size=1, sleep_time=0.0)
-
-    def test_upload_minute_ticks_filters_symbols_with_missing_days(self):
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT"]
-        app.calendar.load_trading_days.return_value = ["2024-06-03", "2024-06-04"]
-        # AAPL: all days exist; MSFT: missing day 04
-        app.validator.get_existing_minute_days.side_effect = [{'03', '04'}, {'03'}]
-
-        df = pl.DataFrame({
-            "timestamp": ["2024-06-03T09:30:00"],
-            "open": [1.0],
-            "high": [1.1],
-            "low": [0.9],
-            "close": [1.0],
-            "volume": [100]
-        })
-        app.data_collectors.fetch_minute_month.return_value = {"MSFT": []}
-        app.data_collectors.parse_minute_bars_to_daily.return_value = {("MSFT", "2024-06-03"): df}
-
-        def worker(data_queue, stats, stats_lock):
-            while True:
-                item = data_queue.get()
-                if item is None:
-                    break
-                with stats_lock:
-                    stats["success"] += 1
-
-        app.data_publishers.minute_ticks_worker = worker
-
-        app.upload_minute_ticks(2024, 6, overwrite=False, num_workers=1, chunk_size=2, sleep_time=0.0)
-
-        app.data_collectors.fetch_minute_month.assert_called_once_with(["MSFT"], 2024, 6, sleep_time=0.0)
-
-    def test_upload_minute_ticks_skips_all_existing(self):
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.calendar.load_trading_days.return_value = ["2024-06-03", "2024-06-04"]
-        # All days exist for AAPL
-        app.validator.get_existing_minute_days.return_value = {'03', '04'}
-        app.data_collectors.fetch_minute_month.return_value = {}
-
-        app.upload_minute_ticks(2024, 6, overwrite=False, num_workers=1, chunk_size=1, sleep_time=0.0)
-
-        app.data_collectors.fetch_minute_month.assert_not_called()
-
-    def test_upload_fundamental_success_flow(self):
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.cik_resolver.batch_prefetch_ciks.return_value = {"AAPL": "0000320193"}
-        app._process_symbol_fundamental = Mock(return_value={"status": "success"})
-
-        futures = [Mock()]
-        futures[0].result.return_value = {"status": "success"}
-
-        executor = Mock()
-        executor.__enter__ = Mock(return_value=executor)
-        executor.__exit__ = Mock(return_value=False)
-        executor.submit = Mock(return_value=futures[0])
-
-        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
-            with patch('quantdl.storage.app.as_completed', return_value=futures):
-                app.upload_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
-
-        executor.submit.assert_called_once()
-
-    def test_upload_fundamental_skipped_result(self):
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.cik_resolver.batch_prefetch_ciks.return_value = {"AAPL": "0000320193"}
-        app._process_symbol_fundamental = Mock(return_value={"status": "skipped"})
-
-        future = Mock()
-        future.result.return_value = {"status": "skipped", "symbol": "AAPL", "cik": "0000320193"}
-
-        executor = Mock()
-        executor.__enter__ = Mock(return_value=executor)
-        executor.__exit__ = Mock(return_value=False)
-        executor.submit = Mock(return_value=future)
-
-        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
-            with patch('quantdl.storage.app.as_completed', return_value=[future]):
-                app.upload_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
-
-    def test_upload_ttm_fundamental_success_flow(self):
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.cik_resolver.batch_prefetch_ciks.return_value = {"AAPL": "0000320193"}
-        app._process_symbol_ttm_fundamental = Mock(return_value={"status": "success"})
-
-        future = Mock()
-        future.result.return_value = {"status": "success"}
-
-        executor = Mock()
-        executor.__enter__ = Mock(return_value=executor)
-        executor.__exit__ = Mock(return_value=False)
-        executor.submit = Mock(return_value=future)
-
-        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
-            with patch('quantdl.storage.app.as_completed', return_value=[future]):
-                app.upload_ttm_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
-
-        executor.submit.assert_called_once()
-
-    def test_upload_derived_fundamental_success_flow(self):
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.cik_resolver.batch_prefetch_ciks.return_value = {"AAPL": "0000320193"}
-        app._process_symbol_derived_fundamental = Mock(return_value={"status": "success"})
-
-        future = Mock()
-        future.result.return_value = {"status": "success"}
-
-        executor = Mock()
-        executor.__enter__ = Mock(return_value=executor)
-        executor.__exit__ = Mock(return_value=False)
-        executor.submit = Mock(return_value=future)
-
-        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
-            with patch('quantdl.storage.app.as_completed', return_value=[future]):
-                app.upload_derived_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
-
-        executor.submit.assert_called_once()
-
-    def test_process_symbol_fundamental_resolves_cik(self):
-        app = _make_app()
-        app.validator.data_exists.return_value = False
-        app.cik_resolver.get_cik.return_value = "0000320193"
-        app.data_publishers.publish_fundamental.return_value = {"status": "success"}
-
-        result = app._process_symbol_fundamental("AAPL", "2024-01-01", "2024-12-31", overwrite=False, cik=None)
-
-        assert result["status"] == "success"
-        app.cik_resolver.get_cik.assert_called_once()
-        app.data_publishers.publish_fundamental.assert_called_once()
-
-    def test_process_symbol_fundamental_uses_provided_cik(self):
-        app = _make_app()
-        app.validator.data_exists.return_value = True
-        app.data_publishers.publish_fundamental.return_value = {"status": "success"}
-
-        result = app._process_symbol_fundamental("AAPL", "2024-01-01", "2024-12-31", overwrite=False, cik="0000320193")
-
-        assert result["status"] == "success"
-        app.cik_resolver.get_cik.assert_not_called()
-        app.data_publishers.publish_fundamental.assert_called_once()
-
-    def test_process_symbol_ttm_fundamental_resolves_cik(self):
-        app = _make_app()
-        app.validator.data_exists.return_value = False
-        app.cik_resolver.get_cik.return_value = "0000320193"
-        app.data_publishers.publish_ttm_fundamental.return_value = {"status": "success"}
-
-        result = app._process_symbol_ttm_fundamental("AAPL", "2024-01-01", "2024-12-31", overwrite=False, cik=None)
-
-        assert result["status"] == "success"
-        app.cik_resolver.get_cik.assert_called_once()
-        app.data_publishers.publish_ttm_fundamental.assert_called_once()
-
-    def test_process_symbol_ttm_fundamental_uses_provided_cik(self):
-        app = _make_app()
-        app.validator.data_exists.return_value = True
-        app.data_publishers.publish_ttm_fundamental.return_value = {"status": "success"}
-
-        result = app._process_symbol_ttm_fundamental("AAPL", "2024-01-01", "2024-12-31", overwrite=False, cik="0000320193")
-
-        assert result["status"] == "success"
-        app.cik_resolver.get_cik.assert_not_called()
-        app.data_publishers.publish_ttm_fundamental.assert_called_once()
-
-    def test_process_symbol_derived_fundamental_no_cik(self):
-        app = _make_app()
-        app.validator.data_exists.return_value = False
-        app.cik_resolver.get_cik.return_value = None
-
-        result = app._process_symbol_derived_fundamental("AAPL", "2024-01-01", "2024-12-31", overwrite=False, cik=None)
-
-        assert result["status"] == "skipped"
-
-    def test_process_symbol_derived_fundamental_empty(self):
-        app = _make_app()
-        app.validator.data_exists.return_value = False
-        app.cik_resolver.get_cik.return_value = "0000320193"
-        app.data_collectors.collect_derived_long.return_value = (pl.DataFrame(), "metrics_wide_empty")
-
-        result = app._process_symbol_derived_fundamental("AAPL", "2024-01-01", "2024-12-31", overwrite=False, cik=None)
-
-        assert result["status"] == "skipped"
-        assert "metrics_wide_empty" in result["error"]
-
-    def test_process_symbol_derived_fundamental_success(self):
-        app = _make_app()
-        app.validator.data_exists.return_value = False
-        app.cik_resolver.get_cik.return_value = "0000320193"
-        derived_df = pl.DataFrame({
-            "symbol": ["AAPL"],
-            "as_of_date": ["2024-06-30"],
-            "metric": ["net_mgn"],
-            "value": [0.1]
-        })
-        app.data_collectors.collect_derived_long.return_value = (derived_df, None)
-        app.data_publishers.publish_derived_fundamental.return_value = {"status": "success"}
-
-        result = app._process_symbol_derived_fundamental("AAPL", "2024-01-01", "2024-12-31", overwrite=False, cik=None)
-
-        assert result["status"] == "success"
-        app.data_publishers.publish_derived_fundamental.assert_called_once()
-
-    def test_upload_minute_ticks_skips_empty_frames(self):
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.calendar.load_trading_days.return_value = ["2024-06-03"]
-        app.validator.data_exists.return_value = False
-        app.data_collectors.fetch_minute_month.return_value = {"AAPL": []}
-        app.data_collectors.parse_minute_bars_to_daily.return_value = {("AAPL", "2024-06-03"): pl.DataFrame()}
-
-        processed = {"count": 0}
-
-        def worker(data_queue, stats, stats_lock):
-            while True:
-                item = data_queue.get()
-                if item is None:
-                    break
-                processed["count"] += 1
-
-        app.data_publishers.minute_ticks_worker = worker
-
-        app.upload_minute_ticks(2024, 6, overwrite=True, num_workers=1, chunk_size=1, sleep_time=0.0)
-
-        assert processed["count"] == 0
-
-    def test_upload_fundamental_no_symbols_with_cik(self):
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.cik_resolver.batch_prefetch_ciks.return_value = {}
-        app._process_symbol_fundamental = Mock()
-
-        app.upload_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
-
-        app._process_symbol_fundamental.assert_not_called()
-
-    def test_upload_ttm_fundamental_no_symbols_with_cik(self):
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.cik_resolver.batch_prefetch_ciks.return_value = {}
-        app._process_symbol_ttm_fundamental = Mock()
-
-        app.upload_ttm_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
-
-        app._process_symbol_ttm_fundamental.assert_not_called()
-
-    def test_upload_derived_fundamental_no_symbols_with_cik(self):
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.cik_resolver.batch_prefetch_ciks.return_value = {}
-        app._process_symbol_derived_fundamental = Mock()
-
-        app.upload_derived_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
-
-        app._process_symbol_derived_fundamental.assert_not_called()
-
-    def test_upload_derived_fundamental_warns_on_empty_year(self):
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.side_effect = [[], ["AAPL"]]
-        app.cik_resolver.batch_prefetch_ciks.return_value = {"AAPL": "0000320193"}
-        app._process_symbol_derived_fundamental = Mock(return_value={"status": "success"})
-
-        future = Mock()
-        future.result.return_value = {"status": "success"}
-
-        executor = Mock()
-        executor.__enter__ = Mock(return_value=executor)
-        executor.__exit__ = Mock(return_value=False)
-        executor.submit = Mock(return_value=future)
-
-        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
-            with patch('quantdl.storage.app.as_completed', return_value=[future]):
-                app.upload_derived_fundamental("2024-01-01", "2025-12-31", max_workers=1, overwrite=False)
-
-        app.logger.warning.assert_called()
-
-    def test_upload_top_3000_monthly_success(self):
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.validator.top_3000_exists.return_value = False
-        app.calendar.load_trading_days.return_value = ["2024-06-28"]
-        app.universe_manager.get_top_3000.return_value = ["AAPL"]
-        app.data_publishers.publish_top_3000.return_value = {"status": "success"}
-
-        class FixedDate(dt.date):
-            @classmethod
-            def today(cls):
-                return cls(2024, 7, 1)
-
-        with patch('quantdl.storage.app.dt.date', FixedDate):
-            app.upload_top_3000_monthly(2024, overwrite=False, auto_resolve=True)
-
-        app.data_publishers.publish_top_3000.assert_called()
-
-    def test_upload_top_3000_monthly_no_symbols(self):
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = []
-
-        app.upload_top_3000_monthly(2024, overwrite=False, auto_resolve=True)
-
-        app.data_publishers.publish_top_3000.assert_not_called()
-
-    def test_upload_top_3000_monthly_skips_existing(self):
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.validator.top_3000_exists.return_value = True
-
-        app.upload_top_3000_monthly(2024, overwrite=False, auto_resolve=True)
-
-        app.data_publishers.publish_top_3000.assert_not_called()
-
-    def test_upload_top_3000_monthly_no_trading_days(self):
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.validator.top_3000_exists.return_value = False
-        app.calendar.load_trading_days.return_value = []
-
-        app.upload_top_3000_monthly(2024, overwrite=False, auto_resolve=True)
-
-        app.data_publishers.publish_top_3000.assert_not_called()
-
-    def test_upload_top_3000_monthly_skipped_result_logs(self):
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.validator.top_3000_exists.return_value = False
-        app.calendar.load_trading_days.return_value = ["2024-06-28"]
-        app.universe_manager.get_top_3000.return_value = ["AAPL"]
-        app.data_publishers.publish_top_3000.return_value = {"status": "skipped", "error": "No symbols"}
-
-        class FixedDate(dt.date):
-            @classmethod
-            def today(cls):
-                return cls(2024, 7, 1)
-
-        with patch('quantdl.storage.app.dt.date', FixedDate):
-            app.upload_top_3000_monthly(2024, overwrite=False, auto_resolve=True)
-
-        app.logger.warning.assert_called()
-
-    def test_upload_top_3000_monthly_failed_result_logs(self):
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.validator.top_3000_exists.return_value = False
-        app.calendar.load_trading_days.return_value = ["2024-06-28"]
-        app.universe_manager.get_top_3000.return_value = ["AAPL"]
-        app.data_publishers.publish_top_3000.return_value = {"status": "failed", "error": "boom"}
-
-        class FixedDate(dt.date):
-            @classmethod
-            def today(cls):
-                return cls(2024, 7, 1)
-
-        with patch('quantdl.storage.app.dt.date', FixedDate):
-            app.upload_top_3000_monthly(2024, overwrite=False, auto_resolve=True)
-
-        app.logger.error.assert_called()
-
-    def test_upload_top_3000_monthly_stops_future_month(self):
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.validator.top_3000_exists.return_value = False
-        app.calendar.load_trading_days.return_value = ["2025-12-31"]
-
-        class FixedDate(dt.date):
-            @classmethod
-            def today(cls):
-                return cls(2024, 7, 1)
-
-        with patch('quantdl.storage.app.dt.date', FixedDate):
-            app.upload_top_3000_monthly(2024, overwrite=False, auto_resolve=True)
-
-        app.data_publishers.publish_top_3000.assert_not_called()
-
-    def test_upload_daily_ticks_monthly_bulk_alpaca(self):
-        """Alpaca monthly bulk path uses collect_daily_ticks_month_bulk."""
-        app = _make_app()
-        app.data_collectors.ticks_collector.alpaca_start_year = 2025
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.validator.data_exists.return_value = False
-        app.data_collectors.collect_daily_ticks_month_bulk.return_value = {
-            "AAPL": pl.DataFrame({
-                "timestamp": ["2025-06-30"],
-                "open": [100.0],
-                "high": [110.0],
-                "low": [95.0],
-                "close": [105.0],
-                "volume": [1000]
-            })
-        }
-        app.data_publishers.publish_daily_ticks.return_value = {"status": "success", "error": None}
-
-        app.upload_daily_ticks(2025, use_monthly_partitions=True, by_year=False, chunk_size=1, sleep_time=0.5, current_year=2025)
-
-        app.data_collectors.collect_daily_ticks_month_bulk.assert_any_call(
-            ["AAPL"], 2025, 1, sleep_time=0.5
+        mock_handler = Mock()
+        mock_handler.upload_year.return_value = None
+
+        with patch.object(app, '_get_minute_ticks_handler', return_value=mock_handler):
+            app.upload_minute_ticks(
+                year=2024,
+                month=6,
+                overwrite=True,
+                resume=True,
+                num_workers=25
+            )
+
+        mock_handler.upload_year.assert_called_once_with(
+            year=2024,
+            months=[6],
+            overwrite=True,
+            resume=True,
+            num_workers=25,
+            chunk_size=500,
+            sleep_time=0.0
         )
-        app.data_publishers.publish_daily_ticks.assert_called()
 
-    def test_upload_daily_ticks_alpaca_by_year_ignored(self):
-        """by_year=True is ignored for Alpaca years and uses bulk monthly fetch."""
+    def test_upload_minute_ticks_year_multiple_months(self):
+        """Test upload_minute_ticks_year with multiple months."""
         app = _make_app()
-        app.data_collectors.ticks_collector.alpaca_start_year = 2025
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.validator.data_exists.return_value = False
-        app.data_collectors.collect_daily_ticks_month_bulk.return_value = {
-            "AAPL": pl.DataFrame({
-                "timestamp": ["2025-06-30"],
-                "open": [100.0],
-                "high": [110.0],
-                "low": [95.0],
-                "close": [105.0],
-                "volume": [1000]
-            })
-        }
-        app.data_publishers.publish_daily_ticks.return_value = {"status": "success", "error": None}
+        mock_handler = Mock()
 
-        app.upload_daily_ticks(2025, use_monthly_partitions=True, by_year=True, chunk_size=1, sleep_time=0.0, current_year=2025)
+        with patch.object(app, '_get_minute_ticks_handler', return_value=mock_handler):
+            app.upload_minute_ticks_year(
+                year=2024,
+                months=[1, 2, 3],
+                overwrite=False
+            )
 
-        app.data_collectors.collect_daily_ticks_year_bulk.assert_not_called()
-        app.data_collectors.collect_daily_ticks_month_bulk.assert_called()
+        mock_handler.upload_year.assert_called_once_with(
+            year=2024,
+            months=[1, 2, 3],
+            overwrite=False,
+            resume=False,
+            num_workers=50,
+            chunk_size=500,
+            sleep_time=0.0
+        )
 
-    def test_upload_daily_ticks_yearly_bulk_alpaca(self):
-        """Alpaca yearly bulk path uses collect_daily_ticks_year_bulk."""
+
+class TestUploadAppFundamental:
+    """Test fundamental data upload delegation to handlers."""
+
+    def test_upload_fundamental_delegates_to_handler(self):
+        """Test upload_fundamental creates handler and calls upload."""
         app = _make_app()
-        app.data_collectors.ticks_collector.alpaca_start_year = 2025
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT"]
-        app.validator.data_exists.return_value = False
-        app.data_collectors.collect_daily_ticks_year_bulk.return_value = {
-            "AAPL": pl.DataFrame({"timestamp": ["2025-01-02"], "open": [1], "high": [1], "low": [1], "close": [1], "volume": [1]}),
-            "MSFT": pl.DataFrame({"timestamp": ["2025-01-02"], "open": [2], "high": [2], "low": [2], "close": [2], "volume": [2]})
-        }
-        app.data_publishers.publish_daily_ticks.return_value = {"status": "success", "error": None}
+        mock_handler = Mock()
+        mock_handler.upload.return_value = {'success': 10, 'failed': 0}
 
-        app.upload_daily_ticks(2025, use_monthly_partitions=False, chunk_size=2)
+        with patch.object(app, '_get_fundamental_handler', return_value=mock_handler):
+            result = app.upload_fundamental(
+                start_date='2024-01-01',
+                end_date='2024-12-31',
+                max_workers=25,
+                overwrite=True
+            )
 
-        app.data_collectors.collect_daily_ticks_year_bulk.assert_called_once_with(["AAPL", "MSFT"], 2025)
-        assert app.data_publishers.publish_daily_ticks.call_count == 2
+        mock_handler.upload.assert_called_once_with(
+            '2024-01-01', '2024-12-31', 25, True
+        )
+        assert result == {'success': 10, 'failed': 0}
 
-    def test_upload_daily_ticks_monthly_alpaca_skips_existing(self):
-        """Monthly Alpaca bulk path skips when all data exists."""
+    def test_upload_ttm_fundamental_delegates_to_handler(self):
+        """Test upload_ttm_fundamental creates handler and calls upload."""
         app = _make_app()
-        app.data_collectors.ticks_collector.alpaca_start_year = 2025
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.validator.data_exists.return_value = True
+        mock_handler = Mock()
+        mock_handler.upload.return_value = None
 
-        app.upload_daily_ticks(2025, use_monthly_partitions=True, by_year=False, chunk_size=1, sleep_time=0.0)
+        with patch.object(app, '_get_ttm_handler', return_value=mock_handler):
+            app.upload_ttm_fundamental(
+                start_date='2024-01-01',
+                end_date='2024-12-31'
+            )
 
-        app.data_collectors.collect_daily_ticks_month_bulk.assert_not_called()
-        app.data_publishers.publish_daily_ticks.assert_not_called()
+        mock_handler.upload.assert_called_once_with(
+            '2024-01-01', '2024-12-31', 50, False
+        )
 
-    def test_upload_daily_ticks_yearly_alpaca_skips_existing(self):
-        """Yearly Alpaca bulk path skips when all data exists."""
+    def test_upload_derived_fundamental_delegates_to_handler(self):
+        """Test upload_derived_fundamental creates handler and calls upload."""
         app = _make_app()
-        app.data_collectors.ticks_collector.alpaca_start_year = 2025
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.validator.data_exists.return_value = True
+        mock_handler = Mock()
+        mock_handler.upload.return_value = None
 
-        app.upload_daily_ticks(2025, use_monthly_partitions=False, chunk_size=1)
+        with patch.object(app, '_get_derived_handler', return_value=mock_handler):
+            app.upload_derived_fundamental(
+                start_date='2024-01-01',
+                end_date='2024-12-31',
+                max_workers=100
+            )
 
-        app.data_collectors.collect_daily_ticks_year_bulk.assert_not_called()
-        app.data_publishers.publish_daily_ticks.assert_not_called()
+        mock_handler.upload.assert_called_once_with(
+            '2024-01-01', '2024-12-31', 100, False
+        )
 
-    def test_upload_top_3000_monthly_uses_alpaca_start_year(self):
-        """Top3000 source uses alpaca_start_year threshold."""
+
+class TestUploadAppTop3000:
+    """Test top 3000 upload delegation to handler."""
+
+    def test_upload_top_3000_monthly_delegates_to_handler(self):
+        """Test upload_top_3000_monthly creates handler and calls upload_year."""
         app = _make_app()
-        app.data_collectors.ticks_collector.alpaca_start_year = 2025
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.validator.top_3000_exists.return_value = False
-        app.calendar.load_trading_days.return_value = ["2024-06-28"]
-        app.universe_manager.get_top_3000.return_value = ["AAPL"]
-        app.data_publishers.publish_top_3000.return_value = {"status": "success"}
+        mock_handler = Mock()
+        mock_handler.upload_year.return_value = None
 
-        class FixedDate(dt.date):
-            @classmethod
-            def today(cls):
-                return cls(2024, 7, 1)
+        with patch.object(app, '_get_top3000_handler', return_value=mock_handler):
+            app.upload_top_3000_monthly(
+                year=2024,
+                overwrite=True,
+                auto_resolve=False
+            )
 
-        with patch('quantdl.storage.app.dt.date', FixedDate):
-            app.upload_top_3000_monthly(2024, overwrite=False, auto_resolve=True)
+        mock_handler.upload_year.assert_called_once_with(2024, True, False)
 
-        app.data_publishers.publish_top_3000.assert_called()
+
+class TestUploadAppSentiment:
+    """Test sentiment upload delegation to handler."""
+
+    def test_upload_sentiment_delegates_to_handler(self):
+        """Test upload_sentiment creates handler and calls upload."""
+        app = _make_app()
+        mock_handler = Mock()
+        mock_handler.upload.return_value = None
+
+        with patch.object(app, '_get_sentiment_handler', return_value=mock_handler):
+            app.upload_sentiment(
+                start_date='2024-01-01',
+                end_date='2024-12-31',
+                overwrite=True
+            )
+
+        mock_handler.upload.assert_called_once_with(
+            '2024-01-01', '2024-12-31', True
+        )
+
+
+class TestUploadAppRun:
+    """Test UploadApp.run() orchestration."""
 
     def test_run_invokes_selected_flows(self):
+        """Test run() invokes only the selected upload methods."""
         app = _make_app()
+
+        # Mock the internal methods that run() calls
+        app._run_daily_ticks = Mock()
+        app.upload_minute_ticks_year = Mock()
         app.upload_fundamental = Mock()
-        app.upload_derived_fundamental = Mock()
         app.upload_ttm_fundamental = Mock()
-        app.upload_daily_ticks = Mock()
-        app._upload_crsp_bulk_history = Mock()  # New bulk method for CRSP years
-        app.upload_minute_ticks = Mock()
+        app.upload_derived_fundamental = Mock()
         app.upload_top_3000_monthly = Mock()
+        app.upload_sentiment = Mock()
 
         app.run(
             start_year=2024,
             end_year=2024,
-            max_workers=1,
-            overwrite=False,
             run_fundamental=True,
-            run_derived_fundamental=True,
-            run_ttm_fundamental=True,
             run_daily_ticks=True,
             run_minute_ticks=False,
-            run_top_3000=True
+            run_derived_fundamental=False,
+            run_ttm_fundamental=False,
+            run_top_3000=False
         )
 
-        app.upload_fundamental.assert_called_once()
-        app.upload_derived_fundamental.assert_called_once()
-        app.upload_ttm_fundamental.assert_called_once()
-        # CRSP years use bulk history method
-        app._upload_crsp_bulk_history.assert_called_once()
-        app.upload_top_3000_monthly.assert_called_once()
+        # Fundamental and daily ticks should be called
+        assert app.upload_fundamental.called
+        assert app._run_daily_ticks.called
 
-    def test_run_skips_minute_ticks_before_2017(self):
+        # Others should not be called
+        assert not app.upload_minute_ticks_year.called
+        assert not app.upload_derived_fundamental.called
+        assert not app.upload_ttm_fundamental.called
+        assert not app.upload_top_3000_monthly.called
+
+    def test_run_all_enables_all_flows(self):
+        """Test run_all=True enables all upload methods."""
         app = _make_app()
-        app.upload_minute_ticks = Mock()
+
+        app._run_daily_ticks = Mock()
+        app.upload_minute_ticks_year = Mock()
+        app.upload_fundamental = Mock()
+        app.upload_ttm_fundamental = Mock()
+        app.upload_derived_fundamental = Mock()
+        app.upload_top_3000_monthly = Mock()
+        app.upload_sentiment = Mock()
 
         app.run(
-            start_year=2016,
-            end_year=2016,
-            max_workers=1,
-            overwrite=False,
-            run_minute_ticks=True
+            start_year=2024,
+            end_year=2024,
+            run_all=True,
+            minute_ticks_start_year=2024
         )
 
-        app.upload_minute_ticks.assert_not_called()
+        assert app._run_daily_ticks.called
+        assert app.upload_minute_ticks_year.called
+        assert app.upload_fundamental.called
+        assert app.upload_ttm_fundamental.called
+        assert app.upload_derived_fundamental.called
+        assert app.upload_top_3000_monthly.called
+        assert app.upload_sentiment.called
+
+    def test_run_skips_minute_ticks_before_start_year(self):
+        """Test run() skips minute ticks for years before minute_ticks_start_year."""
+        app = _make_app()
+
+        app._run_daily_ticks = Mock()
+        app.upload_minute_ticks_year = Mock()
+        app.upload_fundamental = Mock()
+
+        app.run(
+            start_year=2015,
+            end_year=2016,
+            run_minute_ticks=True,
+            minute_ticks_start_year=2017
+        )
+
+        # Minute ticks should not be called (years are before 2017)
+        assert not app.upload_minute_ticks_year.called
 
     def test_run_minute_ticks_runs_all_months(self):
+        """Test run() calls minute ticks for valid years."""
         app = _make_app()
+
+        app._run_daily_ticks = Mock()
         app.upload_minute_ticks_year = Mock()
+        app.upload_fundamental = Mock()
 
         app.run(
-            start_year=2017,
-            end_year=2017,
-            max_workers=1,
-            overwrite=False,
-            run_minute_ticks=True
+            start_year=2020,
+            end_year=2020,
+            run_minute_ticks=True,
+            minute_ticks_start_year=2017
         )
 
-        # Now calls upload_minute_ticks_year once per year (not 12 times)
-        app.upload_minute_ticks_year.assert_called_once_with(
-            2017, overwrite=False, resume=False, num_workers=1, chunk_size=500, sleep_time=0.0
-        )
+        app.upload_minute_ticks_year.assert_called()
+        # Check that 2020 was passed
+        call_args = app.upload_minute_ticks_year.call_args
+        assert call_args[0][0] == 2020 or call_args[1].get('year') == 2020
 
     def test_run_passes_daily_chunk_and_sleep(self):
+        """Test run() passes daily_chunk_size and daily_sleep_time to _run_daily_ticks."""
         app = _make_app()
-        app.upload_daily_ticks = Mock()
+
+        app._run_daily_ticks = Mock()
+        app.upload_fundamental = Mock()
 
         app.run(
-            start_year=2025,
-            end_year=2025,
-            max_workers=1,
-            overwrite=False,
-            daily_chunk_size=123,
-            daily_sleep_time=0.12,
+            start_year=2024,
+            end_year=2024,
             run_daily_ticks=True,
-            run_minute_ticks=False
+            daily_chunk_size=100,
+            daily_sleep_time=0.5
         )
 
-        app.upload_daily_ticks.assert_called_once_with(
-            2025,
-            False,
-            by_year=True,
-            chunk_size=123,
-            sleep_time=0.12
-        )
+        app._run_daily_ticks.assert_called_once_with(2024, 2024, False, 100, 0.5)
 
-    def test_run_respects_minute_ticks_start_year(self):
-        app = _make_app()
-        app.upload_minute_ticks = Mock()
 
-        app.run(
-            start_year=2018,
-            end_year=2018,
-            max_workers=1,
-            overwrite=False,
-            minute_ticks_start_year=2019,
-            run_minute_ticks=True
-        )
-
-        app.upload_minute_ticks.assert_not_called()
-
-    def test_upload_minute_ticks_handles_fetch_error(self):
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.calendar.load_trading_days.return_value = ["2024-06-03"]
-        app.validator.data_exists.return_value = False
-        app.data_collectors.fetch_minute_month.side_effect = RuntimeError("boom")
-
-        app.upload_minute_ticks(2024, 6, overwrite=True, num_workers=1, chunk_size=1, sleep_time=0.0)
+class TestUploadAppClose:
+    """Test UploadApp resource cleanup."""
 
     def test_close_closes_wrds_connection(self):
+        """Test close() closes WRDS connection."""
         app = _make_app()
-        app.universe_manager = Mock()
-        app.crsp_ticks = Mock()
         app.crsp_ticks.conn = Mock()
 
         app.close()
 
-        app.universe_manager.close.assert_called_once()
         app.crsp_ticks.conn.close.assert_called_once()
 
-    def test_upload_daily_ticks_monthly_with_canceled_status(self):
-        """Test monthly upload with canceled status"""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT", "GOOGL"]
-        app.validator.data_exists.return_value = False
-
-        df = pl.DataFrame({
-            "timestamp": ["2024-06-30"],
-            "open": [190.0],
-            "high": [195.0],
-            "low": [189.0],
-            "close": [193.0],
-            "volume": [50000000]
-        })
-        app.data_collectors.collect_daily_ticks_month.return_value = df
-        # First success, then canceled, then skipped
-        app.data_publishers.publish_daily_ticks.side_effect = cycle([
-            {"status": "success"},
-            {"status": "canceled"},
-            {"status": "skipped"},
-        ])
-
-        app.upload_daily_ticks(2024, use_monthly_partitions=True)
-
-        # Should log all status types
-        assert app.logger.info.called
-
-    def test_upload_daily_ticks_monthly_with_failed_status(self):
-        """Test monthly upload with failed status"""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT"]
-        app.validator.data_exists.return_value = False
-
-        df = pl.DataFrame({
-            "timestamp": ["2024-06-30"],
-            "open": [190.0],
-            "high": [195.0],
-            "low": [189.0],
-            "close": [193.0],
-            "volume": [50000000]
-        })
-        app.data_collectors.collect_daily_ticks_month.return_value = df
-        app.data_publishers.publish_daily_ticks.return_value = {"status": "failed", "error": "Upload error"}
-
-        app.upload_daily_ticks(2024, use_monthly_partitions=True)
-
-        assert app.logger.info.called
-
-    def test_upload_fundamental_with_skipped_symbols_detail_logging(self):
-        """Test detailed logging of skipped symbols with company names"""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT"]
-        app.cik_resolver.batch_prefetch_ciks.return_value = {
-            "AAPL": "0000320193",
-            "MSFT": "0000789019"
-        }
-
-        # Mock crsp_ticks.security_master for company name lookup
-        app.crsp_ticks = Mock()
-        master_tb = pl.DataFrame({
-            "symbol": ["AAPL", "MSFT"],
-            "company": ["Apple Inc.", "Microsoft Corporation"],
-            "cik": ["0000320193", "0000789019"]
-        })
-        app.crsp_ticks.security_master.master_tb = master_tb
-
-        # First symbol succeeds, second is skipped
-        future1 = Mock()
-        future1.result.return_value = {"status": "success"}
-        future2 = Mock()
-        future2.result.return_value = {
-            "status": "skipped",
-            "symbol": "MSFT",
-            "cik": "0000789019",
-            "error": "No data available"
-        }
-
-        executor = Mock()
-        executor.__enter__ = Mock(return_value=executor)
-        executor.__exit__ = Mock(return_value=False)
-        executor.submit = Mock(side_effect=[future1, future2])
-
-        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
-            with patch('quantdl.storage.app.as_completed', return_value=[future1, future2]):
-                app.upload_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
-
-        # Should log detailed skipped companies section
-        info_calls = [str(call) for call in app.logger.info.call_args_list]
-        skipped_logs = [c for c in info_calls if "SKIPPED COMPANIES" in c or "MSFT" in c]
-        assert len(skipped_logs) > 0
-
-    def test_upload_fundamental_skipped_logging_error_handling(self):
-        """Test error handling when fetching company details for skipped symbols fails"""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.cik_resolver.batch_prefetch_ciks.return_value = {"AAPL": "0000320193"}
-
-        # Mock crsp_ticks.security_master to raise an error
-        app.crsp_ticks = Mock()
-        master_tb = Mock()
-        master_tb.filter.side_effect = Exception("DB error")
-        app.crsp_ticks.security_master.master_tb = master_tb
-
-        future = Mock()
-        future.result.return_value = {
-            "status": "skipped",
-            "symbol": "AAPL",
-            "cik": "0000320193",
-            "error": "No data"
-        }
-
-        executor = Mock()
-        executor.__enter__ = Mock(return_value=executor)
-        executor.__exit__ = Mock(return_value=False)
-        executor.submit = Mock(return_value=future)
-
-        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
-            with patch('quantdl.storage.app.as_completed', return_value=[future]):
-                app.upload_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
-
-        # Should log error and fallback
-        app.logger.error.assert_called()
-
-    def test_upload_fundamental_non_sec_filers_large_list(self):
-        """Test logging of non-SEC filers when list is large (>30 symbols)"""
-        app = _make_app()
-        # Create 50 symbols, only 10 have CIKs
-        symbols = [f"SYM{i:03d}" for i in range(50)]
-        app.universe_manager.load_symbols_for_year.return_value = symbols
-
-        # Only first 10 have CIKs
-        cik_map = {f"SYM{i:03d}": f"{i:010d}" for i in range(10)}
-        app.cik_resolver.batch_prefetch_ciks.return_value = cik_map
-
-        future = Mock()
-        future.result.return_value = {"status": "success"}
-
-        executor = Mock()
-        executor.__enter__ = Mock(return_value=executor)
-        executor.__exit__ = Mock(return_value=False)
-        executor.submit = Mock(return_value=future)
-
-        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
-            with patch('quantdl.storage.app.as_completed', return_value=[future] * 10):
-                app.upload_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
-
-        # Should log first 30 non-SEC filers
-        info_calls = [str(call) for call in app.logger.info.call_args_list]
-        non_sec_logs = [c for c in info_calls if "showing first 30/" in c]
-        assert len(non_sec_logs) > 0
-
-    def test_upload_fundamental_non_sec_filers_small_list(self):
-        """Test logging of non-SEC filers when list is small (<=30 symbols)"""
-        app = _make_app()
-        symbols = ["AAPL", "MSFT", "GOOGL"]
-        app.universe_manager.load_symbols_for_year.return_value = symbols
-
-        # Only AAPL has CIK
-        cik_map = {"AAPL": "0000320193"}
-        app.cik_resolver.batch_prefetch_ciks.return_value = cik_map
-
-        future = Mock()
-        future.result.return_value = {"status": "success"}
-
-        executor = Mock()
-        executor.__enter__ = Mock(return_value=executor)
-        executor.__exit__ = Mock(return_value=False)
-        executor.submit = Mock(return_value=future)
-
-        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
-            with patch('quantdl.storage.app.as_completed', return_value=[future]):
-                app.upload_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
-
-        # Should log all non-SEC filers (2 symbols)
-        info_calls = [str(call) for call in app.logger.info.call_args_list]
-        non_sec_logs = [c for c in info_calls if "Non-SEC filers (skipped):" in c]
-        assert len(non_sec_logs) > 0
-
-    def test_upload_ttm_fundamental_with_skipped_symbols(self):
-        """Test TTM upload with skipped symbols tracking"""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT"]
-        app.cik_resolver.batch_prefetch_ciks.return_value = {
-            "AAPL": "0000320193",
-            "MSFT": "0000789019"
-        }
-
-        future1 = Mock()
-        future1.result.return_value = {"status": "success"}
-        future2 = Mock()
-        future2.result.return_value = {
-            "status": "skipped",
-            "symbol": "MSFT",
-            "cik": "0000789019",
-            "error": "Insufficient data"
-        }
-
-        executor = Mock()
-        executor.__enter__ = Mock(return_value=executor)
-        executor.__exit__ = Mock(return_value=False)
-        executor.submit = Mock(side_effect=[future1, future2])
-
-        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
-            with patch('quantdl.storage.app.as_completed', return_value=[future1, future2]):
-                app.upload_ttm_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
-
-        # Should complete successfully
-        assert app.logger.info.called
-
-    def test_upload_ttm_fundamental_with_canceled_and_failed(self):
-        """Test TTM upload with various status codes"""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT", "GOOGL", "TSLA"]
-        app.cik_resolver.batch_prefetch_ciks.return_value = {
-            "AAPL": "0000320193",
-            "MSFT": "0000789019",
-            "GOOGL": "0001652044",
-            "TSLA": "0001318605"
-        }
-
-        futures = [
-            Mock(result=Mock(return_value={"status": "success"})),
-            Mock(result=Mock(return_value={"status": "canceled"})),
-            Mock(result=Mock(return_value={"status": "skipped", "symbol": "GOOGL", "cik": "0001652044", "error": "No data"})),
-            Mock(result=Mock(return_value={"status": "failed"}))
-        ]
-
-        executor = Mock()
-        executor.__enter__ = Mock(return_value=executor)
-        executor.__exit__ = Mock(return_value=False)
-        executor.submit = Mock(side_effect=futures)
-
-        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
-            with patch('quantdl.storage.app.as_completed', return_value=futures):
-                app.upload_ttm_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
-
-        assert app.logger.info.called
-
-    def test_upload_derived_fundamental_with_various_statuses(self):
-        """Test derived upload with mixed success, failed, canceled, skipped"""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["A", "B", "C", "D"]
-        app.cik_resolver.batch_prefetch_ciks.return_value = {
-            "A": "0000000001",
-            "B": "0000000002",
-            "C": "0000000003",
-            "D": "0000000004"
-        }
-
-        futures = [
-            Mock(result=Mock(return_value={"status": "success"})),
-            Mock(result=Mock(return_value={"status": "canceled"})),
-            Mock(result=Mock(return_value={"status": "skipped"})),
-            Mock(result=Mock(return_value={"status": "failed"}))
-        ]
-
-        executor = Mock()
-        executor.__enter__ = Mock(return_value=executor)
-        executor.__exit__ = Mock(return_value=False)
-        executor.submit = Mock(side_effect=futures)
-
-        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
-            with patch('quantdl.storage.app.as_completed', return_value=futures):
-                app.upload_derived_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
-
-        assert app.logger.info.called
-
-    def test_close_without_universe_manager(self):
-        """Test close when universe_manager is None"""
-        app = _make_app()
-        app.universe_manager = None
-        app.crsp_ticks = None
-
-        # Should not raise an error
-        app.close()
-
     def test_close_without_crsp_conn(self):
-        """Test close when crsp_ticks.conn is None"""
+        """Test close() handles missing CRSP connection."""
         app = _make_app()
-        app.universe_manager = Mock()
-        app.crsp_ticks = Mock()
         app.crsp_ticks.conn = None
 
+        # Should not raise
         app.close()
 
-        app.universe_manager.close.assert_called_once()
-
-    def test_upload_daily_ticks_by_year_crsp_bulk(self):
-        """Test by_year mode with CRSP bulk fetch for year < alpaca_start_year"""
+    def test_close_without_universe_manager(self):
+        """Test close() handles missing universe manager."""
         app = _make_app()
-        app.data_collectors.ticks_collector.alpaca_start_year = 2025
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT"]
-        app.validator.data_exists.return_value = False
+        app.crsp_ticks.conn = None
+        app.universe_manager = None
 
-        bulk_map = {
-            "AAPL": pl.DataFrame({"timestamp": ["2024-01-02"], "open": [100], "high": [110], "low": [95], "close": [105], "volume": [1000]}),
-            "MSFT": pl.DataFrame({"timestamp": ["2024-01-02"], "open": [200], "high": [210], "low": [195], "close": [205], "volume": [2000]})
-        }
-        app.data_collectors.collect_daily_ticks_year_bulk.return_value = bulk_map
-        app.data_publishers.publish_daily_ticks.return_value = {"status": "success"}
+        # Should not raise
+        app.close()
 
-        app.upload_daily_ticks(2024, use_monthly_partitions=True, by_year=True, current_year=2024)
 
-        app.data_collectors.collect_daily_ticks_year_bulk.assert_called_once_with(["AAPL", "MSFT"], 2024)
-        assert app.data_publishers.publish_daily_ticks.call_count == 2
+class TestUploadAppHandlerFactories:
+    """Test handler factory methods create correct handlers."""
 
-    def test_upload_daily_ticks_by_year_checks_any_month_exists(self):
-        """Test by_year mode skips symbols where any month exists"""
-        app = _make_app()
-        app.data_collectors.ticks_collector.alpaca_start_year = 2025
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT"]
-
-        # AAPL has data for month 1, MSFT has no data
-        def mock_exists(sym, data_type, year, month=None, **kwargs):
-            if sym == "AAPL" and month == 1:
-                return True
-            return False
-
-        app.validator.data_exists.side_effect = mock_exists
-
-        bulk_map = {
-            "MSFT": pl.DataFrame({"timestamp": ["2024-01-02"], "open": [200], "high": [210], "low": [195], "close": [205], "volume": [2000]})
-        }
-        app.data_collectors.collect_daily_ticks_year_bulk.return_value = bulk_map
-        app.data_publishers.publish_daily_ticks.return_value = {"status": "success"}
-
-        app.upload_daily_ticks(2024, use_monthly_partitions=True, by_year=True, overwrite=False, current_year=2024)
-
-        # Only MSFT should be published
-        app.data_publishers.publish_daily_ticks.assert_called_once()
-
-    def test_upload_fundamental_multi_year_symbol_collection(self):
-        """Test fundamental upload collects symbols across multiple years correctly"""
+    def test_get_daily_ticks_handler_creates_handler(self):
+        """Test _get_daily_ticks_handler creates DailyTicksHandler."""
         app = _make_app()
 
-        # Different symbols for different years
-        def mock_load_symbols(year, sym_type):
-            if year == 2024:
-                return ["AAPL", "MSFT"]
-            elif year == 2025:
-                return ["MSFT", "GOOGL"]  # MSFT appears in both
-            return []
+        with patch('quantdl.storage.handlers.ticks.DailyTicksHandler') as MockHandler:
+            handler = app._get_daily_ticks_handler()
 
-        app.universe_manager.load_symbols_for_year.side_effect = mock_load_symbols
-        app.cik_resolver.batch_prefetch_ciks.return_value = {
-            "AAPL": "0000320193",
-            "MSFT": "0000789019",
-            "GOOGL": "0001652044"
-        }
+        MockHandler.assert_called_once()
+        call_kwargs = MockHandler.call_args[1]
+        assert call_kwargs['s3_client'] == app.client
+        assert call_kwargs['bucket_name'] == 'test-bucket'
+        assert call_kwargs['data_publishers'] == app.data_publishers
+        assert call_kwargs['logger'] == app.logger
 
-        future = Mock()
-        future.result.return_value = {"status": "success"}
-
-        executor = Mock()
-        executor.__enter__ = Mock(return_value=executor)
-        executor.__exit__ = Mock(return_value=False)
-        executor.submit = Mock(return_value=future)
-
-        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
-            with patch('quantdl.storage.app.as_completed', return_value=[future, future, future]):
-                app.upload_fundamental("2024-01-01", "2025-12-31", max_workers=1, overwrite=False)
-
-        # Should have 3 unique symbols total
-        assert executor.submit.call_count == 3
-
-    def test_upload_daily_ticks_monthly_alpaca_canceled_status(self):
-        """Test canceled status tracking in monthly Alpaca path - covers lines 241."""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT"]
-        app.validator.data_exists.return_value = False
-
-        df = pl.DataFrame({
-            "timestamp": ["2025-06-30"],
-            "open": [1.0],
-            "high": [1.1],
-            "low": [0.9],
-            "close": [1.0],
-            "volume": [100]
-        })
-        app.data_collectors.collect_daily_ticks_month_bulk.return_value = {"AAPL": df, "MSFT": df}
-        app.data_publishers.publish_daily_ticks.side_effect = [
-            {"status": "canceled"},
-            {"status": "success"}
-        ] + [{"status": "success"}] * 30  # Add enough values for all months/symbols
-
-        app.upload_daily_ticks(2025, use_monthly_partitions=True, by_year=False, chunk_size=2, sleep_time=0.0)
-
-        # Check that canceled status was tracked
-        info_calls = [str(call) for call in app.logger.info.call_args_list]
-        assert any("canceled" in c for c in info_calls)
-
-    def test_upload_daily_ticks_monthly_alpaca_skipped_status(self):
-        """Test skipped status tracking in monthly Alpaca path - covers line 243."""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT"]
-        app.validator.data_exists.return_value = False
-
-        df = pl.DataFrame({
-            "timestamp": ["2025-06-30"],
-            "open": [1.0],
-            "high": [1.1],
-            "low": [0.9],
-            "close": [1.0],
-            "volume": [100]
-        })
-        app.data_collectors.collect_daily_ticks_month_bulk.return_value = {"AAPL": df, "MSFT": df}
-        app.data_publishers.publish_daily_ticks.side_effect = [
-            {"status": "skipped"},
-            {"status": "success"}
-        ] + [{"status": "success"}] * 30  # Add enough values for all months/symbols
-
-        app.upload_daily_ticks(2025, use_monthly_partitions=True, by_year=False, chunk_size=2, sleep_time=0.0)
-
-        # Check that skipped status was tracked
-        info_calls = [str(call) for call in app.logger.info.call_args_list]
-        assert any("skipped" in c for c in info_calls)
-
-    def test_upload_daily_ticks_by_year_canceled_status(self):
-        """Test canceled status in by_year path - covers line 300-301."""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT"]
-        app.validator.data_exists.return_value = False
-        app.data_collectors.collect_daily_ticks_year_bulk.return_value = {}
-        app.data_publishers.publish_daily_ticks.side_effect = [
-            {"status": "canceled"},
-            {"status": "success"}
-        ]
-
-        app.upload_daily_ticks(2024, use_monthly_partitions=True, by_year=True)
-
-        info_calls = [str(call) for call in app.logger.info.call_args_list]
-        assert any("canceled" in c for c in info_calls)
-
-    def test_upload_daily_ticks_by_year_skipped_status(self):
-        """Test skipped status in by_year path - covers lines 302-303."""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT"]
-        app.validator.data_exists.return_value = False
-        app.data_collectors.collect_daily_ticks_year_bulk.return_value = {}
-        app.data_publishers.publish_daily_ticks.side_effect = [
-            {"status": "skipped"},
-            {"status": "success"}
-        ]
-
-        app.upload_daily_ticks(2024, use_monthly_partitions=True, by_year=True)
-
-        info_calls = [str(call) for call in app.logger.info.call_args_list]
-        assert any("skipped" in c for c in info_calls)
-
-    def test_upload_daily_ticks_by_year_failed_status(self):
-        """Test failed status in by_year path - covers lines 304-305."""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT"]
-        app.validator.data_exists.return_value = False
-        app.data_collectors.collect_daily_ticks_year_bulk.return_value = {}
-        app.data_publishers.publish_daily_ticks.side_effect = [
-            {"status": "failed"},
-            {"status": "success"}
-        ]
-
-        app.upload_daily_ticks(2024, use_monthly_partitions=True, by_year=True)
-
-        info_calls = [str(call) for call in app.logger.info.call_args_list]
-        assert any("failed" in c for c in info_calls)
-
-    def test_upload_daily_ticks_yearly_alpaca_canceled_status(self):
-        """Test canceled status in yearly Alpaca path - covers lines 405-406."""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.data_collectors.ticks_collector.alpaca_start_year = 2025
-        app.validator.data_exists.return_value = False
-        app.data_collectors.collect_daily_ticks_year_bulk.return_value = {"AAPL": pl.DataFrame()}
-        app.data_publishers.publish_daily_ticks.return_value = {"status": "canceled"}
-
-        app.upload_daily_ticks(2025, use_monthly_partitions=False)
-
-        info_calls = [str(call) for call in app.logger.info.call_args_list]
-        assert any("canceled" in c for c in info_calls)
-
-    def test_upload_daily_ticks_yearly_alpaca_skipped_status(self):
-        """Test skipped status in yearly Alpaca path - covers lines 407-408."""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.data_collectors.ticks_collector.alpaca_start_year = 2025
-        app.validator.data_exists.return_value = False
-        app.data_collectors.collect_daily_ticks_year_bulk.return_value = {"AAPL": pl.DataFrame()}
-        app.data_publishers.publish_daily_ticks.return_value = {"status": "skipped"}
-
-        app.upload_daily_ticks(2025, use_monthly_partitions=False)
-
-        info_calls = [str(call) for call in app.logger.info.call_args_list]
-        assert any("skipped" in c for c in info_calls)
-
-    def test_upload_daily_ticks_yearly_alpaca_failed_status(self):
-        """Test failed status in yearly Alpaca path - covers lines 409-410."""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.data_collectors.ticks_collector.alpaca_start_year = 2025
-        app.validator.data_exists.return_value = False
-        app.data_collectors.collect_daily_ticks_year_bulk.return_value = {"AAPL": pl.DataFrame()}
-        app.data_publishers.publish_daily_ticks.return_value = {"status": "failed"}
-
-        app.upload_daily_ticks(2025, use_monthly_partitions=False)
-
-        info_calls = [str(call) for call in app.logger.info.call_args_list]
-        assert any("failed" in c for c in info_calls)
-
-    def test_upload_daily_ticks_yearly_crsp_skipped_status(self):
-        """Test skipped status in yearly CRSP path - covers line 435."""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.data_collectors.ticks_collector.alpaca_start_year = 2025
-        app.validator.data_exists.return_value = False
-        app._publish_single_daily_ticks = Mock(return_value={"status": "skipped"})
-
-        app.upload_daily_ticks(2024, use_monthly_partitions=False)
-
-        info_calls = [str(call) for call in app.logger.info.call_args_list]
-        assert any("skipped" in c for c in info_calls)
-
-    def test_upload_fundamental_empty_year_symbols_skips(self):
-        """Test that empty year_symbols list is skipped - covers line 724."""
+    def test_get_minute_ticks_handler_creates_handler(self):
+        """Test _get_minute_ticks_handler creates MinuteTicksHandler."""
         app = _make_app()
 
-        # Return empty list for one year
-        def mock_load_symbols(year, sym_type):
-            if year == 2024:
-                return ["AAPL"]
-            return []  # Empty for 2025
+        with patch('quantdl.storage.handlers.ticks.MinuteTicksHandler') as MockHandler:
+            handler = app._get_minute_ticks_handler()
 
-        app.universe_manager.load_symbols_for_year.side_effect = mock_load_symbols
-        app.cik_resolver.batch_prefetch_ciks.return_value = {"AAPL": "0000320193"}
+        MockHandler.assert_called_once()
+        call_kwargs = MockHandler.call_args[1]
+        assert call_kwargs['s3_client'] == app.client
+        assert call_kwargs['calendar'] == app.calendar
 
-        future = Mock()
-        future.result.return_value = {"status": "success"}
-
-        executor = Mock()
-        executor.__enter__ = Mock(return_value=executor)
-        executor.__exit__ = Mock(return_value=False)
-        executor.submit = Mock(return_value=future)
-
-        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
-            with patch('quantdl.storage.app.as_completed', return_value=[future]):
-                app.upload_fundamental("2024-01-01", "2025-12-31", max_workers=1, overwrite=False)
-
-        # Should only submit for AAPL (2025 is skipped due to empty list)
-        assert executor.submit.call_count == 1
-
-    def test_upload_fundamental_canceled_status(self):
-        """Test canceled status tracking in fundamental upload - covers line 800."""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT"]
-        app.cik_resolver.batch_prefetch_ciks.return_value = {
-            "AAPL": "0000320193",
-            "MSFT": "0000789019"
-        }
-
-        future1 = Mock()
-        future1.result.return_value = {"status": "canceled"}
-        future2 = Mock()
-        future2.result.return_value = {"status": "success"}
-
-        executor = Mock()
-        executor.__enter__ = Mock(return_value=executor)
-        executor.__exit__ = Mock(return_value=False)
-        executor.submit = Mock(side_effect=[future1, future2])
-
-        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
-            with patch('quantdl.storage.app.as_completed', return_value=[future1, future2]):
-                app.upload_fundamental("2024-01-01", "2024-12-31", max_workers=2, overwrite=False)
-
-        info_calls = [str(call) for call in app.logger.info.call_args_list]
-        assert any("canceled" in c for c in info_calls)
-
-    def test_upload_fundamental_failed_status(self):
-        """Test failed status tracking in fundamental upload - covers line 810."""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT"]
-        app.cik_resolver.batch_prefetch_ciks.return_value = {
-            "AAPL": "0000320193",
-            "MSFT": "0000789019"
-        }
-
-        future1 = Mock()
-        future1.result.return_value = {"status": "failed"}
-        future2 = Mock()
-        future2.result.return_value = {"status": "success"}
-
-        executor = Mock()
-        executor.__enter__ = Mock(return_value=executor)
-        executor.__exit__ = Mock(return_value=False)
-        executor.submit = Mock(side_effect=[future1, future2])
-
-        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
-            with patch('quantdl.storage.app.as_completed', return_value=[future1, future2]):
-                app.upload_fundamental("2024-01-01", "2024-12-31", max_workers=2, overwrite=False)
-
-        info_calls = [str(call) for call in app.logger.info.call_args_list]
-        assert any("failed" in c for c in info_calls)
-
-    def test_upload_fundamental_company_unknown_fallback(self):
-        """Test 'Unknown' company fallback when details fetch fails - covers line 864."""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.cik_resolver.batch_prefetch_ciks.return_value = {"AAPL": "0000320193"}
-        # Mock crsp_ticks security_master to return empty (so "Unknown" is used)
-        app.crsp_ticks.security_master.master_tb.filter.return_value.select.return_value.unique.return_value = pl.DataFrame({
-            "symbol": [],  # Empty - AAPL not found
-            "company": [],
-            "cik": []
-        })
-
-        future = Mock()
-        future.result.return_value = {
-            "status": "skipped",
-            "symbol": "AAPL",
-            "cik": "0000320193",
-            "error": "No data"
-        }
-
-        executor = Mock()
-        executor.__enter__ = Mock(return_value=executor)
-        executor.__exit__ = Mock(return_value=False)
-        executor.submit = Mock(return_value=future)
-
-        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
-            with patch('quantdl.storage.app.as_completed', return_value=[future]):
-                app.upload_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
-
-        # Check all log levels for "Unknown" since log level may have changed
-        all_calls = [str(call) for call in app.logger.info.call_args_list + app.logger.debug.call_args_list + app.logger.warning.call_args_list]
-        assert any("Unknown" in c for c in all_calls)
-
-    def test_upload_ttm_fundamental_large_symbols_without_cik_list(self):
-        """Test large non-SEC filer list (>30) logs first 30 - covers line 944."""
+    def test_get_fundamental_handler_creates_handler(self):
+        """Test _get_fundamental_handler creates FundamentalHandler."""
         app = _make_app()
 
-        # Create 41 symbols to ensure >30 non-SEC filers
-        all_symbols = [f"SYM{i:03d}" for i in range(41)]
-        app.universe_manager.load_symbols_for_year.return_value = all_symbols
+        with patch('quantdl.storage.handlers.fundamental.FundamentalHandler') as MockHandler:
+            handler = app._get_fundamental_handler()
 
-        # Only first 10 have CIKs (so 31 don't have CIKs, triggering >30 threshold)
-        cik_map = {f"SYM{i:03d}": f"000{i:04d}" for i in range(10)}
-        app.cik_resolver.batch_prefetch_ciks.return_value = cik_map
+        MockHandler.assert_called_once()
+        call_kwargs = MockHandler.call_args[1]
+        assert call_kwargs['cik_resolver'] == app.cik_resolver
+        assert call_kwargs['sec_rate_limiter'] == app.sec_rate_limiter
 
-        future = Mock()
-        future.result.return_value = {"status": "success"}
-
-        executor = Mock()
-        executor.__enter__ = Mock(return_value=executor)
-        executor.__exit__ = Mock(return_value=False)
-        executor.submit = Mock(return_value=future)
-
-        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
-            with patch('quantdl.storage.app.as_completed', return_value=[future] * 10):
-                app.upload_ttm_fundamental("2024-01-01", "2024-12-31", max_workers=2, overwrite=False)
-
-        # Check all log levels since log level may have changed
-        all_calls = [str(call) for call in app.logger.info.call_args_list + app.logger.debug.call_args_list + app.logger.warning.call_args_list]
-        # Should log "showing first 30/30"
-        assert any("showing first 30" in c for c in all_calls)
-
-    def test_upload_ttm_fundamental_no_symbols_with_ciks(self):
-        """Test TTM upload with zero symbols having CIKs - covers line 921 (total == 0 warning)."""
+    def test_get_ttm_handler_creates_handler(self):
+        """Test _get_ttm_handler creates TTMHandler."""
         app = _make_app()
 
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "MSFT"]
-        # No CIKs returned
-        app.cik_resolver.batch_prefetch_ciks.return_value = {}
+        with patch('quantdl.storage.handlers.fundamental.TTMHandler') as MockHandler:
+            handler = app._get_ttm_handler()
 
-        app.upload_ttm_fundamental("2024-01-01", "2024-12-31", max_workers=2, overwrite=False)
+        MockHandler.assert_called_once()
 
-        warning_calls = [str(call) for call in app.logger.warning.call_args_list]
-        assert any("No symbols with CIKs found" in c for c in warning_calls)
-        assert any("skipping TTM upload" in c for c in warning_calls)
-
-    def test_upload_derived_fundamental_overwrite_log_message(self):
-        """Test derived fundamental already exists log - covers line 1050."""
+    def test_get_derived_handler_creates_handler(self):
+        """Test _get_derived_handler creates DerivedHandler."""
         app = _make_app()
 
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.cik_resolver.batch_prefetch_ciks.return_value = {"AAPL": "0000320193"}
-        app.validator.data_exists.return_value = True  # Already exists
-        app.data_collectors.collect_derived_long.return_value = (pl.DataFrame(), "metrics_wide_empty")
-        app.data_publishers.publish_derived_fundamental.return_value = {"status": "success"}
+        with patch('quantdl.storage.handlers.fundamental.DerivedHandler') as MockHandler:
+            handler = app._get_derived_handler()
 
-        # Use side_effect to actually call the method
-        def submit_side_effect(fn, *args, **kwargs):
-            future = Mock()
-            future.result.return_value = fn(*args, **kwargs)
-            return future
+        MockHandler.assert_called_once()
 
-        executor = Mock()
-        executor.__enter__ = Mock(return_value=executor)
-        executor.__exit__ = Mock(return_value=False)
-        executor.submit = Mock(side_effect=submit_side_effect)
-
-        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
-            with patch('quantdl.storage.app.as_completed', side_effect=lambda futures: futures):
-                app.upload_derived_fundamental("2024-01-01", "2024-12-31", max_workers=1, overwrite=False)
-
-        # Check all log levels since log level may have changed
-        all_calls = [str(call) for call in app.logger.info.call_args_list + app.logger.debug.call_args_list + app.logger.warning.call_args_list]
-        assert any("already exists" in c and "continuing to refresh" in c for c in all_calls)
-
-    def test_upload_derived_fundamental_large_non_sec_filers(self):
-        """Test derived fundamental with >30 non-SEC filers - covers line 1178."""
+    def test_get_top3000_handler_creates_handler(self):
+        """Test _get_top3000_handler creates Top3000Handler."""
         app = _make_app()
 
-        # Create 41 symbols to ensure >30 non-SEC filers
-        all_symbols = [f"SYM{i:03d}" for i in range(41)]
-        app.universe_manager.load_symbols_for_year.return_value = all_symbols
+        with patch('quantdl.storage.handlers.top3000.Top3000Handler') as MockHandler:
+            handler = app._get_top3000_handler()
 
-        # Only first 10 have CIKs (so 31 don't have CIKs, triggering >30 threshold)
-        cik_map = {f"SYM{i:03d}": f"000{i:04d}" for i in range(10)}
-        app.cik_resolver.batch_prefetch_ciks.return_value = cik_map
+        MockHandler.assert_called_once()
+        call_kwargs = MockHandler.call_args[1]
+        assert call_kwargs['alpaca_start_year'] == 2025
 
-        app.validator.data_exists.return_value = False
-
-        future = Mock()
-        future.result.return_value = {"status": "success"}
-
-        executor = Mock()
-        executor.__enter__ = Mock(return_value=executor)
-        executor.__exit__ = Mock(return_value=False)
-        executor.submit = Mock(return_value=future)
-
-        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
-            with patch('quantdl.storage.app.as_completed', return_value=[future] * 10):
-                app.upload_derived_fundamental("2024-01-01", "2024-12-31", max_workers=2, overwrite=False)
-
-        # Check all log levels since log level may have changed
-        all_calls = [str(call) for call in app.logger.info.call_args_list + app.logger.debug.call_args_list + app.logger.warning.call_args_list]
-        # Should log "showing first 30/30"
-        assert any("showing first 30" in c for c in all_calls)
-
-    @pytest.mark.skip(reason="upload_all_data method does not exist in current implementation")
-    def test_upload_all_data_sets_all_flags(self):
-        """Test upload_all_data sets all run flags when run_all=True - covers lines 1299-1304."""
+    def test_get_sentiment_handler_creates_handler(self):
+        """Test _get_sentiment_handler creates SentimentHandler."""
         app = _make_app()
 
-        # Mock all upload methods to avoid actual execution
-        app.upload_fundamental = Mock()
-        app.upload_derived_fundamental = Mock()
-        app.upload_ttm_fundamental = Mock()
-        app.upload_daily_ticks = Mock()
-        app.upload_minute_ticks = Mock()
-        app.data_publishers.publish_top_3000_list = Mock()
+        with patch('quantdl.storage.handlers.sentiment.SentimentHandler') as MockHandler:
+            handler = app._get_sentiment_handler()
 
-        app.upload_all_data(2024, 2024, run_all=True)
-
-        # All methods should be called
-        app.upload_fundamental.assert_called_once()
-        app.upload_derived_fundamental.assert_called_once()
-        app.upload_ttm_fundamental.assert_called_once()
-        app.upload_daily_ticks.assert_called_once()
-        app.upload_minute_ticks.assert_called_once()
-        app.data_publishers.publish_top_3000_list.assert_called_once()
-
-    def test_publish_single_daily_ticks_symbol_not_active(self):
-        """Test _publish_single_daily_ticks skips when symbol not active in year (lines 151,153)."""
-        app = _make_app()
-        app.crsp_ticks.security_master.get_security_id.side_effect = ValueError("not active")
-
-        result = app._publish_single_daily_ticks("OLDSTOCK", 2020, overwrite=False)
-
-        assert result["status"] == "skipped"
-        assert "not active" in result["error"]
-
-    def test_upload_daily_ticks_wrds_not_available_for_historical(self):
-        """Test RuntimeError when WRDS unavailable for years < 2025 (line 403)."""
-        app = _make_app()
-        app._wrds_available = False
-
-        with pytest.raises(RuntimeError, match="WRDS connection required"):
-            app.upload_daily_ticks(2024, use_monthly_partitions=False)
-
-    def test_upload_daily_ticks_security_id_none_pre_resolution(self):
-        """Test symbol skipped when security_id is None during pre-resolution (lines 434-435)."""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "BADSTOCK"]
-        # Return valid for AAPL, then error for BADSTOCK
-        def sid_side_effect(sym, date, auto_resolve=True):
-            if sym == "AAPL":
-                return 1001
-            raise ValueError("not found")
-        app.crsp_ticks.security_master.get_security_id.side_effect = sid_side_effect
-        app.validator.data_exists.return_value = False
-        df = pl.DataFrame({
-            "timestamp": ["2024-01-02"],
-            "open": [100.0],
-            "high": [105.0],
-            "low": [99.0],
-            "close": [103.0],
-            "volume": [1000]
-        })
-        app.data_collectors.collect_daily_ticks_month.return_value = df
-        app.data_publishers.publish_daily_ticks.return_value = {"status": "success"}
-
-        app.upload_daily_ticks(2024, use_monthly_partitions=True, current_year=2024)
-
-        # BADSTOCK should have security_id=None, leading to skipped count
-
-    def test_upload_daily_ticks_alpaca_monthly_security_id_none(self):
-        """Test Alpaca monthly path skips symbols with None security_id (lines 468-472, 477)."""
-        app = _make_app()
-        app.data_collectors.ticks_collector.alpaca_start_year = 2025
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "BADSTOCK"]
-        app.crsp_ticks.security_master.get_security_id.side_effect = [1001, ValueError("not found")]
-        app.validator.data_exists.return_value = False
-        app.data_collectors.collect_daily_ticks_month_bulk.return_value = {
-            "AAPL": pl.DataFrame({"timestamp": ["2025-01-02"], "open": [1], "high": [1], "low": [1], "close": [1], "volume": [1]})
-        }
-        app.data_publishers.publish_daily_ticks.return_value = {"status": "success"}
-
-        app.upload_daily_ticks(2025, use_monthly_partitions=True, by_year=False, chunk_size=10, current_year=2025)
-
-        # BADSTOCK should be skipped
-
-    def test_upload_daily_ticks_alpaca_monthly_skipped_status(self):
-        """Test Alpaca monthly path counts skipped status (lines 502, 504)."""
-        app = _make_app()
-        app.data_collectors.ticks_collector.alpaca_start_year = 2025
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL"]
-        app.validator.data_exists.return_value = False
-        app.data_collectors.collect_daily_ticks_month_bulk.return_value = {
-            "AAPL": pl.DataFrame({"timestamp": ["2025-01-02"], "open": [1], "high": [1], "low": [1], "close": [1], "volume": [1]})
-        }
-        app.data_publishers.publish_daily_ticks.return_value = {"status": "skipped"}
-
-        app.upload_daily_ticks(2025, use_monthly_partitions=True, by_year=False, chunk_size=1, current_year=2025)
-
-        info_calls = [str(call) for call in app.logger.info.call_args_list]
-        assert any("skipped" in c for c in info_calls)
-
-    def test_upload_daily_ticks_by_year_security_id_none(self):
-        """Test by_year path skips symbols with None security_id (lines 536-539)."""
-        app = _make_app()
-        app.data_collectors.ticks_collector.alpaca_start_year = 2025
-        app.universe_manager.load_symbols_for_year.return_value = ["AAPL", "BADSTOCK"]
-        app.crsp_ticks.security_master.get_security_id.side_effect = [1001, ValueError("not found")]
-        app.validator.data_exists.return_value = False
-        app.data_collectors.collect_daily_ticks_year_bulk.return_value = {}
-        app.data_publishers.publish_daily_ticks.return_value = {"status": "success"}
-
-        app.upload_daily_ticks(2024, use_monthly_partitions=True, by_year=True, current_year=2024)
-
-        # BADSTOCK should be skipped
-
-    def test_upload_daily_ticks_by_year_status_counting(self):
-        """Test by_year path counts all status types (lines 568-573)."""
-        app = _make_app()
-        app.data_collectors.ticks_collector.alpaca_start_year = 2025
-        app.universe_manager.load_symbols_for_year.return_value = ["A", "B", "C", "D"]
-        app.validator.data_exists.return_value = False
-        app.data_collectors.collect_daily_ticks_year_bulk.return_value = {}
-        app.data_publishers.publish_daily_ticks.side_effect = [
-            {"status": "success"},
-            {"status": "canceled"},
-            {"status": "skipped"},
-            {"status": "failed"}
-        ]
-
-        app.upload_daily_ticks(2024, use_monthly_partitions=True, by_year=True, current_year=2024)
-
-        info_calls = [str(call) for call in app.logger.info.call_args_list]
-        assert any("1 failed" in c and "1 success" in c for c in info_calls)
-
-    def test_upload_daily_ticks_monthly_crsp_status_counting(self):
-        """Test monthly CRSP path counts all status types (lines 603-608)."""
-        app = _make_app()
-        app.data_collectors.ticks_collector.alpaca_start_year = 2025
-        app.universe_manager.load_symbols_for_year.return_value = ["A", "B", "C"]
-        app.validator.data_exists.return_value = False
-        # Need to return values for 3 symbols * 12 months = 36 calls
-        app._publish_single_daily_ticks = Mock(side_effect=[
-            {"status": "success"} if i % 3 == 0 else
-            {"status": "canceled"} if i % 3 == 1 else
-            {"status": "failed"}
-            for i in range(36)
-        ])
-
-        app.upload_daily_ticks(2024, use_monthly_partitions=True, by_year=False, current_year=2024)
-
-        assert app._publish_single_daily_ticks.call_count >= 3
-
-    def test_upload_ttm_empty_year_symbols_skip(self):
-        """Test TTM upload skips empty year_symbols (line 1165)."""
-        app = _make_app()
-        app.universe_manager.load_symbols_for_year.side_effect = [[], ["AAPL"]]
-        app.cik_resolver.batch_prefetch_ciks.return_value = {"AAPL": "0000320193"}
-        app._process_symbol_ttm_fundamental = Mock(return_value={"status": "success"})
-
-        future = Mock()
-        future.result.return_value = {"status": "success"}
-
-        executor = Mock()
-        executor.__enter__ = Mock(return_value=executor)
-        executor.__exit__ = Mock(return_value=False)
-        executor.submit = Mock(return_value=future)
-
-        with patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor', return_value=executor):
-            with patch('quantdl.storage.app.as_completed', return_value=[future]):
-                app.upload_ttm_fundamental("2024-01-01", "2025-12-31", max_workers=1, overwrite=False)
-
-    def test_run_all_flag_sets_all_uploads(self):
-        """Test run_all=True sets all upload flags (lines 1527-1532)."""
-        app = _make_app()
-        app.upload_fundamental = Mock()
-        app.upload_derived_fundamental = Mock()
-        app.upload_ttm_fundamental = Mock()
-        app._upload_crsp_bulk_history = Mock()
-        app.upload_daily_ticks = Mock()
-        app.upload_minute_ticks_year = Mock()
-        app.upload_top_3000_monthly = Mock()
-
-        app.run(
-            start_year=2024,
-            end_year=2024,
-            max_workers=1,
-            overwrite=False,
-            run_all=True
-        )
-
-        app.upload_fundamental.assert_called_once()
-        app.upload_derived_fundamental.assert_called_once()
-        app.upload_ttm_fundamental.assert_called_once()
-        app.upload_top_3000_monthly.assert_called_once()
+        MockHandler.assert_called_once()
+        call_kwargs = MockHandler.call_args[1]
+        assert call_kwargs['bucket'] == 'test-bucket'
