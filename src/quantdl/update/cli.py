@@ -33,7 +33,12 @@ def main():
     parser.add_argument(
         '--no-minute-ticks',
         action='store_true',
-        help='Skip minute ticks update'
+        help='Skip minute ticks update (default behavior, kept for backward compatibility)'
+    )
+    parser.add_argument(
+        '--minute-ticks',
+        action='store_true',
+        help='Include minute ticks update (disabled by default)'
     )
 
     # Fundamental flags
@@ -98,7 +103,8 @@ def main():
 
     # Handle --no-ticks shorthand
     skip_daily_ticks = args.no_daily_ticks or args.no_ticks
-    skip_minute_ticks = args.no_minute_ticks or args.no_ticks
+    # Minute ticks disabled by default; --minute-ticks enables (unless --no-ticks/--no-minute-ticks)
+    skip_minute_ticks = not args.minute_ticks or args.no_minute_ticks or args.no_ticks
 
     # Auto-detect WRDS-free mode if credentials missing
     use_wrds_free = args.no_wrds

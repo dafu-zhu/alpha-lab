@@ -20,7 +20,7 @@ class TestUpdateCLI:
         call_args = mock_app_instance.run_daily_update.call_args
         assert call_args[1]['target_date'] == dt.date(2024, 6, 3)
         assert call_args[1]['update_daily_ticks'] is True
-        assert call_args[1]['update_minute_ticks'] is True
+        assert call_args[1]['update_minute_ticks'] is False  # minute ticks disabled by default
         assert call_args[1]['update_fundamental'] is True
         assert call_args[1]['update_ttm'] is True
         assert call_args[1]['update_derived'] is True
@@ -118,6 +118,23 @@ class TestUpdateCLI:
         call_args = mock_app_instance.run_daily_update.call_args
         assert call_args[1]['update_daily_ticks'] is False
         assert call_args[1]['update_minute_ticks'] is False
+        assert call_args[1]['update_fundamental'] is True
+
+    @patch.dict(os.environ, {'WRDS_USERNAME': 'test_user', 'WRDS_PASSWORD': 'test_pass'})
+    @patch('quantdl.update.app.DailyUpdateApp')
+    @patch('sys.argv', ['cli.py', '--minute-ticks'])
+    def test_main_minute_ticks_opt_in(self, mock_app_class):
+        """Test --minute-ticks flag enables minute ticks (disabled by default)"""
+        from quantdl.update.cli import main
+
+        mock_app_instance = Mock()
+        mock_app_class.return_value = mock_app_instance
+
+        main()
+
+        call_args = mock_app_instance.run_daily_update.call_args
+        assert call_args[1]['update_daily_ticks'] is True
+        assert call_args[1]['update_minute_ticks'] is True  # enabled with --minute-ticks
         assert call_args[1]['update_fundamental'] is True
 
     @patch.dict(os.environ, {}, clear=True)

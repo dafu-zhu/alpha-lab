@@ -37,8 +37,9 @@ uv run pytest -n auto               # Parallel execution
 
 ### Data Operations
 ```bash
-# Initial upload (full backfill)
+# Initial upload (full backfill, excludes minute ticks by default)
 uv run quantdl-storage --run-all --start-year 2009 --end-year 2025
+uv run quantdl-storage --run-all --run-minute-ticks  # include minute ticks
 
 # Upload specific data types
 uv run quantdl-storage --run-fundamental
@@ -47,9 +48,10 @@ uv run quantdl-storage --run-minute-ticks
 uv run quantdl-storage --run-derived-fundamental
 uv run quantdl-storage --run-sentiment            # NLP sentiment from SEC filings
 
-# Daily update (incremental)
+# Daily update (incremental, excludes minute ticks by default)
 uv run quantdl-update --date 2025-01-10
 uv run quantdl-update                    # defaults to yesterday
+uv run quantdl-update --minute-ticks     # include minute ticks
 uv run quantdl-update --no-ticks         # fundamentals only
 uv run quantdl-update --no-wrds          # WRDS-free mode (GitHub Actions)
 

@@ -357,7 +357,7 @@ class UploadApp:
             run_derived_fundamental = True
             run_ttm_fundamental = True
             run_daily_ticks = True
-            run_minute_ticks = True
+            # Note: minute ticks excluded from --run-all by default (use --run-minute-ticks explicitly)
             run_top_3000 = True
             run_sentiment = True
 

@@ -79,7 +79,7 @@ uv run quantdl-storage [OPTIONS]
 | `--end-year` | 2025 | End year for data collection |
 | `--overwrite` | false | Overwrite existing data |
 | `--resume` | false | Resume from last checkpoint (minute ticks) |
-| `--run-all` | false | Run all upload workflows |
+| `--run-all` | false | Run all upload workflows (excludes minute ticks) |
 | `--run-fundamental` | false | Upload fundamental data only |
 | `--run-derived-fundamental` | false | Upload derived metrics only |
 | `--run-ttm-fundamental` | false | Upload TTM fundamentals only |
@@ -97,8 +97,11 @@ uv run quantdl-storage [OPTIONS]
 
 **Examples:**
 ```bash
-# Full backfill
+# Full backfill (excludes minute ticks by default)
 uv run quantdl-storage --run-all --start-year 2009 --end-year 2025
+
+# Full backfill including minute ticks
+uv run quantdl-storage --run-all --run-minute-ticks --start-year 2017 --end-year 2025
 
 # Upload specific data types
 uv run quantdl-storage --run-fundamental
@@ -118,17 +121,22 @@ uv run quantdl-update [OPTIONS]
 | `--backfill-from` | - | Backfill from date to --date (max 30 days) |
 | `--no-ticks` | false | Skip all ticks (daily + minute) |
 | `--no-daily-ticks` | false | Skip daily ticks only |
-| `--no-minute-ticks` | false | Skip minute ticks only |
+| `--minute-ticks` | false | Include minute ticks (disabled by default) |
+| `--no-minute-ticks` | false | Skip minute ticks (default behavior, for backward compat) |
 | `--no-fundamental` | false | Skip raw fundamental update |
 | `--no-ttm` | false | Skip TTM fundamental update |
 | `--no-derived` | false | Skip derived metrics update |
+| `--no-sentiment` | false | Skip sentiment analysis update |
 | `--lookback` | 7 | Days to look back for EDGAR filings |
 | `--no-wrds` | false | WRDS-free mode (Nasdaq universe + SEC CIK mapping) |
 
 **Examples:**
 ```bash
-# Update yesterday's data
+# Update yesterday's data (daily ticks + fundamentals + sentiment, no minute ticks)
 uv run quantdl-update
+
+# Update with minute ticks included
+uv run quantdl-update --minute-ticks
 
 # Update specific date
 uv run quantdl-update --date 2025-01-10
