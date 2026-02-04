@@ -104,7 +104,6 @@ class FinBERTModel(SentimentModel):
 
         # Determine device
         device = self._device or self._detect_device()
-        device_idx = 0 if device == "cuda" else -1
 
         self._logger.info(f"Loading FinBERT from {self.MODEL_ID}...")
 
@@ -120,9 +119,20 @@ class FinBERTModel(SentimentModel):
 
         transformers.logging.set_verbosity(prev_verbosity)
 
-        # Move to device
+        # Move to device with fallback to CPU on OOM
         if device == "cuda":
-            self._model = self._model.cuda()
+            try:
+                # Clear CUDA cache before loading to reduce fragmentation
+                torch.cuda.empty_cache()
+                self._model = self._model.cuda()
+            except (torch.cuda.OutOfMemoryError, RuntimeError) as e:
+                self._logger.warning(f"CUDA OOM: {e}. Falling back to CPU.")
+                device = "cpu"
+                # Ensure model is on CPU
+                self._model = self._model.cpu()
+                torch.cuda.empty_cache()
+
+        device_idx = 0 if device == "cuda" else -1
 
         # Create pipeline for easy inference
         # Use text-classification task (not sentiment-analysis) for FinBERT

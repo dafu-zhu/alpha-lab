@@ -399,18 +399,48 @@ class SentimentCollector:
                             continue
 
                         filed = dp.get('filed')
-                        frame = dp.get('frame', '')
 
-                        # Parse fiscal info from frame (e.g., CY2023Q3)
-                        fiscal_year = None
+                        # Get fiscal year/quarter from SEC fields
+                        # Priority: fy/fp fields > end date inference > frame parsing
+                        fiscal_year = dp.get('fy')
+                        fp = dp.get('fp', '')
+
+                        # Parse fiscal quarter from fp field (Q1, Q2, Q3, Q4, FY)
                         fiscal_quarter = None
-                        if frame:
-                            year_match = re.search(r'CY(\d{4})', frame)
-                            if year_match:
-                                fiscal_year = int(year_match.group(1))
-                            quarter_match = re.search(r'Q(\d)', frame)
-                            if quarter_match:
-                                fiscal_quarter = int(quarter_match.group(1))
+                        if fp in ('Q1', 'Q2', 'Q3', 'Q4'):
+                            fiscal_quarter = int(fp[1])
+                        elif fp == 'FY':
+                            fiscal_quarter = 4  # Annual reports cover Q4
+
+                        # Fallback: infer from 'end' date if fiscal info missing
+                        if fiscal_year is None or fiscal_quarter is None:
+                            end_date = dp.get('end', '')
+                            if end_date and len(end_date) >= 7:
+                                try:
+                                    year = int(end_date[:4])
+                                    month = int(end_date[5:7])
+                                    # Infer quarter from end month
+                                    # Q1: Jan-Mar, Q2: Apr-Jun, Q3: Jul-Sep, Q4: Oct-Dec
+                                    inferred_quarter = (month - 1) // 3 + 1
+                                    if fiscal_year is None:
+                                        fiscal_year = year
+                                    if fiscal_quarter is None:
+                                        fiscal_quarter = inferred_quarter
+                                except (ValueError, IndexError):
+                                    pass
+
+                        # Last resort: parse from frame (e.g., CY2023Q3)
+                        if fiscal_year is None or fiscal_quarter is None:
+                            frame = dp.get('frame', '')
+                            if frame:
+                                if fiscal_year is None:
+                                    year_match = re.search(r'CY(\d{4})', frame)
+                                    if year_match:
+                                        fiscal_year = int(year_match.group(1))
+                                if fiscal_quarter is None:
+                                    quarter_match = re.search(r'Q(\d)', frame)
+                                    if quarter_match:
+                                        fiscal_quarter = int(quarter_match.group(1))
 
                         seen_accessions.add(accn)
                         filings.append({
