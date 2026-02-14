@@ -112,17 +112,14 @@ def main():
         wrds_user = os.getenv('WRDS_USERNAME')
         wrds_pass = os.getenv('WRDS_PASSWORD')
         if not wrds_user or not wrds_pass:
-            print("WRDS credentials not found, using WRDS-free mode")
             use_wrds_free = True
 
     # Import appropriate app
     if use_wrds_free:
         from quantdl.update.app_no_wrds import DailyUpdateAppNoWRDS
-        print("Running in WRDS-free mode (Nasdaq + SEC API)")
         app = DailyUpdateAppNoWRDS()
     else:
         from quantdl.update.app import DailyUpdateApp
-        print("Running with WRDS connection")
         app = DailyUpdateApp()
 
     # Generate date range (sequential backfill)
@@ -135,14 +132,10 @@ def main():
     is_backfill = len(dates_to_process) > 1
 
     if is_backfill:
-        print(f"Backfilling {len(dates_to_process)} days from {start_date} to {end_date}")
+        print(f"Backfilling {len(dates_to_process)} days: {start_date} to {end_date}")
 
     # Run update for each date (ticks only during backfill)
     for target_date in dates_to_process:
-        if is_backfill:
-            print(f"\n{'='*60}")
-            print(f"Processing {target_date} (ticks only)")
-            print(f"{'='*60}")
 
         app.run_daily_update(
             target_date=target_date,
@@ -166,9 +159,6 @@ def main():
 
         if run_fundamental or run_ttm or run_derived or run_sentiment:
             backfill_lookback = (end_date - start_date).days + 1
-            print(f"\n{'='*60}")
-            print(f"Running fundamental/sentiment updates (lookback={backfill_lookback} days)")
-            print(f"{'='*60}")
 
             app.run_daily_update(
                 target_date=end_date,

@@ -182,9 +182,9 @@ class TestDailyTicksHandler:
                 chunk_size=200, sleep_time=0.0, source='alpaca'
             )
 
-        # Should log about future months
-        info_calls = [str(c) for c in handler.logger.info.call_args_list]
-        assert any('future month' in c for c in info_calls)
+        # Should log about future months (debug level)
+        debug_calls = [str(c) for c in handler.logger.debug.call_args_list]
+        assert any('future month' in c for c in debug_calls)
 
     @patch('quantdl.storage.handlers.ticks.tqdm')
     def test_upload_monthly_mode_processes(self, mock_tqdm, handler, daily_deps):
@@ -282,7 +282,7 @@ class TestDailyTicksHandler:
 
         result = handler.upload_crsp_bulk_history(resume=True)
 
-        handler.logger.info.assert_any_call("All security_ids completed")
+        handler.logger.debug.assert_any_call("All security_ids completed")
 
     def test_process_permno_data_missing(self, handler):
         tracker = MagicMock()

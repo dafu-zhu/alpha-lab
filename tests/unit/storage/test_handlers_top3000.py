@@ -145,8 +145,8 @@ class TestTop3000Handler:
             mock_dt.datetime = dt.datetime
             handler.upload_year(2020)
 
-        info_calls = [str(c) for c in deps['logger'].info.call_args_list]
-        assert any('source=crsp' in c for c in info_calls)
+        debug_calls = [str(c) for c in deps['logger'].debug.call_args_list]
+        assert any('source=crsp' in c for c in debug_calls)
 
     def test_upload_year_overwrite(self, handler, deps):
         deps['universe_manager'].load_symbols_for_year.return_value = ['AAPL']

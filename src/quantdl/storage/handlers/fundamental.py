@@ -65,7 +65,7 @@ class FundamentalHandler(BaseHandler):
             return self._build_result(start_time, prefetch_time, 0, 0)
 
         total = len(symbols_with_cik)
-        self.logger.info(f"Step 3/3: Fetching fundamental data for {total} symbols...")
+        self.logger.debug(f"Step 3/3: Fetching fundamental data for {total} symbols...")
         fetch_start = time.time()
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -127,14 +127,14 @@ class FundamentalHandler(BaseHandler):
                     symbol_ref_year[sym] = year
 
         total = len(symbol_ref_year)
-        self.logger.info(
+        self.logger.debug(
             f"Starting fundamental upload for {total} symbols "
             f"from {start_date} to {end_date}"
         )
-        self.logger.info("Storage: data/raw/fundamental/{cik}/fundamental.parquet")
+        self.logger.debug("Storage: data/raw/fundamental/{cik}/fundamental.parquet")
 
         # Batch prefetch CIKs
-        self.logger.info(f"Step 1/3: Pre-fetching CIKs for {total} symbols...")
+        self.logger.debug(f"Step 1/3: Pre-fetching CIKs for {total} symbols...")
         prefetch_start = time.time()
         cik_map = {}
         for year in range(start_year, end_year + 1):
@@ -142,19 +142,19 @@ class FundamentalHandler(BaseHandler):
             if year_syms:
                 cik_map.update(self.cik_resolver.batch_prefetch_ciks(year_syms, year, batch_size=100))
         prefetch_time = time.time() - prefetch_start
-        self.logger.info(f"CIK pre-fetch completed in {prefetch_time:.1f}s")
+        self.logger.debug(f"CIK pre-fetch completed in {prefetch_time:.1f}s")
 
         # Filter symbols with valid CIKs
-        self.logger.info("Step 2/3: Filtering symbols with valid CIKs...")
+        self.logger.debug("Step 2/3: Filtering symbols with valid CIKs...")
         symbols_with_cik = [s for s in symbol_ref_year if cik_map.get(s)]
         symbols_without = [s for s in symbol_ref_year if not cik_map.get(s)]
 
-        self.logger.info(
+        self.logger.debug(
             f"Symbol filtering: {len(symbols_with_cik)}/{total} have CIKs, "
             f"{len(symbols_without)} non-SEC filers"
         )
         if symbols_without and len(symbols_without) <= 30:
-            self.logger.info(f"Non-SEC filers: {sorted(symbols_without)}")
+            self.logger.debug(f"Non-SEC filers: {sorted(symbols_without)}")
 
         return symbols_with_cik, cik_map, prefetch_time
 
@@ -186,7 +186,7 @@ class FundamentalHandler(BaseHandler):
             f"{self.stats['success']} success, {self.stats['failed']} failed, "
             f"{self.stats['skipped']} skipped, {self.stats['canceled']} canceled"
         )
-        self.logger.info(
+        self.logger.debug(
             f"Performance: CIK fetch={prefetch_time:.1f}s, "
             f"Data fetch={fetch_time:.1f}s, Avg rate={avg_rate:.2f} sym/sec"
         )
@@ -242,7 +242,7 @@ class TTMHandler(BaseHandler):
             return {'success': 0, 'failed': 0, 'skipped': 0, 'canceled': 0}
 
         total = len(symbols_with_cik)
-        self.logger.info(f"Step 3/3: Computing TTM data for {total} symbols...")
+        self.logger.debug(f"Step 3/3: Computing TTM data for {total} symbols...")
         fetch_start = time.time()
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -313,12 +313,12 @@ class TTMHandler(BaseHandler):
                     symbol_ref_year[sym] = year
 
         total = len(symbol_ref_year)
-        self.logger.info(
+        self.logger.debug(
             f"Starting TTM upload for {total} symbols from {start_date} to {end_date}"
         )
-        self.logger.info("Storage: data/derived/features/fundamental/{cik}/ttm.parquet")
+        self.logger.debug("Storage: data/derived/features/fundamental/{cik}/ttm.parquet")
 
-        self.logger.info(f"Step 1/3: Pre-fetching CIKs...")
+        self.logger.debug(f"Step 1/3: Pre-fetching CIKs...")
         prefetch_start = time.time()
         cik_map = {}
         for year in range(start_year, end_year + 1):
@@ -327,9 +327,9 @@ class TTMHandler(BaseHandler):
                 cik_map.update(self.cik_resolver.batch_prefetch_ciks(year_syms, year, batch_size=100))
         prefetch_time = time.time() - prefetch_start
 
-        self.logger.info("Step 2/3: Filtering symbols...")
+        self.logger.debug("Step 2/3: Filtering symbols...")
         symbols_with_cik = [s for s in symbol_ref_year if cik_map.get(s)]
-        self.logger.info(f"Found {len(symbols_with_cik)}/{total} symbols with CIKs")
+        self.logger.debug(f"Found {len(symbols_with_cik)}/{total} symbols with CIKs")
 
         return symbols_with_cik, cik_map, prefetch_time
 
@@ -385,7 +385,7 @@ class DerivedHandler(BaseHandler):
             return {'success': 0, 'failed': 0, 'skipped': 0, 'canceled': 0}
 
         total = len(symbols_with_cik)
-        self.logger.info(f"Step 3/3: Computing derived metrics for {total} symbols...")
+        self.logger.debug(f"Step 3/3: Computing derived metrics for {total} symbols...")
         fetch_start = time.time()
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -474,12 +474,12 @@ class DerivedHandler(BaseHandler):
                     symbol_ref_year[sym] = year
 
         total = len(symbol_ref_year)
-        self.logger.info(
+        self.logger.debug(
             f"Starting derived upload for {total} symbols from {start_date} to {end_date}"
         )
-        self.logger.info("Storage: data/derived/features/fundamental/{cik}/metrics.parquet")
+        self.logger.debug("Storage: data/derived/features/fundamental/{cik}/metrics.parquet")
 
-        self.logger.info(f"Step 1/3: Pre-fetching CIKs...")
+        self.logger.debug(f"Step 1/3: Pre-fetching CIKs...")
         prefetch_start = time.time()
         cik_map = {}
         for year in range(start_year, end_year + 1):
@@ -488,9 +488,9 @@ class DerivedHandler(BaseHandler):
                 cik_map.update(self.cik_resolver.batch_prefetch_ciks(year_syms, year, batch_size=100))
         prefetch_time = time.time() - prefetch_start
 
-        self.logger.info("Step 2/3: Filtering symbols...")
+        self.logger.debug("Step 2/3: Filtering symbols...")
         symbols_with_cik = [s for s in symbol_ref_year if cik_map.get(s)]
-        self.logger.info(f"Found {len(symbols_with_cik)}/{total} symbols with CIKs")
+        self.logger.debug(f"Found {len(symbols_with_cik)}/{total} symbols with CIKs")
 
         return symbols_with_cik, cik_map, prefetch_time
 

@@ -110,7 +110,7 @@ class TestCheckMarketOpen:
 
         assert result is True
         mock_calendar_instance.is_trading_day.assert_called_once_with(test_date)
-        app.logger.info.assert_called()
+        app.logger.debug.assert_called()
 
     @patch('quantdl.update.app.UniverseManager')
     @patch('quantdl.update.app.SECClient')
@@ -494,10 +494,9 @@ class TestGetSymbolsWithRecentFilings:
                 lookback_days=7
             )
 
-            # Verify progress logging was called (should log at 100 symbols)
-            # Check that logger.info was called with progress message
-            info_calls = [str(call) for call in app.logger.info.call_args_list]
-            progress_logged = any('Checked 100/' in str(call) for call in info_calls)
+            # Verify progress logging was called (should log at 100 symbols, debug level)
+            debug_calls = [str(call) for call in app.logger.debug.call_args_list]
+            progress_logged = any('Checked 100/' in str(call) for call in debug_calls)
             assert progress_logged
 
 
@@ -974,7 +973,7 @@ class TestUpdateDailyTicks:
 
         # Verify completion logging was called (tqdm handles progress display)
         info_calls = [str(call) for call in app.logger.info.call_args_list]
-        completion_logged = any('Daily ticks:' in str(call) and 'skip' in str(call) for call in info_calls)
+        completion_logged = any('Result:' in str(call) and 'skip' in str(call) for call in info_calls)
         assert completion_logged
 
 

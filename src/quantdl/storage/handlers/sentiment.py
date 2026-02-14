@@ -50,10 +50,10 @@ class SentimentCheckpoint:
             )
             data = json.loads(response['Body'].read().decode('utf-8'))
             self._processed = set(data.get('processed_ciks', []))
-            self.logger.info(f"Loaded checkpoint: {len(self._processed)} CIKs already processed")
+            self.logger.debug(f"Loaded checkpoint: {len(self._processed)} CIKs already processed")
         except:
             self._processed = set()
-            self.logger.info("No checkpoint found, starting fresh")
+            self.logger.debug("No checkpoint found, starting fresh")
 
     def _save(self) -> None:
         """Save checkpoint to S3."""
@@ -206,18 +206,18 @@ class SentimentHandler:
             return self._build_stats(start_time, 0, 0)
 
         # Step 2: Load FinBERT model
-        self.logger.info("Loading FinBERT model...")
+        self.logger.debug("Loading FinBERT model...")
         model_start = time.time()
         model = FinBERTModel(logger=self.logger)
         model.load()
         model_time = time.time() - model_start
-        self.logger.info(f"Model loaded in {model_time:.1f}s")
+        self.logger.debug(f"Model loaded in {model_time:.1f}s")
 
         # Step 3: Filter existing and process
         symbols_to_process = self._filter_existing(symbols_with_cik, cik_map, overwrite)
 
         if not symbols_to_process:
-            self.logger.info("No symbols to process")
+            self.logger.debug("No symbols to process")
             model.unload()
             return self._build_stats(start_time, model_time, 0)
 
@@ -235,7 +235,7 @@ class SentimentHandler:
         ]
         skipped_checkpoint = len(symbols_to_process) - len(symbols_after_checkpoint)
         if skipped_checkpoint > 0:
-            self.logger.info(f"Skipping {skipped_checkpoint} CIKs from checkpoint (already processed)")
+            self.logger.debug(f"Skipping {skipped_checkpoint} CIKs from checkpoint (already processed)")
 
         try:
             self._process_symbols(
@@ -251,7 +251,7 @@ class SentimentHandler:
         finally:
             checkpoint.save()  # Final checkpoint save
             model.unload()
-            self.logger.info("Model unloaded, checkpoint saved")
+            self.logger.debug("Model unloaded, checkpoint saved")
 
         fetch_time = time.time() - fetch_start
         return self._build_stats(start_time, model_time, fetch_time, len(symbols_to_process))
@@ -276,11 +276,11 @@ class SentimentHandler:
         alpaca_symbols = list(symbol_reference_year.keys())
         total = len(alpaca_symbols)
 
-        self.logger.info(f"Starting sentiment upload for {total} symbols from {start_date} to {end_date}")
-        self.logger.info("Storage: data/derived/features/sentiment/{cik}/sentiment.parquet")
+        self.logger.debug(f"Starting sentiment upload for {total} symbols from {start_date} to {end_date}")
+        self.logger.debug("Storage: data/derived/features/sentiment/{cik}/sentiment.parquet")
 
         # Pre-fetch CIKs
-        self.logger.info("Pre-fetching CIKs...")
+        self.logger.debug("Pre-fetching CIKs...")
         prefetch_start = time.time()
         cik_map = {}
         for year in range(start_year, end_year + 1):
@@ -292,11 +292,11 @@ class SentimentHandler:
                 cik_map.update(
                     self.cik_resolver.batch_prefetch_ciks(year_symbols, year, batch_size=100)
                 )
-        self.logger.info(f"CIK pre-fetch completed in {time.time() - prefetch_start:.1f}s")
+        self.logger.debug(f"CIK pre-fetch completed in {time.time() - prefetch_start:.1f}s")
 
         # Filter symbols with valid CIKs
         symbols_with_cik = [sym for sym in alpaca_symbols if cik_map.get(sym)]
-        self.logger.info(f"Found {len(symbols_with_cik)}/{total} symbols with CIKs")
+        self.logger.debug(f"Found {len(symbols_with_cik)}/{total} symbols with CIKs")
 
         return cik_map, symbols_with_cik
 
@@ -307,7 +307,7 @@ class SentimentHandler:
         overwrite: bool
     ) -> List[Tuple[str, str]]:
         """Filter out already-processed symbols."""
-        self.logger.info("Checking for existing sentiment files...")
+        self.logger.debug("Checking for existing sentiment files...")
         symbols_to_process = []
 
         for sym in tqdm(symbols_with_cik, desc="Check existing", unit="sym"):
@@ -327,7 +327,7 @@ class SentimentHandler:
 
             symbols_to_process.append((sym, cik))
 
-        self.logger.info(
+        self.logger.debug(
             f"Symbols to process: {len(symbols_to_process)} "
             f"(skipped {self.skipped_exists} existing, {self.skipped} no CIK)"
         )
@@ -348,9 +348,9 @@ class SentimentHandler:
         from quantdl.derived.sentiment import chunk_text, _aggregate_sentiment_results
         from quantdl.collection.sentiment import FilingText
 
-        self.logger.info(f"Processing {len(symbols_to_process)} symbols...")
-        self.logger.info("Strategy: S3 cache + Parallel SEC fetches (10 req/sec) + Batched FinBERT (GPU)")
-        self.logger.info("All filings will be processed (no limit). Progress is checkpointed.")
+        self.logger.debug(f"Processing {len(symbols_to_process)} symbols...")
+        self.logger.debug("Strategy: S3 cache + Parallel SEC fetches (10 req/sec) + Batched FinBERT (GPU)")
+        self.logger.debug("All filings will be processed (no limit). Progress is checkpointed.")
 
         # Queue for prefetched filing texts
         prefetch_queue: Queue = Queue(maxsize=100)  # Larger queue for batching
@@ -608,7 +608,7 @@ class SentimentHandler:
             f"{self.success} success, {self.failed} failed, "
             f"{self.skipped} skipped, {self.skipped_exists} already existed"
         )
-        self.logger.info(
+        self.logger.debug(
             f"Performance: Model load={model_time:.1f}s, "
             f"Processing={fetch_time:.1f}s, Avg rate={avg_rate:.2f} sym/sec"
         )

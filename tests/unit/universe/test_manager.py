@@ -638,8 +638,8 @@ class TestUniverseManagerEdgeCases:
         assert manager.security_master == mock_sm
         assert manager._owns_wrds_conn is False
 
-        # Verify log message was recorded
-        manager.logger.info.assert_called_with(
+        # Verify log message was recorded (debug level)
+        manager.logger.debug.assert_called_with(
             "UniverseManager initialized without CRSP fetcher (S3-only mode). "
             "Historical universe queries (<2025) will fail."
         )
@@ -666,7 +666,7 @@ class TestUniverseManagerEdgeCases:
         # Verify cache was used and DB query was NOT made
         assert symbols == ["CACHED1", "CACHED2", "CACHED3"]
         mock_get_hist.assert_not_called()
-        manager.logger.info.assert_any_call(
+        manager.logger.debug.assert_any_call(
             "Loaded 3 symbols for 2023 from cache (format=alpaca)"
         )
 

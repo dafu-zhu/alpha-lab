@@ -109,15 +109,15 @@ def fetch_all_stocks(with_filter=True, refresh=False, logger=None) -> pd.DataFra
     if not refresh:
         csv_path = Path("data/symbols/stock_exchange.csv")
         if csv_path.exists():
-            logger.info(f"Loading symbols from existing CSV: {csv_path}")
+            logger.debug(f"Loading symbols from existing CSV: {csv_path}")
             df = pd.read_csv(csv_path, dtype={'Ticker': str}, keep_default_na=False, na_values=[''])
-            logger.info(f"Loaded {len(df)} symbols from cache")
+            logger.debug(f"Loaded {len(df)} symbols from cache")
             return df
         else:
             logger.warning(f"CSV file not found at {csv_path}, fetching fresh data instead")
 
     try:
-        logger.info(f"Connecting to FTP: {ftp_host}...")
+        logger.debug(f"Connecting to FTP: {ftp_host}...")
         
         # Establish FTP Connection
         ftp = FTP(ftp_host)
@@ -125,7 +125,7 @@ def fetch_all_stocks(with_filter=True, refresh=False, logger=None) -> pd.DataFra
         ftp.cwd(ftp_dir)
         
         # Download file to memory (BytesIO)
-        logger.info(f"Downloading the latest {ftp_file}...")
+        logger.debug(f"Downloading the latest {ftp_file}...")
         byte_buffer = io.BytesIO()
         
         # Retrieve a file
@@ -154,16 +154,16 @@ def fetch_all_stocks(with_filter=True, refresh=False, logger=None) -> pd.DataFra
                 df = df[df['Test Issue'] == 'N']
 
             # FILTER: Exclude non common stocks
-            logger.info(f"Before common stock filter: {len(df)} securities")
+            logger.debug(f"Before common stock filter: {len(df)} securities")
             df = df[df['Name'].apply(is_common_stock)]
             df = df[~df['Ticker'].str.contains('$', regex=False)]
-            logger.info(f"After common stock filter: {len(df)} securities")
+            logger.debug(f"After common stock filter: {len(df)} securities")
 
         # Remove duplicates
         df = df.drop_duplicates(subset=['Ticker'], keep='first')
         df = df.sort_values('Ticker').reset_index(drop=True)
         
-        logger.info(f"Final Universe: {len(df)} common stocks")
+        logger.debug(f"Final Universe: {len(df)} common stocks")
         
         # Store result
         dir_path = os.path.join('data', 'symbols')

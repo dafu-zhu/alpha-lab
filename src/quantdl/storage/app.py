@@ -12,7 +12,7 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
-from quantdl.utils.logger import setup_logger
+from quantdl.utils.logger import setup_logger, console_log
 from quantdl.utils.calendar import TradingCalendar
 from quantdl.storage.clients import S3Client
 from quantdl.storage.pipeline import DataCollectors, DataPublishers, Validator
@@ -352,6 +352,9 @@ class UploadApp:
         start_date = f"{start_year}-01-01"
         end_date = f"{end_year}-12-31"
 
+        import time as _time
+        _start_time = _time.time()
+
         if run_all:
             run_fundamental = True
             run_derived_fundamental = True
@@ -361,22 +364,26 @@ class UploadApp:
             run_top_3000 = True
             run_sentiment = True
 
+        console_log(self.logger, f"Upload: {start_year}-{end_year}", section=True)
+        self.logger.info(
+            f"  Init: WRDS {'available' if self._wrds_available else 'unavailable'}"
+        )
+
         # Daily ticks
         if run_daily_ticks:
+            console_log(self.logger, f"Daily Ticks ({start_year}-{end_year})", section=True)
             self._run_daily_ticks(start_year, end_year, overwrite, daily_chunk_size, daily_sleep_time)
 
         # Minute ticks and top 3000 by year
         for year in range(start_year, end_year + 1):
-            self.logger.info(f"Processing year {year}")
-
             if run_minute_ticks:
                 today = dt.date.today()
                 if year > today.year:
-                    self.logger.info(f"Skipping minute ticks for {year}: future")
+                    self.logger.debug(f"Skipping minute ticks for {year}: future")
                     continue
 
                 if year >= minute_ticks_start_year:
-                    self.logger.info(f"Uploading minute ticks for {year}")
+                    console_log(self.logger, f"Minute Ticks ({year})", section=True)
                     self.upload_minute_ticks_year(
                         year, overwrite=overwrite, resume=resume,
                         num_workers=max_workers, chunk_size=chunk_size, sleep_time=sleep_time
@@ -387,21 +394,25 @@ class UploadApp:
 
         # Fundamentals (after ticks)
         if run_fundamental:
-            self.logger.info(f"Uploading raw fundamental: {start_date} to {end_date}")
+            console_log(self.logger, f"Raw Fundamental: {start_date} to {end_date}", section=True)
             self.upload_fundamental(start_date, end_date, max_workers, overwrite)
 
         if run_ttm_fundamental:
-            self.logger.info(f"Uploading TTM fundamental: {start_date} to {end_date}")
+            console_log(self.logger, f"TTM Fundamental: {start_date} to {end_date}", section=True)
             self.upload_ttm_fundamental(start_date, end_date, max_workers, overwrite)
 
         if run_derived_fundamental:
-            self.logger.info(f"Uploading derived fundamental: {start_date} to {end_date}")
+            console_log(self.logger, f"Derived Fundamental: {start_date} to {end_date}", section=True)
             self.upload_derived_fundamental(start_date, end_date, max_workers, overwrite)
 
         if run_sentiment:
             sentiment_start = max(start_date, "2017-01-01")
-            self.logger.info(f"Uploading sentiment: {sentiment_start} to {end_date}")
+            console_log(self.logger, f"Sentiment: {sentiment_start} to {end_date}", section=True)
             self.upload_sentiment(sentiment_start, end_date, overwrite)
+
+        elapsed = _time.time() - _start_time
+        minutes, seconds = divmod(int(elapsed), 60)
+        console_log(self.logger, f"Done: Upload complete ({minutes}m {seconds:02d}s)", section=True)
 
     def _run_daily_ticks(
         self,
@@ -418,7 +429,7 @@ class UploadApp:
 
         # CRSP bulk for historical years
         if start_year < alpaca_start and self._wrds_available:
-            self.logger.info(f"Uploading CRSP daily ticks ({start_year}-{crsp_end})")
+            self.logger.debug(f"Uploading CRSP daily ticks ({start_year}-{crsp_end})")
             handler.upload_crsp_bulk_history(
                 start_year=start_year,
                 end_year=crsp_end,
@@ -431,7 +442,7 @@ class UploadApp:
         today = dt.date.today()
         alpaca_end = min(end_year, today.year)
         for year in range(max(start_year, alpaca_start), alpaca_end + 1):
-            self.logger.info(f"Uploading Alpaca daily ticks for {year}")
+            self.logger.debug(f"Uploading Alpaca daily ticks for {year}")
             handler.upload_year(
                 year=year,
                 overwrite=overwrite,

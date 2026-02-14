@@ -43,7 +43,7 @@ class UniverseManager:
                 else:
                     # S3-only SecurityMaster: No CRSP fetcher available
                     self.crsp_fetcher = None
-                    self.logger.info(
+                    self.logger.debug(
                         "UniverseManager initialized without CRSP fetcher (S3-only mode). "
                         "Historical universe queries (<2025) will fail."
                     )
@@ -78,7 +78,7 @@ class UniverseManager:
         else:
             raise ValueError("Failed to fetch symbols from Nasdaq Trader.")
 
-        self.logger.info(f"Market Universe Size: {len(symbols)} tickers")
+        self.logger.debug(f"Market Universe Size: {len(symbols)} tickers")
 
         # Cache the result
         self._current_symbols_cache = symbols
@@ -105,13 +105,13 @@ class UniverseManager:
                     df = fetch_all_stocks(with_filter=True, refresh=True, logger=self.logger)
                     self._current_symbols_cache = df['Ticker'].to_list()
                 nasdaq_symbols = self._current_symbols_cache
-                self.logger.info(f"Using current ticker list for {year} ({len(nasdaq_symbols)} symbols)")
+                self.logger.debug(f"Using current ticker list for {year} ({len(nasdaq_symbols)} symbols)")
             else:
                 # Check cache first
                 cache_key = (year, sym_type)
                 if cache_key in self._historical_cache:
                     symbols = self._historical_cache[cache_key]
-                    self.logger.info(f"Loaded {len(symbols)} symbols for {year} from cache (format={sym_type})")
+                    self.logger.debug(f"Loaded {len(symbols)} symbols for {year} from cache (format={sym_type})")
                     return symbols
 
                 # For historical years (< 2025), use CRSP historical universe
@@ -154,7 +154,7 @@ class UniverseManager:
                     else:
                         raise
 
-                self.logger.info(f"Using CRSP historical universe for {year} ({len(nasdaq_symbols)} symbols)")
+                self.logger.debug(f"Using CRSP historical universe for {year} ({len(nasdaq_symbols)} symbols)")
 
             if sym_type == "alpaca":
                 # Alpaca format is same as Nasdaq format (e.g., 'BRK.B')
@@ -171,7 +171,7 @@ class UniverseManager:
                 cache_key = (year, sym_type)
                 self._historical_cache[cache_key] = symbols
 
-            self.logger.info(f"Loaded {len(symbols)} symbols for {year} (format={sym_type})")
+            self.logger.debug(f"Loaded {len(symbols)} symbols for {year} (format={sym_type})")
             return symbols
 
         except Exception as e:

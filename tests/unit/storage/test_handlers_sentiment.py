@@ -38,7 +38,7 @@ class TestSentimentCheckpoint:
         cp = SentimentCheckpoint(s3, 'bucket', logger)
 
         assert cp._processed == {'CIK1', 'CIK2'}
-        logger.info.assert_any_call('Loaded checkpoint: 2 CIKs already processed')
+        logger.debug.assert_any_call('Loaded checkpoint: 2 CIKs already processed')
 
     def test_init_no_checkpoint(self, s3, logger):
         s3.get_object.side_effect = Exception('NoSuchKey')
@@ -46,7 +46,7 @@ class TestSentimentCheckpoint:
         cp = SentimentCheckpoint(s3, 'bucket', logger)
 
         assert cp._processed == set()
-        logger.info.assert_any_call('No checkpoint found, starting fresh')
+        logger.debug.assert_any_call('No checkpoint found, starting fresh')
 
     def test_is_processed(self, s3, logger):
         s3.get_object.side_effect = Exception()

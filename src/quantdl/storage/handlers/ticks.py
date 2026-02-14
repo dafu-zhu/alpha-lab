@@ -89,7 +89,7 @@ class DailyTicksHandler(BaseHandler):
         is_completed = year < current_year
         source = 'crsp' if year < self.alpaca_start_year else 'alpaca'
 
-        self.logger.info(
+        self.logger.debug(
             f"Starting {year} daily ticks upload for {len(symbols)} symbols "
             f"(source={source}, completed={is_completed})"
         )
@@ -123,7 +123,7 @@ class DailyTicksHandler(BaseHandler):
         start_date = f"{start_year}-01-01"
         end_date = f"{end_year}-12-31"
 
-        self.logger.info(f"Starting CRSP bulk history: {start_year}-{end_year}")
+        self.logger.debug(f"Starting CRSP bulk history: {start_year}-{end_year}")
 
         # Build permno -> security_id mapping
         permno_sid_map, all_sids = self._build_permno_mapping()
@@ -143,7 +143,7 @@ class DailyTicksHandler(BaseHandler):
                 p for p, sids in permno_sid_map.items()
                 if any(sid in pending_sids for sid, _, _ in sids)
             ]
-            self.logger.info(f"Resuming: {len(completed)} done, {len(pending_sids)} pending")
+            self.logger.debug(f"Resuming: {len(completed)} done, {len(pending_sids)} pending")
         else:
             permnos_to_fetch = list(permno_sid_map.keys())
             pending_sids = all_sids
@@ -153,7 +153,7 @@ class DailyTicksHandler(BaseHandler):
         tracker.set_total(len(all_sids))
 
         if not permnos_to_fetch:
-            self.logger.info("All security_ids completed")
+            self.logger.debug("All security_ids completed")
             return self.stats
 
         # Fetch and upload in batches
@@ -197,7 +197,7 @@ class DailyTicksHandler(BaseHandler):
         source: str
     ) -> Dict[str, Any]:
         """Upload completed year to history.parquet."""
-        self.logger.info(f"Storage: data/raw/ticks/daily/{{security_id}}/history.parquet")
+        self.logger.debug(f"Storage: data/raw/ticks/daily/{{security_id}}/history.parquet")
         self.reset_stats()
 
         total = len(symbols)
@@ -250,7 +250,7 @@ class DailyTicksHandler(BaseHandler):
         source: str
     ) -> Dict[str, Any]:
         """Upload current year with monthly partitions."""
-        self.logger.info(f"Storage: data/raw/ticks/daily/{{security_id}}/{year}/{{MM}}/ticks.parquet")
+        self.logger.debug(f"Storage: data/raw/ticks/daily/{{security_id}}/{year}/{{MM}}/ticks.parquet")
 
         total = len(symbols)
         today = dt.date.today()
@@ -258,7 +258,7 @@ class DailyTicksHandler(BaseHandler):
         for month in range(1, 13):
             # Skip future months
             if year == today.year and month > today.month:
-                self.logger.info(f"Skipping {year}-{month:02d}: future month")
+                self.logger.debug(f"Skipping {year}-{month:02d}: future month")
                 continue
 
             self.reset_stats()
@@ -333,7 +333,7 @@ class DailyTicksHandler(BaseHandler):
                 permno_sid_map[permno] = []
             permno_sid_map[permno].append((sid, start, end))
 
-        self.logger.info(f"Found {len(permno_sid_map)} permnos, {len(all_sids)} security_ids")
+        self.logger.debug(f"Found {len(permno_sid_map)} permnos, {len(all_sids)} security_ids")
         return permno_sid_map, all_sids
 
     def _filter_existing_symbols(
@@ -484,7 +484,7 @@ class MinuteTicksHandler(BaseHandler):
         stats_lock = threading.Lock()
         data_queue = queue.Queue(maxsize=200)
 
-        self.logger.info(f"Starting {year} minute ticks ({len(months)} months) | {num_workers} workers")
+        self.logger.debug(f"Starting {year} minute ticks ({len(months)} months) | {num_workers} workers")
 
         # Start workers
         workers = []

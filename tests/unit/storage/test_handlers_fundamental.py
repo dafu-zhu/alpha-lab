@@ -143,9 +143,9 @@ class TestFundamentalHandler:
 
         handler._prepare_symbols('2020-01-01', '2020-12-31')
 
-        # <=30 non-filers → logged individually
-        info_calls = [str(c) for c in handler.logger.info.call_args_list]
-        assert any('Non-SEC filers' in c for c in info_calls)
+        # <=30 non-filers → logged individually (debug level)
+        debug_calls = [str(c) for c in handler.logger.debug.call_args_list]
+        assert any('Non-SEC filers' in c for c in debug_calls)
 
     def test_update_stats_all_statuses(self, handler):
         handler._update_stats({'status': 'success'})

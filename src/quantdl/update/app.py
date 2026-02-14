@@ -24,7 +24,7 @@ from quantdl.storage.utils import NoSuchKeyError
 import time
 from threading import Semaphore
 
-from quantdl.utils.logger import setup_logger
+from quantdl.utils.logger import setup_logger, console_log
 from quantdl.utils.calendar import TradingCalendar
 from quantdl.storage.clients import S3Client
 from quantdl.storage.pipeline import DataCollectors, DataPublishers
@@ -141,7 +141,7 @@ class DailyUpdateApp:
         :return: True if market was open, False otherwise
         """
         is_open = self.calendar.is_trading_day(date)
-        self.logger.info(f"Market {'was' if is_open else 'was NOT'} open on {date}")
+        self.logger.debug(f"Market {'was' if is_open else 'was NOT'} open on {date}")
         return is_open
 
     def _get_symbols_for_year(self, year: int) -> List[str]:
@@ -244,7 +244,7 @@ class DailyUpdateApp:
         # Filing types that contain fundamental financial data
         fundamental_forms = {'10-K', '10-Q', '10-K/A', '10-Q/A'}
 
-        self.logger.info(f"Checking EDGAR for recent filings ({lookback_days} day lookback)...")
+        self.logger.debug(f"Checking EDGAR for recent filings ({lookback_days} day lookback)...")
 
         # Batch resolve symbols to CIKs
         year = update_date.year
@@ -253,7 +253,7 @@ class DailyUpdateApp:
         # Filter out None CIKs
         symbol_to_cik = {sym: cik for sym, cik in symbol_to_cik.items() if cik is not None}
 
-        self.logger.info(f"Resolved {len(symbol_to_cik)}/{len(symbols)} symbols to CIKs")
+        self.logger.debug(f"Resolved {len(symbol_to_cik)}/{len(symbols)} symbols to CIKs")
 
         # Parallel EDGAR checks with rate limiting
         max_workers = 10
@@ -279,16 +279,12 @@ class DailyUpdateApp:
 
                 checked += 1
                 if checked % 100 == 0:
-                    self.logger.info(f"Checked {checked}/{len(symbol_to_cik)} symbols for filings")
+                    self.logger.debug(f"Checked {checked}/{len(symbol_to_cik)} symbols for filings")
 
-        # Log filing breakdown
-        stats_str = ", ".join(f"{k}: {v}" for k, v in sorted(filing_stats.items()))
+        # Log filing summary
+        stats_str = ", ".join(f"{v}\u00d7 {k}" for k, v in sorted(filing_stats.items()))
         self.logger.info(
-            f"Found {len(symbols_with_filings)} symbols with recent filings "
-            f"out of {len(symbol_to_cik)} checked ({stats_str})"
-        )
-        self.logger.info(
-            f"Of these, {len(symbols_with_fundamental_filings)} have 10-K/10-Q filings with financial data"
+            f"  EDGAR: {len(symbols_with_fundamental_filings)} symbols with new filings ({stats_str})"
         )
 
         return symbols_with_fundamental_filings, symbols_with_filings, filing_stats
@@ -319,7 +315,7 @@ class DailyUpdateApp:
         if symbols is None:
             symbols = self._get_symbols_for_year(year)
 
-        self.logger.info(
+        self.logger.debug(
             f"Fetching daily ticks for {len(symbols)} symbols "
             f"(month-to-date: {year}-{month:02d}-01 to {update_date})"
         )
@@ -340,7 +336,7 @@ class DailyUpdateApp:
             sleep_time=0.2
         )
 
-        self.logger.info(
+        self.logger.debug(
             f"Uploading daily ticks for {len(symbols)} symbols "
             f"(monthly partition: {year}/{month:02d})"
         )
@@ -439,7 +435,7 @@ class DailyUpdateApp:
                 pbar.set_postfix(ok=stats['success'], fail=stats['failed'], skip=stats['skipped'])
 
         self.logger.info(
-            f"Daily ticks: {stats['success']} ok, {stats['failed']} fail, {stats['skipped']} skip"
+            f"  Result: {stats['success']} ok, {stats['failed']} fail, {stats['skipped']} skip"
         )
 
         return stats
@@ -630,7 +626,7 @@ class DailyUpdateApp:
         if symbols is None:
             symbols = self._get_symbols_for_year(year)
 
-        self.logger.info(
+        self.logger.debug(
             f"Updating minute ticks for {len(symbols)} symbols for {trade_day_str}"
         )
 
@@ -704,7 +700,7 @@ class DailyUpdateApp:
                 pbar.set_postfix(ok=stats['success'], fail=stats['failed'], skip=stats['skipped'])
 
         self.logger.info(
-            f"Minute ticks: {stats['success']} ok, {stats['failed']} fail, {stats['skipped']} skip"
+            f"  Result: {stats['success']} ok, {stats['failed']} fail, {stats['skipped']} skip"
         )
 
         return stats
@@ -736,7 +732,7 @@ class DailyUpdateApp:
         :param max_workers: Number of concurrent workers
         :return: Dict with statistics
         """
-        self.logger.info(
+        self.logger.debug(
             f"Updating fundamental data for {len(symbols)} symbols "
             f"from {start_date} to {end_date}"
         )
@@ -748,7 +744,7 @@ class DailyUpdateApp:
             if cik:
                 symbol_to_cik[sym] = cik
 
-        self.logger.info(f"Resolved {len(symbol_to_cik)}/{len(symbols)} symbols to CIKs")
+        self.logger.debug(f"Resolved {len(symbol_to_cik)}/{len(symbols)} symbols to CIKs")
 
         stats = {'success': 0, 'failed': 0, 'skipped': 0}
 
@@ -801,14 +797,14 @@ class DailyUpdateApp:
                         )
 
                 stats['success'] += 1
-                self.logger.info(f"Successfully updated fundamental data for {sym}")
+                self.logger.debug(f"Successfully updated fundamental data for {sym}")
 
             except Exception as e:
                 self.logger.error(f"Error updating fundamental data for {sym}: {e}")
                 stats['failed'] += 1
 
         self.logger.info(
-            f"Fundamental update completed: {stats['success']} success, "
+            f"  Raw fundamental: {stats['success']} updated, "
             f"{stats['failed']} failed, {stats['skipped']} skipped"
         )
 
@@ -841,13 +837,12 @@ class DailyUpdateApp:
         from quantdl.storage.utils import RateLimiter
         import io
 
-        self.logger.info(f"Updating sentiment for {len(symbols)} symbols")
+        self.logger.debug(f"Updating sentiment for {len(symbols)} symbols")
 
         # Load FinBERT model (GPU-accelerated)
-        self.logger.info("Loading FinBERT model...")
         model = FinBERTModel()
         model.load()
-        self.logger.info(f"FinBERT loaded on {model._device}")
+        self.logger.info(f"  FinBERT loaded ({model._device})")
 
         # Initialize collector with rate limiter (10 req/sec)
         rate_limiter = RateLimiter(max_rate=10.0)
@@ -967,8 +962,7 @@ class DailyUpdateApp:
                 stats['failed'] += 1
 
         self.logger.info(
-            f"Sentiment update: {stats['success']} ok, "
-            f"{stats['failed']} fail, {stats['skipped']} skip"
+            f"  Result: {stats['success']} ok, {stats['failed']} fail, {stats['skipped']} skip"
         )
 
         return stats
@@ -1054,7 +1048,7 @@ class DailyUpdateApp:
         self,
         target_date: Optional[dt.date] = None,
         update_daily_ticks: bool = True,
-        update_minute_ticks: bool = True,
+        update_minute_ticks: bool = False,
         update_fundamental: bool = True,
         update_ttm: bool = True,
         update_derived: bool = True,
@@ -1084,58 +1078,49 @@ class DailyUpdateApp:
         if target_date is None:
             target_date = dt.date.today() - dt.timedelta(days=1)
 
-        self.logger.info(f"=" * 80)
-        self.logger.info(f"Starting daily update for {target_date}")
-        self.logger.info(f"=" * 80)
+        _start_time = time.time()
+
+        console_log(self.logger, f"Daily Update: {target_date}", section=True)
 
         # Update SecurityMaster from SEC (extend end_dates for active securities)
-        self.logger.info("Updating SecurityMaster from SEC...")
         sm_stats = self.security_master.update_from_sec(
             s3_client=self.s3_client,
             bucket_name='us-equity-datalake'
         )
-        self.logger.info(
-            f"SecurityMaster: {sm_stats['extended']} extended, "
-            f"{sm_stats['added']} added, {sm_stats['unchanged']} unchanged"
-        )
 
         # Update top 3000 universe if needed
         if update_top3000:
-            self.logger.info("[EMAIL] Update top3000 started")
             self.update_top3000(target_date)
-            self.logger.info("[EMAIL] Update top3000 successful")
 
         # Get current universe
         year = target_date.year
         symbols = self._get_symbols_for_year(year)
+
+        self.logger.info(
+            f"  Init: {len(symbols)} symbols | SecurityMaster "
+            f"{sm_stats['extended']} extended, {sm_stats['added']} added"
+        )
 
         # 1. Update ticks data (only if market was open)
         if update_daily_ticks or update_minute_ticks:
             market_open = self.check_market_open(target_date)
 
             if market_open:
-                self.logger.info(f"Updating ticks data for {target_date}...")
-
-                # Update daily ticks
                 if update_daily_ticks:
-                    self.logger.info("[EMAIL] Update daily ticks started")
+                    console_log(self.logger, "Daily Ticks", section=True)
+                    self.logger.info(f"  Market open: Yes")
                     daily_stats = self.update_daily_ticks(target_date, symbols)
-                    self.logger.info("[EMAIL] Update daily ticks successful")
 
-                # Update minute ticks
                 if update_minute_ticks:
-                    self.logger.info("[EMAIL] Update minute ticks started")
+                    console_log(self.logger, "Minute Ticks", section=True)
                     minute_stats = self.update_minute_ticks(target_date, symbols)
-                    self.logger.info("[EMAIL] Update minute ticks successful")
             else:
-                self.logger.info(
-                    f"Market was closed on {target_date}, skipping ticks update"
-                )
+                self.logger.info(f"  Market open: No (skipping ticks)")
 
         # 2. Update fundamental/sentiment data (check for recent filings)
         symbols_with_fundamental_filings = set()
         if update_fundamental or update_ttm or update_derived or update_sentiment:
-            self.logger.info("Checking EDGAR for recent filings...")
+            console_log(self.logger, "Fundamentals", section=True)
 
             symbols_with_fundamental_filings, symbols_with_filings, filing_stats = self.get_symbols_with_recent_filings(
                 symbols=symbols,
@@ -1144,24 +1129,11 @@ class DailyUpdateApp:
             )
 
         if (update_fundamental or update_ttm or update_derived) and symbols_with_fundamental_filings:
-            self.logger.info(
-                f"Updating fundamental data for {len(symbols_with_fundamental_filings)} symbols "
-                f"with 10-K/10-Q filings..."
-            )
-
             # Use a date range covering the lookback period
             end_date = dt.date.today().isoformat()
             start_date = (
                 dt.date.today() - dt.timedelta(days=fundamental_lookback_days)
             ).isoformat()
-
-            # Log [EMAIL] markers for each enabled type
-            if update_fundamental:
-                self.logger.info("[EMAIL] Update raw fundamental started")
-            if update_ttm:
-                self.logger.info("[EMAIL] Update ttm fundamental started")
-            if update_derived:
-                self.logger.info("[EMAIL] Update derived fundamental started")
 
             fundamental_stats = self.update_fundamental(
                 symbols=list(symbols_with_fundamental_filings),
@@ -1171,30 +1143,20 @@ class DailyUpdateApp:
                 update_ttm=update_ttm,
                 update_derived=update_derived
             )
-
-            # Log [EMAIL] success markers
-            if update_fundamental:
-                self.logger.info("[EMAIL] Update raw fundamental successful")
-            if update_ttm:
-                self.logger.info("[EMAIL] Update ttm fundamental successful")
-            if update_derived:
-                self.logger.info("[EMAIL] Update derived fundamental successful")
         elif (update_fundamental or update_ttm or update_derived):
-            self.logger.info("No symbols with 10-K/10-Q filings, skipping fundamental update")
+            self.logger.info("  No symbols with 10-K/10-Q filings")
 
         # 3. Update sentiment data (for symbols with new 10-K/10-Q filings)
         if update_sentiment and symbols_with_fundamental_filings:
-            self.logger.info("[EMAIL] Update sentiment started")
+            console_log(self.logger, "Sentiment", section=True)
             try:
                 sentiment_stats = self.update_sentiment(
                     symbols=list(symbols_with_fundamental_filings),
                     end_date=target_date.isoformat()
                 )
-                self.logger.info("[EMAIL] Update sentiment successful")
             except Exception as e:
                 self.logger.error(f"Sentiment update failed: {e}")
-                self.logger.info("[EMAIL] Update sentiment failed")
 
-        self.logger.info(f"=" * 80)
-        self.logger.info(f"Daily update completed for {target_date}")
-        self.logger.info(f"=" * 80)
+        elapsed = time.time() - _start_time
+        minutes, seconds = divmod(int(elapsed), 60)
+        console_log(self.logger, f"Done: {target_date} ({minutes}m {seconds:02d}s)", section=True)

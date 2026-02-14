@@ -19,12 +19,17 @@ US Equity Data Lake: Self-hosted, automated market data infrastructure for US eq
 ```bash
 uv sync
 
-# Required .env variables:
+# Required .env variables (see .env.example):
 # WRDS_USERNAME, WRDS_PASSWORD (for CRSP)
 # ALPACA_API_KEY, ALPACA_API_SECRET (for minute ticks)
 # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY (for S3)
 # SEC_USER_AGENT (for EDGAR API, e.g., your_name@example.com)
+# STORAGE_BACKEND=s3|local (default: s3)
+# LOCAL_STORAGE_PATH=/path/to/data (required if STORAGE_BACKEND=local)
 ```
+
+**No linting/formatting tools configured.** Style enforcement is manual.
+Code quality tools: `uv`, `pytest`. Avoid: `pip`, `black`, `flake8`.
 
 ### Testing
 ```bash
@@ -55,6 +60,9 @@ uv run quantdl-update --minute-ticks     # include minute ticks
 uv run quantdl-update --no-ticks         # fundamentals only
 uv run quantdl-update --no-wrds          # WRDS-free mode (GitHub Actions)
 
+# Backfill a date range (max 30 days, skips already-uploaded dates)
+uv run quantdl-update --backfill-from 2025-01-01 --date 2025-01-10
+
 # Year consolidation (run on Jan 1)
 uv run quantdl-consolidate --year 2025   # merge monthly → history.parquet
 uv run quantdl-consolidate --year 2025 --force  # overwrite if exists
@@ -78,6 +86,8 @@ uv run quantdl-export-security-master --export --force-rebuild  # skip S3 cache
 - `data_collectors.py`: Collects data from sources, handles rate limiting
 - `data_publishers.py`: Publishes collected data to S3 in Parquet format
 - `s3_client.py`: S3 client wrapper with retry logic
+- `clients/local.py`: `LocalStorageClient` — duck-typed boto3 S3 client for local filesystem (metadata in sidecar `.{filename}.metadata.json`)
+- `clients/ticks.py`: `TicksClient` — symbol-based query API with transparent security_id resolution
 - `validation.py`: Validates uploaded data completeness
 - `cik_resolver.py`: Maps tickers to SEC CIK codes
 - `rate_limiter.py`: Rate limiting for API calls
@@ -95,10 +105,13 @@ uv run quantdl-export-security-master --export --force-rebuild  # skip S3 cache
 - `ttm.py`: Computes trailing-twelve-month (TTM) fundamentals
 - `metrics.py`: Computes derived metrics (ROA, ROE, leverage ratios, etc.)
 - `sentiment.py`: Computes sentiment metrics from MD&A text using FinBERT
+  - S3 caching: MD&A texts cached at `data/cache/sentiment/mda/{cik}/{accession_number}.txt`
+  - Checkpointing: progress at `data/cache/sentiment_checkpoint.json` (supports resume)
+  - Parallel SEC fetches, sequential GPU inference
 
 **5a. Models** (`src/quantdl/models/`)
 - `base.py`: SentimentModel ABC, SentimentResult dataclass
-- `finbert.py`: FinBERT implementation (ProsusAI/finbert) with CUDA support
+- `finbert.py`: FinBERT (ProsusAI/finbert) — CUDA with auto CPU fallback, batched inference (32 GPU / 8 CPU)
 
 **6. Update Apps** (`src/quantdl/update/`)
 - `app.py`: `DailyUpdateApp` orchestrates daily incremental updates
@@ -225,6 +238,12 @@ tests/
 - Used by `fundamental.py` to extract XBRL concepts
 - Multiple candidate tags per concept (handles deprecated tags)
 
+**configs/storage.yaml**
+- S3 client tuning: region, pool connections, timeouts, retry config
+- Transfer config: multipart thresholds, concurrency
+- Daily ticks strategy: monthly partitions for current year, yearly for completed
+- Security master: S3 key, auto-export, staleness threshold
+
 **DURATION_CONCEPTS (fundamental.py)**
 - Duration concepts (income statement): rev, net_inc, cfo, etc.
 - Instant concepts (balance sheet): assets, liab, equity, etc.
@@ -272,6 +291,27 @@ tests/
 - Data source unavailable: Retry with exponential backoff
 - Fundamental filing delays: Expected, tracked separately
 
+## GitHub Actions
+
+| Workflow | Trigger | Description |
+|----------|---------|-------------|
+| `tests.yml` | Push, PR | pytest + coverage → Codecov (Python 3.12, Ubuntu) |
+| `daily-update.yml` | Daily 9:00 UTC (4am ET) | `--no-wrds` mode, email on success/failure |
+| `manual-daily-update.yml` | Manual dispatch | Same as daily + backfill support |
+| `year-consolidate.yml` | Jan 1 10:00 UTC, manual | Merges monthly → history.parquet (requires WRDS) |
+
+Daily workflow uses WRDS-free mode (Nasdaq FTP + SEC API) to avoid WRDS IP restrictions.
+Secrets documented in `.github/SECRETS.md`.
+
+## Utility Scripts
+
+- `scripts/xbrl_tag_factory.py`: XBRL tag harvesting, outputs `configs/mapping_suggestions.yaml`
+- `scripts/generate_monthly_top3000.py`: Top 3000 universe per month (liquidity-ranked)
+- `scripts/test_local_storage.py`: Tests `LocalStorageClient` filesystem backend
+- `scripts/daily_update.bat`: Windows Task Scheduler script (backfills last 3 days)
+- `scripts/trade_calendar.py`: NYSE trading calendar utilities
+- `scripts/benchmark_parallel_filing.py`: Benchmarks parallel SEC filing fetches
+
 ## Dependencies
 
 Key libraries:
@@ -280,6 +320,7 @@ Key libraries:
 - **wrds**: CRSP data access
 - **requests**: HTTP client for Alpaca, SEC EDGAR
 - **arelle**: XBRL processing for SEC filings
+- **transformers + torch**: FinBERT sentiment (CUDA 12.4 via custom PyPI index in pyproject.toml)
 - **pytest**: Testing framework
 - **pyarrow**: Parquet I/O
 
