@@ -28,18 +28,18 @@ class TestClientBasics:
             assert client is not None
 
 
-class TestSecurityResolution:
-    """Security resolution tests."""
+class TestSecurityLookup:
+    """Security lookup tests."""
 
-    def test_resolve_symbol(self, client: QuantDLClient) -> None:
-        """Test resolving symbol."""
-        info = client.resolve("AAPL")
+    def test_lookup_symbol(self, client: QuantDLClient) -> None:
+        """Test looking up symbol."""
+        info = client.lookup("AAPL")
         assert info is not None
         assert info.symbol == "AAPL"
 
-    def test_resolve_missing(self, client: QuantDLClient) -> None:
-        """Test resolving missing symbol."""
-        info = client.resolve("INVALID")
+    def test_lookup_missing(self, client: QuantDLClient) -> None:
+        """Test looking up missing symbol."""
+        info = client.lookup("INVALID")
         assert info is None
 
 

@@ -85,24 +85,24 @@ class QuantDLClient:
         """Access calendar master for trading day lookups."""
         return self._calendar_master
 
-    def resolve(self, identifier: str, as_of: date | None = None) -> SecurityInfo | None:
-        """Resolve symbol/identifier to SecurityInfo.
+    def lookup(self, identifier: str, as_of: date | None = None) -> SecurityInfo | None:
+        """Look up symbol/identifier to SecurityInfo.
 
         Args:
             identifier: Symbol, CIK, or security_id
-            as_of: Point-in-time date (default: today)
+            as_of: Point-in-time date (auto for single-match symbols)
 
         Returns:
             SecurityInfo if found, None otherwise
         """
         return self._security_master.resolve(identifier, as_of)
 
-    def _resolve_securities(
+    def _lookup_securities(
         self,
         symbols: Sequence[str],
         as_of: date | None = None,
     ) -> list[tuple[str, SecurityInfo]]:
-        """Resolve symbols and return list of (symbol, info) pairs."""
+        """Look up symbols and return list of (symbol, info) pairs."""
         result: list[tuple[str, SecurityInfo]] = []
         for sym in symbols:
             info = self._security_master.resolve(sym, as_of)
@@ -200,7 +200,7 @@ class QuantDLClient:
         end = end or date.today() - timedelta(days=1)
 
         # Resolve symbols to security IDs
-        resolved = self._resolve_securities(symbols, as_of=start)
+        resolved = self._lookup_securities(symbols, as_of=start)
         if not resolved:
             raise DataNotFoundError("ticks", ", ".join(symbols))
 
@@ -320,7 +320,7 @@ class QuantDLClient:
         if source is None:
             source = "ttm" if concept in DURATION_CONCEPTS else "raw"
 
-        resolved = self._resolve_securities(symbols, as_of=start)
+        resolved = self._lookup_securities(symbols, as_of=start)
         if not resolved:
             raise DataNotFoundError("fundamentals", ", ".join(symbols))
 
@@ -374,7 +374,7 @@ class QuantDLClient:
         start = start or date(2000, 1, 1)
         end = end or date.today() - timedelta(days=1)
 
-        resolved = self._resolve_securities(symbols, as_of=start)
+        resolved = self._lookup_securities(symbols, as_of=start)
         if not resolved:
             raise DataNotFoundError("metrics", ", ".join(symbols))
 

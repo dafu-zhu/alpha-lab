@@ -49,32 +49,44 @@ class SecurityMaster:
         identifier: str,
         as_of: date | None = None,
     ) -> SecurityInfo | None:
-        """Resolve identifier to SecurityInfo at point-in-time.
+        """Resolve identifier to SecurityInfo with smart date handling.
+
+        If the identifier matches a single row, returns it immediately (no date needed).
+        If multiple rows match, applies point-in-time filtering.
 
         Args:
             identifier: Symbol, CIK, or security_id
-            as_of: Date for point-in-time lookup (default: today)
+            as_of: Date for point-in-time lookup (default: yesterday)
 
         Returns:
             SecurityInfo if found, None otherwise
         """
         df = self._load()
-        as_of = as_of or date.today() - timedelta(days=1)
 
-        # Build filter: start_date <= as_of AND (end_date is null OR end_date >= as_of)
-        pit_filter = (pl.col("start_date") <= as_of) & (
-            pl.col("end_date").is_null() | (pl.col("end_date") >= as_of)
-        )
+        pit_filter = None
+        if as_of is not None:
+            pit_filter = (pl.col("start_date") <= as_of) & (
+                pl.col("end_date").is_null() | (pl.col("end_date") >= as_of)
+            )
 
-        # Try different identifier types
         for col in ["symbol", "security_id", "cik", "cusip"]:
             if col not in df.columns:
                 continue
-            # Cast column to string for comparison (handles mixed int/string columns)
-            result = df.filter(pit_filter & (pl.col(col).cast(pl.Utf8) == identifier))
-            if len(result) > 0:
-                row = result.row(0, named=True)
-                return self._to_security_info(row)
+            matches = df.filter(pl.col(col).cast(pl.Utf8) == identifier)
+            if len(matches) == 0:
+                continue
+            # Single row + no explicit as_of → skip PIT
+            if len(matches) == 1 and as_of is None:
+                return self._to_security_info(matches.row(0, named=True))
+            # Apply point-in-time filter
+            if pit_filter is None:
+                effective = date.today() - timedelta(days=1)
+                pit_filter = (pl.col("start_date") <= effective) & (
+                    pl.col("end_date").is_null() | (pl.col("end_date") >= effective)
+                )
+            pit = matches.filter(pit_filter)
+            if len(pit) > 0:
+                return self._to_security_info(pit.row(0, named=True))
 
         return None
 
