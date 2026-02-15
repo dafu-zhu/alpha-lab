@@ -177,6 +177,24 @@ class SafeEvaluator(ast.NodeVisitor):
                     if callable(func):
                         self._op_funcs.add(id(func))
 
+    def visit_Module(self, node: ast.Module) -> Any:
+        """Handle multi-statement sequences (exec mode)."""
+        result = None
+        for stmt in node.body:
+            result = self.visit(stmt)
+        return result
+
+    def visit_Assign(self, node: ast.Assign) -> Any:
+        """Handle variable assignment: x = expr."""
+        value = self.visit(node.value)
+        if isinstance(node.targets[0], ast.Name):
+            self.variables[node.targets[0].id] = value
+        return value
+
+    def visit_Expr(self, node: ast.Expr) -> Any:
+        """Handle standalone expression statement."""
+        return self.visit(node.value)
+
     def visit_Expression(self, node: ast.Expression) -> Any:
         return self.visit(node.body)
 
@@ -391,6 +409,43 @@ def alpha_eval(
         raise AlphaParseError(f"Invalid expression syntax: {e}") from e
 
     # Inject ops as a variable if provided
+    eval_vars: dict[str, Any] = dict(variables)
+    if ops is not None:
+        eval_vars["ops"] = ops
+
+    evaluator = SafeEvaluator(eval_vars, ops)
+    result = evaluator.visit(tree)
+
+    if isinstance(result, Alpha):
+        return result
+    if isinstance(result, pl.DataFrame):
+        return Alpha(result)
+    raise AlphaParseError(f"Expression did not return Alpha/DataFrame: {type(result)}")
+
+
+def alpha_query(
+    expr: str,
+    variables: dict[str, AlphaLike],
+    ops: Any | None = None,
+) -> Alpha:
+    """Evaluate multi-line expression with variable assignments.
+
+    Uses exec-mode AST parsing to support semicolons and assignment statements.
+    The last expression's value is returned.
+
+    Args:
+        expr: Multi-line expression, e.g., "x = rank(close); x + 1"
+        variables: Mapping of variable names to Alpha/DataFrame values
+        ops: Module containing operator functions
+
+    Returns:
+        Alpha with computed result
+    """
+    try:
+        tree = ast.parse(expr, mode="exec")
+    except SyntaxError as e:
+        raise AlphaParseError(f"Invalid expression syntax: {e}") from e
+
     eval_vars: dict[str, Any] = dict(variables)
     if ops is not None:
         eval_vars["ops"] = ops
