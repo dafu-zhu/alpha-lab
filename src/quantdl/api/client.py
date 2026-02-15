@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from datetime import date, timedelta
 from typing import TYPE_CHECKING
 
@@ -137,6 +138,71 @@ class QuantDLClient:
             df = df.rename(rename_map)
 
         return df.sort("Date")
+
+    def _extract_field_refs(self, expr: str) -> set[str]:
+        """Parse expression AST to find field names that need auto-loading."""
+        from quantdl.features.registry import VALID_FIELD_NAMES
+        import quantdl.api.operators as operators
+
+        tree = ast.parse(expr, mode="exec")
+        names: set[str] = set()
+        assigned: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+                names.add(node.id)
+            elif isinstance(node, ast.Assign):
+                for t in node.targets:
+                    if isinstance(t, ast.Name):
+                        assigned.add(t.id)
+
+        op_names = {n for n in dir(operators) if not n.startswith("_")}
+        builtins = {"abs", "min", "max", "log", "sqrt", "sign"}
+        return (names & VALID_FIELD_NAMES) - assigned - op_names - builtins
+
+    def query(
+        self,
+        expr: str,
+        symbols: Sequence[str] | None = None,
+        universe: str | None = None,
+        start: date | str | None = None,
+        end: date | str | None = None,
+    ) -> pl.DataFrame:
+        """Evaluate multi-line alpha expression with auto-field loading.
+
+        Fields referenced in the expression are automatically loaded via get().
+        Supports variable assignment and semicolons for multi-statement expressions.
+
+        Args:
+            expr: Alpha expression (e.g., "rank(-ts_delta(close, 5))")
+            symbols: Symbol(s) to include
+            universe: Universe name to resolve symbols from
+            start: Start date filter
+            end: End date filter
+
+        Returns:
+            Wide DataFrame with Date + symbol columns
+        """
+        import quantdl.api.operators as operators
+        from quantdl.alpha.parser import alpha_query
+
+        if isinstance(start, str):
+            start = date.fromisoformat(start)
+        if isinstance(end, str):
+            end = date.fromisoformat(end)
+
+        start = start or date(2000, 1, 1)
+        end = end or date.today() - timedelta(days=1)
+
+        # Auto-detect field references
+        fields = self._extract_field_refs(expr)
+
+        # Load each field
+        variables: dict[str, pl.DataFrame] = {}
+        for f in fields:
+            variables[f] = self.get(f, symbols=symbols, universe=universe, start=start, end=end)
+
+        result = alpha_query(expr, variables, ops=operators)
+        return result.data
 
     def universe(self, name: str = "top3000") -> list[str]:
         """Load universe of symbols."""
