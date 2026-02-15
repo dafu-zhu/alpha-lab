@@ -7,11 +7,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 US Equity Data Lake: Self-hosted, automated market data infrastructure for US equities using official/authoritative sources. Data stored in flat-file structure on AWS S3.
 
 **Data Coverage:**
-- Daily ticks (OHLCV): CRSP via WRDS (2009+)
+- Daily ticks (OHLCV): Alpaca API (2017+)
 - Minute ticks: Alpaca API (2016+)
 - Fundamentals: SEC EDGAR JSON API (2009+)
 - Derived metrics: ROA, ROE, TTM calculations
 - Sentiment: NLP analysis of MD&A sections (FinBERT, 2009+)
+- Security master: Local parquet (data/master/security_master.parquet, checked into repo)
 
 ## Commands
 
@@ -20,8 +21,7 @@ US Equity Data Lake: Self-hosted, automated market data infrastructure for US eq
 uv sync
 
 # Required .env variables (see .env.example):
-# WRDS_USERNAME, WRDS_PASSWORD (for CRSP)
-# ALPACA_API_KEY, ALPACA_API_SECRET (for minute ticks)
+# ALPACA_API_KEY, ALPACA_API_SECRET (for ticks)
 # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY (for S3)
 # SEC_USER_AGENT (for EDGAR API, e.g., your_name@example.com)
 # STORAGE_BACKEND=s3|local (default: s3)
@@ -58,7 +58,7 @@ uv run quantdl-update --date 2025-01-10
 uv run quantdl-update                    # defaults to yesterday
 uv run quantdl-update --minute-ticks     # include minute ticks
 uv run quantdl-update --no-ticks         # fundamentals only
-uv run quantdl-update --no-wrds          # WRDS-free mode (GitHub Actions)
+uv run quantdl-update --no-wrds          # Nasdaq FTP + SEC API mode (GitHub Actions)
 
 # Backfill a date range (max 30 days, skips already-uploaded dates)
 uv run quantdl-update --backfill-from 2025-01-01 --date 2025-01-10
@@ -77,8 +77,7 @@ uv run quantdl-export-security-master --export --force-rebuild  # skip S3 cache
 ### Core Components
 
 **1. Collection Layer** (`src/quantdl/collection/`)
-- `crsp_ticks.py`: Fetches daily OHLCV from CRSP via WRDS
-- `alpaca_ticks.py`: Fetches minute-level data from Alpaca API
+- `alpaca_ticks.py`: Fetches daily and minute-level data from Alpaca API
 - `fundamental.py`: Fetches SEC EDGAR XBRL data (JSON API)
 - `models.py`: Data models (TickField, FndDataPoint, DataSource)
 
@@ -94,11 +93,13 @@ uv run quantdl-export-security-master --export --force-rebuild  # skip S3 cache
 
 **3. Universe Management** (`src/quantdl/universe/`)
 - `current.py`: Fetches current stock universe from Nasdaq Trader
-- `historical.py`: Fetches historical universe from CRSP
+- `historical.py`: Historical universe from local security master (CRSP functions available if wrds installed)
 - `manager.py`: Manages universe state, handles symbol changes
 
 **4. Security Master** (`src/quantdl/master/`)
 - `security_master.py`: Tracks stocks across symbol changes, mergers, delistings
+  - Loading sequence: Local parquet → S3 → WRDS (if wrds installed)
+  - Local parquet at `data/master/security_master.parquet` (checked into repo)
 - Contains `SymbolNormalizer` for deterministic ticker format conversion
 
 **5. Derived Data** (`src/quantdl/derived/`)
@@ -136,8 +137,8 @@ Data Sources → Collection → Validation → S3 Storage
 ```
 
 **Initial Upload:**
-1. `UploadApp` fetches universe from Nasdaq/CRSP
-2. `DataCollectors` fetch data from sources (CRSP, Alpaca, SEC)
+1. `UploadApp` fetches universe from Nasdaq FTP (current) or local security master (historical)
+2. `DataCollectors` fetch data from sources (Alpaca, SEC)
 3. `DataPublishers` write Parquet files to S3
 4. `Validator` checks completeness
 
@@ -176,6 +177,7 @@ data/derived/
 **1. Security ID-Based Storage (Daily Ticks)**
 - Daily ticks stored under security_id (not symbol) to prevent collisions
 - SecurityMaster resolves symbol+date → security_id (tracks business continuity)
+- Data starts from 2017 (Alpaca daily data availability)
 - Current year uses monthly partitions (optimizes daily updates, ~5 KB files)
 - Completed years consolidated in history.parquet (optimizes multi-year queries, ~18 MB)
 - TicksClient provides symbol-based API with transparent security_id resolution
@@ -188,12 +190,12 @@ data/derived/
 - Prevents data loss during ticker changes/mergers
 
 **3. Symbol Normalization**
-- `SymbolNormalizer` converts CRSP format (BRKB) to Nasdaq format (BRK.B)
+- `SymbolNormalizer` converts between symbol formats (e.g., BRKB → BRK.B)
 - Uses `SecurityMaster` to verify same security_id before conversion
 - Keeps delisted stocks in original format
 
 **4. Parallel Processing**
-- Daily ticks: Batch processing with rate limiting (200 symbols/batch)
+- Daily ticks: Batch processing with rate limiting (200 symbols/batch, Alpaca)
 - Minute ticks: High parallelization (50 workers, 100+ concurrent S3 reads)
 - Fundamentals: Sequential with retry logic (EDGAR API limits)
 
@@ -203,8 +205,8 @@ data/derived/
 - Read-modify-write pattern for monthly Parquet files (~5 KB, fast updates)
 - Year consolidation: Jan 1 consolidates previous year into history.parquet
 
-**6. WRDS-Free Mode**
-- `--no-wrds` flag enables GitHub Actions deployment without WRDS access
+**6. No-WRDS Mode**
+- `--no-wrds` flag enables simplified deployment without WRDS (default for daily updates)
 - Uses Nasdaq FTP for current universe + SEC API for CIK mapping
 - `SimpleCIKResolver` in `app_no_wrds.py` handles ticker→CIK resolution
 - Suitable for recent data (2025+) where current SEC mapping is accurate
@@ -215,7 +217,7 @@ data/derived/
 ```
 tests/
 ├── unit/          # Fast, isolated tests (mocked external calls)
-├── integration/   # Tests with real S3/WRDS/SEC (slower)
+├── integration/   # Tests with real S3/SEC (slower)
 └── conftest.py    # Shared fixtures, auto-marks unit/integration
 ```
 
@@ -273,12 +275,12 @@ tests/
 2. **Minute data:** 2016+ only (Alpaca limitation)
 3. **Historical index constituents:** Not available (survivorship bias)
 4. **Fundamental lag:** 45-90 days (SEC filing deadlines)
-5. **CRSP data:** Updated monthly by WRDS (latest: 2024-12-31)
+5. **Daily tick data:** Starts from 2017 (Alpaca limitation)
 
 ## Edge Cases
 
 ### Symbol Changes
-- SecurityMaster tracks permno (CRSP ID) across ticker changes
+- SecurityMaster tracks security_id across ticker changes
 - SymbolNormalizer prevents false matches (e.g., delisted ABCD ≠ ABC.D)
 - Historical data kept under original ticker for delisted stocks
 
@@ -298,9 +300,9 @@ tests/
 | `tests.yml` | Push, PR | pytest + coverage → Codecov (Python 3.12, Ubuntu) |
 | `daily-update.yml` | Daily 9:00 UTC (4am ET) | `--no-wrds` mode, email on success/failure |
 | `manual-daily-update.yml` | Manual dispatch | Same as daily + backfill support |
-| `year-consolidate.yml` | Jan 1 10:00 UTC, manual | Merges monthly → history.parquet (requires WRDS) |
+| `year-consolidate.yml` | Jan 1 10:00 UTC, manual | Merges monthly → history.parquet |
 
-Daily workflow uses WRDS-free mode (Nasdaq FTP + SEC API) to avoid WRDS IP restrictions.
+Daily workflow uses Nasdaq FTP + SEC API (no WRDS dependency).
 Secrets documented in `.github/SECRETS.md`.
 
 ## Utility Scripts
@@ -317,7 +319,6 @@ Secrets documented in `.github/SECRETS.md`.
 Key libraries:
 - **polars**: DataFrame processing (faster than pandas for large datasets)
 - **boto3**: AWS S3 client
-- **wrds**: CRSP data access
 - **requests**: HTTP client for Alpaca, SEC EDGAR
 - **arelle**: XBRL processing for SEC filings
 - **transformers + torch**: FinBERT sentiment (CUDA 12.4 via custom PyPI index in pyproject.toml)
@@ -331,4 +332,4 @@ Key libraries:
 - Fundamentals: ~7.5 GB for 5000 symbols × 15 years
 - S3 costs: ~$7/month storage + API request costs
 - Use threading for I/O-bound operations (S3 reads/writes)
-- Rate limiting: CRSP via WRDS (throttled by DB), SEC EDGAR (10 req/sec limit)
+- Rate limiting: Alpaca API (200 symbols/batch), SEC EDGAR (10 req/sec limit)

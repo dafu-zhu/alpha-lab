@@ -145,7 +145,10 @@ rabbitmq-data/
 activemq-data/
 
 # Local data
-data/
+/data/
+!/data/master/
+/data/master/*
+!/data/master/security_master.parquet
 
 # SageMath parsed files
 *.sage.py

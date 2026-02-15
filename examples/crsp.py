@@ -1,3 +1,5 @@
+"""Example CRSP/Compustat queries via WRDS. Requires: pip install wrds"""
+
 import os
 import pandas as pd
 import wrds

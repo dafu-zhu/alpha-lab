@@ -38,7 +38,7 @@ def main() -> None:
         parser.error(f"--end-year {args.end_year} cannot exceed current year {today.year}")
 
     app = UploadApp(
-        alpaca_start_year=args.alpaca_start_year
+        start_year=args.alpaca_start_year
     )
     try:
         app.run(

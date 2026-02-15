@@ -43,7 +43,7 @@ class TestStorageCLI:
 
         main()
 
-        mock_upload_app.assert_called_once_with(alpaca_start_year=2025)
+        mock_upload_app.assert_called_once_with(start_year=2025)
         mock_app.run.assert_called_once()
         mock_app.close.assert_called_once()
 

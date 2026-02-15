@@ -1,7 +1,7 @@
 """
 Ticks upload handlers.
 
-Handles daily and minute ticks uploads with support for CRSP/Alpaca sources.
+Handles daily and minute ticks uploads using Alpaca as the sole data source.
 """
 
 from __future__ import annotations
@@ -23,16 +23,12 @@ if TYPE_CHECKING:
     from quantdl.storage.pipeline import DataPublishers, DataCollectors, Validator
     from quantdl.universe.manager import UniverseManager
     from quantdl.master.security_master import SecurityMaster
-    from quantdl.collection.crsp_ticks import CRSPDailyTicks
     from quantdl.utils.calendar import TradingCalendar
 
 
 class DailyTicksHandler(BaseHandler):
     """
-    Handles daily ticks upload with support for:
-    - CRSP bulk history (permno-centric)
-    - Alpaca year-by-year
-    - Monthly partitions for current year
+    Handles daily ticks upload using Alpaca (2017+).
 
     Storage:
     - History: data/raw/ticks/daily/{security_id}/history.parquet
@@ -48,10 +44,7 @@ class DailyTicksHandler(BaseHandler):
         security_master: SecurityMaster,
         universe_manager: UniverseManager,
         validator: Validator,
-        crsp_ticks: CRSPDailyTicks,
         logger: logging.Logger,
-        wrds_available: bool = True,
-        alpaca_start_year: int = 2025
     ):
         super().__init__(logger)
         self.s3_client = s3_client
@@ -61,9 +54,6 @@ class DailyTicksHandler(BaseHandler):
         self.security_master = security_master
         self.universe_manager = universe_manager
         self.validator = validator
-        self.crsp_ticks = crsp_ticks
-        self.wrds_available = wrds_available
-        self.alpaca_start_year = alpaca_start_year
 
     def upload_year(
         self,
@@ -73,118 +63,29 @@ class DailyTicksHandler(BaseHandler):
         sleep_time: float = 0.2,
         current_year: Optional[int] = None
     ) -> Dict[str, Any]:
-        """Upload daily ticks for a single year."""
+        """Upload daily ticks for a single year (Alpaca source)."""
         if current_year is None:
             current_year = dt.datetime.now().year
-
-        if year < self.alpaca_start_year and not self.wrds_available:
-            raise RuntimeError(
-                f"Cannot upload year {year}: WRDS required for CRSP data (years < {self.alpaca_start_year})"
-            )
 
         # Load symbols and resolve security IDs
         symbols = self.universe_manager.load_symbols_for_year(year, sym_type='alpaca')
         security_id_cache = self._build_security_id_cache(symbols, year)
 
         is_completed = year < current_year
-        source = 'crsp' if year < self.alpaca_start_year else 'alpaca'
 
         self.logger.debug(
             f"Starting {year} daily ticks upload for {len(symbols)} symbols "
-            f"(source={source}, completed={is_completed})"
+            f"(source=alpaca, completed={is_completed})"
         )
 
         if is_completed:
-            # History mode for completed years
             return self._upload_history_mode(
-                symbols, year, security_id_cache, overwrite, chunk_size, sleep_time, source
+                symbols, year, security_id_cache, overwrite, chunk_size, sleep_time, 'alpaca'
             )
         else:
-            # Monthly partitions for current year
             return self._upload_monthly_mode(
-                symbols, year, security_id_cache, overwrite, chunk_size, sleep_time, source
+                symbols, year, security_id_cache, overwrite, chunk_size, sleep_time, 'alpaca'
             )
-
-    def upload_crsp_bulk_history(
-        self,
-        start_year: int = 2009,
-        end_year: int = 2024,
-        overwrite: bool = False,
-        chunk_size: int = 500,
-        resume: bool = True
-    ) -> Dict[str, Any]:
-        """
-        Upload CRSP daily ticks using permno-centric bulk fetch.
-        Much more efficient than year-by-year symbol fetches.
-        """
-        if not self.wrds_available:
-            raise RuntimeError("CRSP bulk history requires WRDS connection")
-
-        start_date = f"{start_year}-01-01"
-        end_date = f"{end_year}-12-31"
-
-        self.logger.debug(f"Starting CRSP bulk history: {start_year}-{end_year}")
-
-        # Build permno -> security_id mapping
-        permno_sid_map, all_sids = self._build_permno_mapping()
-
-        # Setup progress tracker
-        tracker = UploadProgressTracker(
-            s3_client=self.s3_client,
-            bucket_name=self.bucket_name,
-            task_name='daily_ticks_crsp_bulk'
-        )
-
-        # Filter for resume
-        if resume and not overwrite:
-            completed = tracker.load()
-            pending_sids = all_sids - completed
-            permnos_to_fetch = [
-                p for p, sids in permno_sid_map.items()
-                if any(sid in pending_sids for sid, _, _ in sids)
-            ]
-            self.logger.debug(f"Resuming: {len(completed)} done, {len(pending_sids)} pending")
-        else:
-            permnos_to_fetch = list(permno_sid_map.keys())
-            pending_sids = all_sids
-            if overwrite:
-                tracker.reset()
-
-        tracker.set_total(len(all_sids))
-
-        if not permnos_to_fetch:
-            self.logger.debug("All security_ids completed")
-            return self.stats
-
-        # Fetch and upload in batches
-        self.reset_stats()
-        master_tb = self.security_master.master_tb
-
-        with tracker:
-            pbar = tqdm(total=len(pending_sids), desc="CRSP history", unit="sid")
-
-            for i in range(0, len(permnos_to_fetch), chunk_size):
-                chunk = permnos_to_fetch[i:i + chunk_size]
-
-                # Bulk fetch
-                permno_data = self.crsp_ticks.collect_daily_ticks_full_history_bulk(
-                    permnos=chunk,
-                    start_date=start_date,
-                    end_date=end_date,
-                    chunk_size=chunk_size
-                )
-
-                # Split by security_id and publish
-                for permno in chunk:
-                    self._process_permno_data(
-                        permno, permno_data, permno_sid_map, pending_sids,
-                        master_tb, tracker, pbar
-                    )
-
-            pbar.close()
-
-        self.log_summary("CRSP bulk history", len(pending_sids), time.time())
-        return self.stats
 
     def _upload_history_mode(
         self,
@@ -215,10 +116,7 @@ class DailyTicksHandler(BaseHandler):
                     continue
 
             # Bulk fetch year data
-            if year >= self.alpaca_start_year:
-                symbol_map = self.collectors.collect_daily_ticks_year_bulk(chunk, year)
-            else:
-                symbol_map = self.collectors.collect_daily_ticks_year_bulk(chunk, year)
+            symbol_map = self.collectors.collect_daily_ticks_year_bulk(chunk, year)
 
             # Publish each symbol
             for sym in chunk:
@@ -315,27 +213,6 @@ class DailyTicksHandler(BaseHandler):
                 cache[sym] = None
         return cache
 
-    def _build_permno_mapping(self):
-        """Build permno -> [(security_id, start, end), ...] mapping."""
-        master_tb = self.security_master.master_tb
-        permno_sid_map = {}
-        all_sids = set()
-
-        for row in master_tb.iter_rows(named=True):
-            permno, sid = row['permno'], row['security_id']
-            start, end = row['start_date'], row['end_date']
-
-            if sid is None or permno is None:
-                continue
-
-            all_sids.add(sid)
-            if permno not in permno_sid_map:
-                permno_sid_map[permno] = []
-            permno_sid_map[permno].append((sid, start, end))
-
-        self.logger.debug(f"Found {len(permno_sid_map)} permnos, {len(all_sids)} security_ids")
-        return permno_sid_map, all_sids
-
     def _filter_existing_symbols(
         self,
         chunk: List[str],
@@ -361,66 +238,6 @@ class DailyTicksHandler(BaseHandler):
             skip=self.stats['skipped'], cancel=self.stats['canceled']
         )
         return symbols_to_fetch
-
-    def _process_permno_data(
-        self,
-        permno: int,
-        permno_data: Dict[int, pl.DataFrame],
-        permno_sid_map: Dict[int, List],
-        pending_sids: set,
-        master_tb: pl.DataFrame,
-        tracker,
-        pbar
-    ):
-        """Process data for a single permno."""
-        if permno not in permno_data:
-            for sid, _, _ in permno_sid_map.get(permno, []):
-                if sid in pending_sids:
-                    self.stats['skipped'] += 1
-                    tracker.mark_skipped(sid)
-                    pbar.update(1)
-            return
-
-        df = permno_data[permno]
-
-        for sid, sid_start, sid_end in permno_sid_map.get(permno, []):
-            if sid not in pending_sids:
-                continue
-
-            # Filter for this security_id's date range
-            sid_df = df.filter(
-                (pl.col('timestamp') >= str(sid_start)) &
-                (pl.col('timestamp') <= str(sid_end))
-            )
-
-            if len(sid_df) == 0:
-                self.stats['skipped'] += 1
-                tracker.mark_skipped(sid)
-                pbar.update(1)
-                pbar.set_postfix(ok=self.stats['success'], fail=self.stats['failed'], skip=self.stats['skipped'])
-                continue
-
-            # Get symbol for logging
-            sym_info = master_tb.filter(pl.col('security_id') == sid).select('symbol').head(1)
-            symbol = sym_info['symbol'][0] if len(sym_info) > 0 else f"sid_{sid}"
-
-            try:
-                result = self.publishers.publish_daily_ticks_to_history(
-                    security_id=sid, df=sid_df, symbol=symbol
-                )
-                if result.get('status') == 'success':
-                    self.stats['success'] += 1
-                    tracker.mark_completed(sid)
-                else:
-                    self.stats['failed'] += 1
-                    tracker.mark_failed(sid)
-            except Exception as e:
-                self.logger.error(f"Failed sid={sid}: {e}")
-                self.stats['failed'] += 1
-                tracker.mark_failed(sid)
-
-            pbar.update(1)
-            pbar.set_postfix(ok=self.stats['success'], fail=self.stats['failed'], skip=self.stats['skipped'])
 
     def _update_stats_from_result(self, result: Dict[str, Any]):
         status = result.get('status', 'failed')

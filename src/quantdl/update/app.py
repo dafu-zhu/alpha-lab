@@ -30,7 +30,6 @@ from quantdl.storage.clients import S3Client
 from quantdl.storage.pipeline import DataCollectors, DataPublishers
 from quantdl.storage.utils import UploadConfig, RateLimiter, CIKResolver
 from quantdl.collection.alpaca_ticks import Ticks
-from quantdl.collection.crsp_ticks import CRSPDailyTicks
 from quantdl.collection.fundamental import SECClient
 from quantdl.universe.manager import UniverseManager
 from quantdl.master.security_master import SecurityMaster
@@ -69,28 +68,14 @@ class DailyUpdateApp:
         # Initialize data fetchers
         self.alpaca_ticks = Ticks()
 
-        # Try WRDS, but allow S3-only mode for 2025+ operations
-        try:
-            self.crsp_ticks = CRSPDailyTicks(
-                s3_client=self.s3_client,
-                bucket_name='us-equity-datalake',
-                require_wrds=False  # Don't crash if WRDS unavailable
-            )
-            self.security_master = self.crsp_ticks.security_master
-            self._wrds_available = (self.crsp_ticks._conn is not None)
-        except Exception as e:
-            self.logger.warning(f"CRSPDailyTicks initialization failed: {e}, using S3-only mode")
-            self.crsp_ticks = None
-            # Initialize SecurityMaster directly from S3
-            self.security_master = SecurityMaster(
-                s3_client=self.s3_client,
-                bucket_name='us-equity-datalake'
-            )
-            self._wrds_available = False
+        # SecurityMaster: local → S3 (no WRDS)
+        self.security_master = SecurityMaster(
+            s3_client=self.s3_client,
+            bucket_name='us-equity-datalake'
+        )
 
         # Initialize universe manager
         self.universe_manager = UniverseManager(
-            crsp_fetcher=self.crsp_ticks if self._wrds_available else None,
             security_master=self.security_master
         )
         self._symbols_cache: Dict[int, List[str]] = {}
@@ -115,7 +100,7 @@ class DailyUpdateApp:
 
         # Initialize data collectors and publishers
         self.data_collectors = DataCollectors(
-            crsp_ticks=self.crsp_ticks,
+            crsp_ticks=None,
             alpaca_ticks=self.alpaca_ticks,
             alpaca_headers=self.headers,
             logger=self.logger,
@@ -479,7 +464,7 @@ class DailyUpdateApp:
             """Consolidate monthly files for a single symbol"""
             try:
                 # Resolve symbol to security_id
-                security_id = self.crsp_ticks.security_master.get_security_id(
+                security_id = self.security_master.get_security_id(
                     sym, f"{year}-12-31"
                 )
 

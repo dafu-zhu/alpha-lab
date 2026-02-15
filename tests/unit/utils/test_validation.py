@@ -5,7 +5,6 @@ Tests input validation for SQL injection prevention and data integrity
 import pytest
 from quantdl.utils.validation import (
     validate_date_string,
-    validate_permno,
     validate_year,
     validate_month
 )
@@ -69,39 +68,6 @@ class TestValidateDateString:
         assert validate_date_string('2024-12-31') == '2024-12-31'  # Last day of year
         assert validate_date_string('2000-02-29') == '2000-02-29'  # Leap year
 
-
-class TestValidatePermno:
-    """Test validate_permno function"""
-
-    def test_valid_permno(self):
-        """Test validation of valid permno values"""
-        assert validate_permno(10516) == 10516
-        assert validate_permno(1) == 1
-        assert validate_permno(99999) == 99999
-
-    def test_negative_permno(self):
-        """Test rejection of negative permno"""
-        with pytest.raises(ValueError, match="Invalid permno"):
-            validate_permno(-100)
-
-        with pytest.raises(ValueError, match="Invalid permno"):
-            validate_permno(-1)
-
-    def test_zero_permno(self):
-        """Test rejection of zero permno"""
-        with pytest.raises(ValueError, match="Invalid permno"):
-            validate_permno(0)
-
-    def test_non_integer_permno(self):
-        """Test rejection of non-integer permno"""
-        with pytest.raises(ValueError, match="Invalid permno"):
-            validate_permno("10516")
-
-        with pytest.raises(ValueError, match="Invalid permno"):
-            validate_permno(10516.5)
-
-        with pytest.raises(ValueError, match="Invalid permno"):
-            validate_permno(None)
 
 
 class TestValidateYear:

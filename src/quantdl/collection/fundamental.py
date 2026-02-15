@@ -452,12 +452,10 @@ class Fundamental:
         self,
         cik: str,
         symbol: Optional[str] = None,
-        permno: Optional[str] = None,
         rate_limiter=None
     ) -> None:
         self.cik = cik
         self.symbol = symbol
-        self.permno = permno  # For future CRSP integration
         self.log_dir = Path("data/logs/fundamental")
         self.calendar_path = Path("data/calendar/master.parquet")
         self.output_dir = Path("data/raw/fundamental")

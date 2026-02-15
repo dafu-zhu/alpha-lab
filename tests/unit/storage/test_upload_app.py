@@ -37,10 +37,8 @@ def _make_app():
     app.calendar = Mock()
     app.cik_resolver = Mock()
     app.sec_rate_limiter = Mock()
-    app.crsp_ticks = Mock()
     app.security_master = Mock()
-    app._wrds_available = True
-    app._alpaca_start_year = 2025
+    app._start_year = 2017
     app.headers = {
         "APCA-API-KEY-ID": "test_key",
         "APCA-API-SECRET-KEY": "test_secret"
@@ -59,7 +57,7 @@ class TestUploadAppInitialization:
     @patch('quantdl.storage.app.RateLimiter')
     @patch('quantdl.storage.app.TradingCalendar')
     @patch('quantdl.storage.app.UniverseManager')
-    @patch('quantdl.storage.app.CRSPDailyTicks')
+    @patch('quantdl.storage.app.SecurityMaster')
     @patch('quantdl.storage.app.Ticks')
     @patch('quantdl.storage.app.Validator')
     @patch('quantdl.storage.app.setup_logger')
@@ -76,7 +74,7 @@ class TestUploadAppInitialization:
         mock_logger,
         mock_validator,
         mock_ticks,
-        mock_crsp,
+        mock_security_master,
         mock_universe,
         mock_calendar,
         mock_rate_limiter,
@@ -97,14 +95,14 @@ class TestUploadAppInitialization:
         mock_logger_instance = Mock()
         mock_logger.return_value = mock_logger_instance
 
-        app = UploadApp(alpaca_start_year=2025)
+        app = UploadApp(start_year=2017)
 
         assert app.config == mock_config_instance
         assert app.client == mock_s3_instance.client
         assert app.logger == mock_logger_instance
         assert app.validator == mock_validator.return_value
         assert app.alpaca_ticks == mock_ticks.return_value
-        assert app.crsp_ticks == mock_crsp.return_value
+        assert app.security_master == mock_security_master.return_value
         assert app.universe_manager == mock_universe.return_value
         assert app.calendar == mock_calendar.return_value
         assert app.sec_rate_limiter == mock_rate_limiter.return_value
@@ -120,6 +118,7 @@ class TestUploadAppInitialization:
         )
         assert app.headers["APCA-API-KEY-ID"] == "test_key"
         assert app.headers["APCA-API-SECRET-KEY"] == "test_secret"
+        assert app._start_year == 2017
 
 
 class TestUploadAppDailyTicks:
@@ -436,19 +435,18 @@ class TestUploadAppRun:
 class TestUploadAppClose:
     """Test UploadApp resource cleanup."""
 
-    def test_close_closes_wrds_connection(self):
-        """Test close() closes WRDS connection."""
+    def test_close_closes_security_master(self):
+        """Test close() closes SecurityMaster."""
         app = _make_app()
-        app.crsp_ticks.conn = Mock()
 
         app.close()
 
-        app.crsp_ticks.conn.close.assert_called_once()
+        app.security_master.close.assert_called_once()
 
-    def test_close_without_crsp_conn(self):
-        """Test close() handles missing CRSP connection."""
+    def test_close_without_security_master(self):
+        """Test close() handles missing SecurityMaster."""
         app = _make_app()
-        app.crsp_ticks.conn = None
+        app.security_master = None
 
         # Should not raise
         app.close()
@@ -456,7 +454,6 @@ class TestUploadAppClose:
     def test_close_without_universe_manager(self):
         """Test close() handles missing universe manager."""
         app = _make_app()
-        app.crsp_ticks.conn = None
         app.universe_manager = None
 
         # Should not raise
@@ -531,7 +528,8 @@ class TestUploadAppHandlerFactories:
 
         MockHandler.assert_called_once()
         call_kwargs = MockHandler.call_args[1]
-        assert call_kwargs['alpaca_start_year'] == 2025
+        assert call_kwargs['calendar'] == app.calendar
+        assert call_kwargs['logger'] == app.logger
 
     def test_get_sentiment_handler_creates_handler(self):
         """Test _get_sentiment_handler creates SentimentHandler."""

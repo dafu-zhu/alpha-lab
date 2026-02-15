@@ -19,7 +19,7 @@ class TestDailyUpdateAppInitialization:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -31,7 +31,7 @@ class TestDailyUpdateAppInitialization:
     })
     def test_initialization(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test DailyUpdateApp initialization with all dependencies"""
@@ -80,7 +80,7 @@ class TestCheckMarketOpen:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -92,7 +92,7 @@ class TestCheckMarketOpen:
     })
     def test_market_open_on_trading_day(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test check_market_open returns True for trading day"""
@@ -118,7 +118,7 @@ class TestCheckMarketOpen:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -130,7 +130,7 @@ class TestCheckMarketOpen:
     })
     def test_market_closed_on_weekend(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test check_market_open returns False for weekend"""
@@ -159,7 +159,7 @@ class TestGetSymbolsForYear:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -171,7 +171,7 @@ class TestGetSymbolsForYear:
     })
     def test_get_symbols_for_year_caches_result(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test that symbols are cached after first load"""
@@ -211,7 +211,7 @@ class TestGetRecentEdgarFilings:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -223,7 +223,7 @@ class TestGetRecentEdgarFilings:
     })
     def test_get_recent_edgar_filings_success(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe,
         mock_requests
     ):
@@ -272,7 +272,7 @@ class TestGetRecentEdgarFilings:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -284,7 +284,7 @@ class TestGetRecentEdgarFilings:
     })
     def test_get_recent_edgar_filings_no_recent_filings(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe,
         mock_requests
     ):
@@ -315,7 +315,7 @@ class TestGetRecentEdgarFilings:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -327,7 +327,7 @@ class TestGetRecentEdgarFilings:
     })
     def test_get_recent_edgar_filings_request_exception(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe,
         mock_requests
     ):
@@ -353,7 +353,7 @@ class TestGetRecentEdgarFilings:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -365,7 +365,7 @@ class TestGetRecentEdgarFilings:
     })
     def test_get_recent_edgar_filings_generic_exception(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe,
         mock_requests
     ):
@@ -393,7 +393,7 @@ class TestGetSymbolsWithRecentFilings:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -405,7 +405,7 @@ class TestGetSymbolsWithRecentFilings:
     })
     def test_get_symbols_with_recent_filings(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test identifying symbols with recent EDGAR filings"""
@@ -456,7 +456,7 @@ class TestGetSymbolsWithRecentFilings:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -468,7 +468,7 @@ class TestGetSymbolsWithRecentFilings:
     })
     def test_get_symbols_with_recent_filings_progress_logging(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test progress logging every 100 symbols (line 227)"""
@@ -510,7 +510,7 @@ class TestUpdateDailyTicks:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -522,7 +522,7 @@ class TestUpdateDailyTicks:
     })
     def test_update_daily_ticks_success(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe,
         mock_executor
     ):
@@ -606,7 +606,7 @@ class TestUpdateDailyTicks:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -618,7 +618,7 @@ class TestUpdateDailyTicks:
     })
     def test_update_daily_ticks_no_symbols_provided(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe,
         mock_executor
     ):
@@ -699,7 +699,7 @@ class TestUpdateDailyTicks:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -711,7 +711,7 @@ class TestUpdateDailyTicks:
     })
     def test_update_daily_ticks_no_data_from_alpaca(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe,
         mock_executor
     ):
@@ -768,7 +768,7 @@ class TestUpdateDailyTicks:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -780,7 +780,7 @@ class TestUpdateDailyTicks:
     })
     def test_update_daily_ticks_empty_dataframe_after_parsing(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe,
         mock_executor
     ):
@@ -842,7 +842,7 @@ class TestUpdateDailyTicks:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -854,7 +854,7 @@ class TestUpdateDailyTicks:
     })
     def test_update_daily_ticks_processing_error(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe,
         mock_executor
     ):
@@ -913,7 +913,7 @@ class TestUpdateDailyTicks:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -925,7 +925,7 @@ class TestUpdateDailyTicks:
     })
     def test_update_daily_ticks_progress_logging(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe,
         mock_executor
     ):
@@ -986,7 +986,7 @@ class TestUpdateMinuteTicks:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -998,7 +998,7 @@ class TestUpdateMinuteTicks:
     })
     def test_update_minute_ticks_success(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test successful minute ticks update"""
@@ -1051,7 +1051,7 @@ class TestUpdateMinuteTicks:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -1063,7 +1063,7 @@ class TestUpdateMinuteTicks:
     })
     def test_update_minute_ticks_empty_dataframe(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test minute ticks update with empty DataFrame"""
@@ -1101,7 +1101,7 @@ class TestUpdateMinuteTicks:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -1113,7 +1113,7 @@ class TestUpdateMinuteTicks:
     })
     def test_update_minute_ticks_no_symbols_provided(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test update_minute_ticks when symbols=None, should load from universe (line 417)"""
@@ -1166,7 +1166,7 @@ class TestUpdateMinuteTicks:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -1178,7 +1178,7 @@ class TestUpdateMinuteTicks:
     })
     def test_update_minute_ticks_upload_error(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test handling upload errors (lines 468-470)"""
@@ -1232,7 +1232,7 @@ class TestUpdateFundamental:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -1244,7 +1244,7 @@ class TestUpdateFundamental:
     })
     def test_update_fundamental_success(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test successful fundamental data update"""
@@ -1293,7 +1293,7 @@ class TestUpdateFundamental:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -1305,7 +1305,7 @@ class TestUpdateFundamental:
     })
     def test_update_fundamental_no_cik(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test fundamental update when CIK cannot be resolved"""
@@ -1336,7 +1336,7 @@ class TestUpdateFundamental:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -1348,7 +1348,7 @@ class TestUpdateFundamental:
     })
     def test_update_fundamental_skipped_status(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test handling skipped status from publish_fundamental (lines 529-530)"""
@@ -1384,7 +1384,7 @@ class TestUpdateFundamental:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -1396,7 +1396,7 @@ class TestUpdateFundamental:
     })
     def test_update_fundamental_failed_status(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test handling failed status from publish_fundamental (lines 531-533)"""
@@ -1432,7 +1432,7 @@ class TestUpdateFundamental:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -1444,7 +1444,7 @@ class TestUpdateFundamental:
     })
     def test_update_fundamental_processing_error(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test handling processing errors (lines 563-565)"""
@@ -1484,7 +1484,7 @@ class TestRunDailyUpdate:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -1496,7 +1496,7 @@ class TestRunDailyUpdate:
     })
     def test_run_daily_update_full_workflow(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test complete daily update workflow"""
@@ -1542,7 +1542,7 @@ class TestRunDailyUpdate:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -1554,7 +1554,7 @@ class TestRunDailyUpdate:
     })
     def test_run_daily_update_market_closed(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test daily update when market is closed"""
@@ -1596,7 +1596,7 @@ class TestRunDailyUpdate:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -1608,7 +1608,7 @@ class TestRunDailyUpdate:
     })
     def test_run_daily_update_defaults_to_yesterday(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test that run_daily_update defaults to yesterday when no date provided"""
@@ -1646,7 +1646,7 @@ class TestParallelFilingChecks:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -1658,7 +1658,7 @@ class TestParallelFilingChecks:
     })
     def test_check_filing_with_recent_filings(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test _check_filing returns True when recent filings exist"""
@@ -1685,7 +1685,7 @@ class TestParallelFilingChecks:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -1697,7 +1697,7 @@ class TestParallelFilingChecks:
     })
     def test_check_filing_without_recent_filings(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test _check_filing returns False when no recent filings"""
@@ -1721,7 +1721,7 @@ class TestParallelFilingChecks:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -1733,7 +1733,7 @@ class TestParallelFilingChecks:
     })
     def test_check_filing_filters_non_10k_10q(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test _check_filing filters out non-10K/10Q forms (e.g., 8-K)"""
@@ -1759,7 +1759,7 @@ class TestParallelFilingChecks:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -1771,7 +1771,7 @@ class TestParallelFilingChecks:
     })
     def test_check_filing_mixed_forms(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test _check_filing with mix of 10-K and non-qualifying forms"""
@@ -1800,7 +1800,7 @@ class TestParallelFilingChecks:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -1812,7 +1812,7 @@ class TestParallelFilingChecks:
     })
     def test_get_symbols_with_recent_filings_parallel(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver_class,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver_class,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test get_symbols_with_recent_filings uses parallel execution"""
@@ -1861,7 +1861,7 @@ class TestParallelFilingChecks:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -1873,7 +1873,7 @@ class TestParallelFilingChecks:
     })
     def test_get_symbols_with_recent_filings_filters_null_ciks(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver_class,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver_class,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe
     ):
         """Test get_symbols_with_recent_filings filters out NULL CIKs"""
@@ -1911,7 +1911,7 @@ class TestConsolidateYear:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -1923,7 +1923,7 @@ class TestConsolidateYear:
     })
     def test_consolidate_year_success(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe,
         mock_executor
     ):
@@ -1934,12 +1934,8 @@ class TestConsolidateYear:
         mock_s3_client = Mock()
         mock_s3.return_value.client = mock_s3_client
 
-        # Setup CRSP ticks with security master
-        mock_crsp_instance = Mock()
-        mock_security_master = Mock()
-        mock_security_master.get_security_id.return_value = 12345
-        mock_crsp_instance.security_master = mock_security_master
-        mock_crsp.return_value = mock_crsp_instance
+        # Setup security master mock
+        mock_security_master.return_value.get_security_id.return_value = 12345
 
         # Setup publishers mock
         mock_publishers_instance = Mock()
@@ -2030,7 +2026,7 @@ class TestConsolidateYear:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -2042,7 +2038,7 @@ class TestConsolidateYear:
     })
     def test_consolidate_year_no_monthly_files(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe,
         mock_executor
     ):
@@ -2053,12 +2049,8 @@ class TestConsolidateYear:
         mock_s3_client = Mock()
         mock_s3.return_value.client = mock_s3_client
 
-        # Setup CRSP ticks
-        mock_crsp_instance = Mock()
-        mock_security_master = Mock()
-        mock_security_master.get_security_id.return_value = 12345
-        mock_crsp_instance.security_master = mock_security_master
-        mock_crsp.return_value = mock_crsp_instance
+        # Setup security master mock
+        mock_security_master.return_value.get_security_id.return_value = 12345
 
         # Setup publishers mock
         mock_publishers_instance = Mock()
@@ -2101,7 +2093,7 @@ class TestConsolidateYear:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -2113,7 +2105,7 @@ class TestConsolidateYear:
     })
     def test_consolidate_year_no_history_file(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe,
         mock_executor
     ):
@@ -2124,12 +2116,8 @@ class TestConsolidateYear:
         mock_s3_client = Mock()
         mock_s3.return_value.client = mock_s3_client
 
-        # Setup CRSP ticks
-        mock_crsp_instance = Mock()
-        mock_security_master = Mock()
-        mock_security_master.get_security_id.return_value = 12345
-        mock_crsp_instance.security_master = mock_security_master
-        mock_crsp.return_value = mock_crsp_instance
+        # Setup security master mock
+        mock_security_master.return_value.get_security_id.return_value = 12345
 
         # Setup publishers mock
         mock_publishers_instance = Mock()
@@ -2199,7 +2187,7 @@ class TestConsolidateYear:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
+    @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
     @patch('quantdl.update.app.setup_logger')
@@ -2211,7 +2199,7 @@ class TestConsolidateYear:
     })
     def test_consolidate_year_handles_error(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_crsp, mock_rate_limiter, mock_cik_resolver,
+        mock_ticks, mock_security_master, mock_rate_limiter, mock_cik_resolver,
         mock_collectors, mock_publishers, mock_sec_client, mock_universe,
         mock_executor
     ):
@@ -2222,12 +2210,8 @@ class TestConsolidateYear:
         mock_s3_client = Mock()
         mock_s3.return_value.client = mock_s3_client
 
-        # Setup CRSP ticks - raise exception on get_security_id
-        mock_crsp_instance = Mock()
-        mock_security_master = Mock()
-        mock_security_master.get_security_id.side_effect = Exception("Security ID lookup failed")
-        mock_crsp_instance.security_master = mock_security_master
-        mock_crsp.return_value = mock_crsp_instance
+        # Setup security master - raise exception on get_security_id
+        mock_security_master.return_value.get_security_id.side_effect = Exception("Security ID lookup failed")
 
         # Setup publishers mock
         mock_publishers_instance = Mock()
@@ -2259,8 +2243,8 @@ class TestConsolidateYear:
         assert result['skipped'] == 0
 
 
-class TestWRDSFreeInitialization:
-    """Test WRDS-free initialization logic"""
+class TestSecurityMasterInitialization:
+    """Test SecurityMaster initialization in DailyUpdateApp"""
 
     @patch('quantdl.update.app.UniverseManager')
     @patch('quantdl.update.app.SECClient')
@@ -2268,7 +2252,6 @@ class TestWRDSFreeInitialization:
     @patch('quantdl.update.app.DataCollectors')
     @patch('quantdl.update.app.CIKResolver')
     @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
     @patch('quantdl.update.app.SecurityMaster')
     @patch('quantdl.update.app.Ticks')
     @patch('quantdl.update.app.TradingCalendar')
@@ -2279,118 +2262,67 @@ class TestWRDSFreeInitialization:
         'ALPACA_API_KEY': 'test_key',
         'ALPACA_API_SECRET': 'test_secret'
     })
-    def test_init_wrds_available(
+    def test_init_creates_security_master(
         self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_security_master_class, mock_crsp,
-        mock_rate_limiter, mock_cik_resolver, mock_collectors,
-        mock_publishers, mock_sec_client, mock_universe
+        mock_ticks, mock_security_master, mock_rate_limiter,
+        mock_cik_resolver, mock_collectors, mock_publishers,
+        mock_sec_client, mock_universe
     ):
-        """Test initialization when WRDS is available"""
+        """Test initialization creates SecurityMaster directly"""
         from quantdl.update.app import DailyUpdateApp
-
-        # Setup CRSP ticks with WRDS connection
-        mock_crsp_instance = Mock()
-        mock_crsp_instance._conn = Mock()  # WRDS connection exists
-        mock_security_master = Mock()
-        mock_crsp_instance.security_master = mock_security_master
-        mock_crsp.return_value = mock_crsp_instance
-
-        app = DailyUpdateApp()
-
-        # Verify WRDS is available
-        assert app._wrds_available is True
-        assert app.crsp_ticks == mock_crsp_instance
-        assert app.security_master == mock_security_master
-
-    @patch('quantdl.update.app.UniverseManager')
-    @patch('quantdl.update.app.SECClient')
-    @patch('quantdl.update.app.DataPublishers')
-    @patch('quantdl.update.app.DataCollectors')
-    @patch('quantdl.update.app.CIKResolver')
-    @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
-    @patch('quantdl.update.app.SecurityMaster')
-    @patch('quantdl.update.app.Ticks')
-    @patch('quantdl.update.app.TradingCalendar')
-    @patch('quantdl.update.app.setup_logger')
-    @patch('quantdl.update.app.S3Client')
-    @patch('quantdl.update.app.UploadConfig')
-    @patch.dict('os.environ', {
-        'ALPACA_API_KEY': 'test_key',
-        'ALPACA_API_SECRET': 'test_secret'
-    })
-    def test_init_wrds_unavailable_fallback_to_s3(
-        self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_security_master_class, mock_crsp,
-        mock_rate_limiter, mock_cik_resolver, mock_collectors,
-        mock_publishers, mock_sec_client, mock_universe
-    ):
-        """Test initialization falls back to S3-only SecurityMaster when WRDS unavailable"""
-        from quantdl.update.app import DailyUpdateApp
-
-        # Setup CRSP to fail initialization but not crash
-        mock_crsp_instance = Mock()
-        mock_crsp_instance._conn = None  # No WRDS connection
-        mock_security_master = Mock()
-        mock_crsp_instance.security_master = mock_security_master
-        mock_crsp.return_value = mock_crsp_instance
 
         # Setup S3 client
         mock_s3_instance = Mock()
         mock_s3_instance.client = Mock()
         mock_s3.return_value = mock_s3_instance
 
-        # Setup SecurityMaster fallback
+        # Setup SecurityMaster
         mock_security_master_instance = Mock()
-        mock_security_master_class.return_value = mock_security_master_instance
+        mock_security_master.return_value = mock_security_master_instance
 
         app = DailyUpdateApp()
 
-        # Verify WRDS is unavailable but app still works
-        assert app._wrds_available is False
-
-    @patch('quantdl.update.app.UniverseManager')
-    @patch('quantdl.update.app.SECClient')
-    @patch('quantdl.update.app.DataPublishers')
-    @patch('quantdl.update.app.DataCollectors')
-    @patch('quantdl.update.app.CIKResolver')
-    @patch('quantdl.update.app.RateLimiter')
-    @patch('quantdl.update.app.CRSPDailyTicks')
-    @patch('quantdl.update.app.SecurityMaster')
-    @patch('quantdl.update.app.Ticks')
-    @patch('quantdl.update.app.TradingCalendar')
-    @patch('quantdl.update.app.setup_logger')
-    @patch('quantdl.update.app.S3Client')
-    @patch('quantdl.update.app.UploadConfig')
-    @patch.dict('os.environ', {
-        'ALPACA_API_KEY': 'test_key',
-        'ALPACA_API_SECRET': 'test_secret'
-    })
-    def test_init_wrds_exception_fallback(
-        self, mock_config, mock_s3, mock_logger, mock_calendar,
-        mock_ticks, mock_security_master_class, mock_crsp,
-        mock_rate_limiter, mock_cik_resolver, mock_collectors,
-        mock_publishers, mock_sec_client, mock_universe
-    ):
-        """Test initialization handles CRSP exception and falls back to S3"""
-        from quantdl.update.app import DailyUpdateApp
-
-        # Setup CRSP to raise exception
-        mock_crsp.side_effect = Exception("WRDS connection failed")
-
-        # Setup S3 client
-        mock_s3_instance = Mock()
-        mock_s3_instance.client = Mock()
-        mock_s3.return_value = mock_s3_instance
-
-        # Setup SecurityMaster fallback
-        mock_security_master_instance = Mock()
-        mock_security_master_class.return_value = mock_security_master_instance
-
-        app = DailyUpdateApp()
-
-        # Verify WRDS is unavailable, SecurityMaster loaded from S3
-        assert app._wrds_available is False
-        assert app.crsp_ticks is None
+        # Verify SecurityMaster was created
         assert app.security_master == mock_security_master_instance
-        mock_security_master_class.assert_called_once()
+        mock_security_master.assert_called_once()
+
+    @patch('quantdl.update.app.UniverseManager')
+    @patch('quantdl.update.app.SECClient')
+    @patch('quantdl.update.app.DataPublishers')
+    @patch('quantdl.update.app.DataCollectors')
+    @patch('quantdl.update.app.CIKResolver')
+    @patch('quantdl.update.app.RateLimiter')
+    @patch('quantdl.update.app.SecurityMaster')
+    @patch('quantdl.update.app.Ticks')
+    @patch('quantdl.update.app.TradingCalendar')
+    @patch('quantdl.update.app.setup_logger')
+    @patch('quantdl.update.app.S3Client')
+    @patch('quantdl.update.app.UploadConfig')
+    @patch.dict('os.environ', {
+        'ALPACA_API_KEY': 'test_key',
+        'ALPACA_API_SECRET': 'test_secret'
+    })
+    def test_init_security_master_passed_to_universe_manager(
+        self, mock_config, mock_s3, mock_logger, mock_calendar,
+        mock_ticks, mock_security_master, mock_rate_limiter,
+        mock_cik_resolver, mock_collectors, mock_publishers,
+        mock_sec_client, mock_universe
+    ):
+        """Test SecurityMaster is passed to UniverseManager during init"""
+        from quantdl.update.app import DailyUpdateApp
+
+        # Setup S3 client
+        mock_s3_instance = Mock()
+        mock_s3_instance.client = Mock()
+        mock_s3.return_value = mock_s3_instance
+
+        # Setup SecurityMaster
+        mock_security_master_instance = Mock()
+        mock_security_master.return_value = mock_security_master_instance
+
+        app = DailyUpdateApp()
+
+        # Verify UniverseManager was created with security_master
+        mock_universe.assert_called_once_with(
+            security_master=mock_security_master_instance
+        )

@@ -18,7 +18,7 @@ from quantdl.storage.clients import S3Client
 from quantdl.storage.pipeline import DataCollectors, DataPublishers, Validator
 from quantdl.storage.utils import UploadConfig, CIKResolver, RateLimiter
 from quantdl.collection.alpaca_ticks import Ticks
-from quantdl.collection.crsp_ticks import CRSPDailyTicks
+from quantdl.master.security_master import SecurityMaster
 from quantdl.universe.manager import UniverseManager
 
 load_dotenv()
@@ -32,7 +32,7 @@ class UploadApp:
     shared resources like S3 client, WRDS connection, and rate limiters.
     """
 
-    def __init__(self, alpaca_start_year: int = 2025):
+    def __init__(self, start_year: int = 2017):
         # Core infrastructure
         self.config = UploadConfig()
         self.client = S3Client().client
@@ -48,11 +48,15 @@ class UploadApp:
 
         # Data fetchers
         self.alpaca_ticks = Ticks()
-        self._init_crsp(alpaca_start_year)
+
+        # SecurityMaster: local → S3 (no WRDS)
+        self.security_master = SecurityMaster(
+            s3_client=self.client,
+            bucket_name='us-equity-datalake'
+        )
 
         # Universe and CIK resolution
         self.universe_manager = UniverseManager(
-            crsp_fetcher=self.crsp_ticks if self._wrds_available else None,
             security_master=self.security_master
         )
 
@@ -71,12 +75,11 @@ class UploadApp:
 
         # Data collectors and publishers
         self.data_collectors = DataCollectors(
-            crsp_ticks=self.crsp_ticks,
+            crsp_ticks=None,
             alpaca_ticks=self.alpaca_ticks,
             alpaca_headers=self.headers,
             logger=self.logger,
             sec_rate_limiter=self.sec_rate_limiter,
-            alpaca_start_year=alpaca_start_year
         )
 
         self.data_publishers = DataPublishers(
@@ -85,32 +88,9 @@ class UploadApp:
             logger=self.logger,
             data_collectors=self.data_collectors,
             security_master=self.security_master,
-            alpaca_start_year=alpaca_start_year
         )
 
-        self._alpaca_start_year = alpaca_start_year
-
-    def _init_crsp(self, alpaca_start_year: int):
-        """Initialize CRSP connection and security master."""
-        try:
-            self.crsp_ticks = CRSPDailyTicks(
-                s3_client=self.client,
-                bucket_name='us-equity-datalake',
-                require_wrds=True
-            )
-            self.security_master = self.crsp_ticks.security_master
-            self._wrds_available = (self.crsp_ticks._conn is not None)
-
-            if not self._wrds_available:
-                self.logger.warning(
-                    "WRDS unavailable. Can upload 2025+ (Alpaca), cannot backfill <2025 (CRSP)."
-                )
-        except Exception as e:
-            self.logger.error(f"CRSPDailyTicks init failed: {e}")
-            raise RuntimeError(
-                "Cannot initialize without SecurityMaster. "
-                "Run: uv run quantdl-export-security-master --export"
-            )
+        self._start_year = start_year
 
     # ===========================
     # Handler factory methods
@@ -126,10 +106,7 @@ class UploadApp:
             security_master=self.security_master,
             universe_manager=self.universe_manager,
             validator=self.validator,
-            crsp_ticks=self.crsp_ticks,
             logger=self.logger,
-            wrds_available=self._wrds_available,
-            alpaca_start_year=self._alpaca_start_year
         )
 
     def _get_minute_ticks_handler(self):
@@ -190,7 +167,6 @@ class UploadApp:
             validator=self.validator,
             calendar=self.calendar,
             logger=self.logger,
-            alpaca_start_year=self._alpaca_start_year
         )
 
     def _get_sentiment_handler(self):
@@ -365,9 +341,6 @@ class UploadApp:
             run_sentiment = True
 
         console_log(self.logger, f"Upload: {start_year}-{end_year}", section=True)
-        self.logger.info(
-            f"  Init: WRDS {'available' if self._wrds_available else 'unavailable'}"
-        )
 
         # Daily ticks
         if run_daily_ticks:
@@ -422,26 +395,12 @@ class UploadApp:
         chunk_size: int,
         sleep_time: float
     ):
-        """Run daily ticks upload with CRSP bulk for historical years."""
+        """Run daily ticks upload using Alpaca."""
         handler = self._get_daily_ticks_handler()
-        alpaca_start = self._alpaca_start_year
-        crsp_end = min(end_year, alpaca_start - 1)
 
-        # CRSP bulk for historical years
-        if start_year < alpaca_start and self._wrds_available:
-            self.logger.debug(f"Uploading CRSP daily ticks ({start_year}-{crsp_end})")
-            handler.upload_crsp_bulk_history(
-                start_year=start_year,
-                end_year=crsp_end,
-                overwrite=overwrite,
-                chunk_size=500,
-                resume=True
-            )
-
-        # Alpaca for recent years
         today = dt.date.today()
-        alpaca_end = min(end_year, today.year)
-        for year in range(max(start_year, alpaca_start), alpaca_end + 1):
+        effective_end = min(end_year, today.year)
+        for year in range(start_year, effective_end + 1):
             self.logger.debug(f"Uploading Alpaca daily ticks for {year}")
             handler.upload_year(
                 year=year,
@@ -451,10 +410,6 @@ class UploadApp:
             )
 
     def close(self):
-        """Close WRDS database connections."""
-        if hasattr(self, 'universe_manager') and self.universe_manager:
-            self.universe_manager.close()
-        if hasattr(self, 'crsp_ticks') and self.crsp_ticks:
-            if hasattr(self.crsp_ticks, 'conn') and self.crsp_ticks.conn:
-                self.crsp_ticks.conn.close()
-                self.logger.info("WRDS connection closed")
+        """Clean up resources."""
+        if hasattr(self, 'security_master') and self.security_master:
+            self.security_master.close()

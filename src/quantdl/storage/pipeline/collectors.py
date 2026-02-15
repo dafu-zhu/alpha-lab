@@ -2,7 +2,7 @@
 Data collection functionality for market data.
 
 This module handles fetching market data from various sources:
-- Daily ticks from CRSP or Alpaca
+- Daily ticks from Alpaca API
 - Minute ticks from Alpaca API
 - Fundamental data from SEC EDGAR API
 """
@@ -31,17 +31,14 @@ class TicksDataCollector(DataCollector):
 
     def __init__(
         self,
-        crsp_ticks,
         alpaca_ticks,
         alpaca_headers: dict,
         logger: logging.Logger,
-        alpaca_start_year: int = 2025
+        crsp_ticks=None,
     ):
         super().__init__(logger=logger)
-        self.crsp_ticks = crsp_ticks
         self.alpaca_ticks = alpaca_ticks
         self.alpaca_headers = alpaca_headers
-        self.alpaca_start_year = alpaca_start_year
 
     def _normalize_daily_df(self, df: pl.DataFrame) -> pl.DataFrame:
         if len(df) > 0:
@@ -82,64 +79,30 @@ class TicksDataCollector(DataCollector):
 
     def collect_daily_ticks_year(self, sym: str, year: int) -> pl.DataFrame:
         """
-        Fetch daily ticks for entire year from appropriate source and return as Polars DataFrame.
+        Fetch daily ticks for entire year from Alpaca and return as Polars DataFrame.
 
         :param sym: Symbol in Alpaca format (e.g., 'BRK.B')
         :param year: Year to fetch data for
         :return: Polars DataFrame with columns: timestamp, open, high, low, close, volume
         """
-        if year < self.alpaca_start_year:
-            # Use CRSP for years < 2025 (avoids survivorship bias)
-            crsp_symbol = sym.replace('.', '').replace('-', '')
-            all_months_data = []
-
-            # Fetch all 12 months
-            for month in range(1, 13):
-                try:
-                    json_list = self.crsp_ticks.collect_daily_ticks(
-                        symbol=crsp_symbol,
-                        year=year,
-                        month=month,
-                        adjusted=True,
-                        auto_resolve=True
-                    )
-                    all_months_data.extend(json_list)
-                except ValueError as e:
-                    if "not active on" in str(e):
-                        # Symbol not active in this month, skip
-                        continue
-                    else:
-                        raise
-
-            # Convert to Polars DataFrame
-            if not all_months_data:
-                return pl.DataFrame()
-
-            df = pl.DataFrame(all_months_data)
-        else:
-            # Use Alpaca for years >= 2025
-            try:
-                bars_map = self.alpaca_ticks.fetch_daily_year_bulk(
-                    symbols=[sym],
-                    year=year,
-                    adjusted=True
-                )
-                df = self._bars_to_daily_df(bars_map.get(sym, []))
-            except Exception as e:
-                # Return empty DataFrame if fetch fails
-                self.logger.warning(f"Failed to fetch {sym} for {year}: {e}")
-                return pl.DataFrame()
+        try:
+            bars_map = self.alpaca_ticks.fetch_daily_year_bulk(
+                symbols=[sym],
+                year=year,
+                adjusted=True
+            )
+            df = self._bars_to_daily_df(bars_map.get(sym, []))
+        except Exception as e:
+            self.logger.warning(f"Failed to fetch {sym} for {year}: {e}")
+            return pl.DataFrame()
 
         return self._normalize_daily_df(df)
 
     def collect_daily_ticks_year_bulk(self, symbols: List[str], year: int) -> Dict[str, pl.DataFrame]:
         """
         Bulk fetch daily ticks for a full year and return a mapping of symbol -> DataFrame.
-        Uses CRSP for years < 2025 and Alpaca bulk fetch for years >= 2025.
+        Always uses Alpaca bulk fetch.
         """
-        if year < self.alpaca_start_year:
-            return self.crsp_ticks.collect_daily_ticks_year_bulk(symbols, year, adjusted=True, auto_resolve=True)
-
         symbol_bars = self.alpaca_ticks.fetch_daily_year_bulk(symbols, year, adjusted=True)
         result = {}
         for sym in symbols:
@@ -173,46 +136,7 @@ class TicksDataCollector(DataCollector):
             )
             if len(df) == 0:
                 return pl.DataFrame()
-            calendar_path = getattr(self.crsp_ticks, "calendar_path", None)
-            if isinstance(calendar_path, (str, Path)) and Path(calendar_path).exists():
-                start_date_obj = dt.date(year, month, 1)
-                if month == 12:
-                    end_date_obj = dt.date(year, 12, 31)
-                else:
-                    end_date_obj = dt.date(year, month + 1, 1) - dt.timedelta(days=1)
-                df = pl.DataFrame(
-                    align_calendar(
-                        df.to_dicts(),
-                        start_date_obj,
-                        end_date_obj,
-                        Path(calendar_path)
-                    )
-                )
-        elif year < self.alpaca_start_year:
-            # Use CRSP for years < 2025 (avoids survivorship bias)
-            crsp_symbol = sym.replace('.', '').replace('-', '')
-            try:
-                json_list = self.crsp_ticks.collect_daily_ticks(
-                    symbol=crsp_symbol,
-                    year=year,
-                    month=month,
-                    adjusted=True,
-                    auto_resolve=True
-                )
-
-                # Convert to Polars DataFrame
-                if not json_list:
-                    return pl.DataFrame()
-
-                df = pl.DataFrame(json_list)
-            except ValueError as e:
-                if "not active on" in str(e):
-                    # Symbol not active in this month
-                    return pl.DataFrame()
-                else:
-                    raise
         else:
-            # Use Alpaca for years >= 2025
             try:
                 symbol_bars = self.alpaca_ticks.fetch_daily_month_bulk(
                     symbols=[sym],
@@ -222,7 +146,6 @@ class TicksDataCollector(DataCollector):
                 )
                 df = self._bars_to_daily_df(symbol_bars.get(sym, []))
             except Exception as e:
-                # Return empty DataFrame if fetch fails
                 self.logger.warning(f"Failed to fetch {sym} for {year}-{month:02d}: {e}")
                 return pl.DataFrame()
 
@@ -237,13 +160,8 @@ class TicksDataCollector(DataCollector):
     ) -> Dict[str, pl.DataFrame]:
         """
         Bulk fetch daily ticks for a specific month and return a mapping of symbol -> DataFrame.
+        Always uses Alpaca bulk fetch.
         """
-        if year < self.alpaca_start_year:
-            result = {}
-            for sym in symbols:
-                result[sym] = self.collect_daily_ticks_month(sym, year, month)
-            return result
-
         symbol_bars = self.alpaca_ticks.fetch_daily_month_bulk(
             symbols=symbols,
             year=year,
@@ -859,23 +777,22 @@ class DataCollectors:
 
     def __init__(
         self,
-        crsp_ticks,
         alpaca_ticks,
         alpaca_headers: dict,
         logger: logging.Logger,
         sec_rate_limiter=None,
         fundamental_cache_size: int = 128,
-        alpaca_start_year: int = 2025
+        crsp_ticks=None,
     ):
         """
         Initialize data collectors.
 
-        :param crsp_ticks: CRSPDailyTicks instance
         :param alpaca_ticks: Alpaca Ticks instance
         :param alpaca_headers: Headers for Alpaca API requests
         :param logger: Logger instance
         :param sec_rate_limiter: Optional rate limiter for SEC API calls
         :param fundamental_cache_size: Size of LRU cache for Fundamental objects
+        :param crsp_ticks: Deprecated, ignored (kept for backward compatibility)
         """
         self.logger = logger
 
@@ -886,11 +803,9 @@ class DataCollectors:
 
         # Create specialized collectors with dependency injection
         self.ticks_collector = TicksDataCollector(
-            crsp_ticks=crsp_ticks,
             alpaca_ticks=alpaca_ticks,
             alpaca_headers=alpaca_headers,
             logger=logger,
-            alpaca_start_year=alpaca_start_year
         )
 
         self.fundamental_collector = FundamentalDataCollector(

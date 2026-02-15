@@ -1,0 +1,559 @@
+"""QuantDL client - main entry point for financial data access (local-only)."""
+
+from __future__ import annotations
+
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date, timedelta
+from typing import TYPE_CHECKING
+
+import polars as pl
+
+from quantdl.api.data.calendar_master import CalendarMaster
+from quantdl.api.data.security_master import SecurityMaster
+from quantdl.api.exceptions import ConfigurationError, DataNotFoundError
+from quantdl.api.storage.backend import StorageBackend
+from quantdl.api.storage.cache import DiskCache
+from quantdl.api.types import SecurityInfo
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+# Duration concepts: income statement and cash flow items measured over time
+# These default to TTM (trailing twelve months) instead of quarterly raw values
+DURATION_CONCEPTS = {
+    "rev",
+    "cor",
+    "op_inc",
+    "net_inc",
+    "ibt",
+    "inc_tax_exp",
+    "int_exp",
+    "rnd",
+    "sga",
+    "dna",
+    "cfo",
+    "cfi",
+    "cff",
+    "capex",
+    "div",
+    "sto_isu",
+}
+
+
+class QuantDLClient:
+    """Client for fetching financial data from local storage with optional caching.
+
+    Example:
+        ```python
+        client = QuantDLClient(data_path="/path/to/data")
+
+        # Get daily prices as wide table
+        prices = client.ticks(["AAPL", "MSFT", "GOOGL"], "close", "2024-01-01", "2024-12-31")
+
+        # Get fundamentals
+        fundamentals = client.fundamentals(["AAPL"], "Revenue", "2024-01-01", "2024-12-31")
+        ```
+    """
+
+    def __init__(
+        self,
+        data_path: str,
+        cache_dir: str | None = None,
+        cache_ttl_seconds: int | None = None,
+        cache_max_size_bytes: int | None = None,
+        max_concurrency: int = 10,
+    ) -> None:
+        """Initialize QuantDL client.
+
+        Args:
+            data_path: Path to local data directory (required)
+            cache_dir: Local cache directory (default: ~/.quantdl/cache)
+            cache_ttl_seconds: Cache TTL in seconds (default: 24 hours)
+            cache_max_size_bytes: Max cache size in bytes (default: 10GB)
+            max_concurrency: Max concurrent requests (default: 10)
+        """
+        if not data_path:
+            raise ConfigurationError("data_path is required")
+
+        self._storage = StorageBackend(data_path=data_path)
+        self._cache = DiskCache(
+            cache_dir=cache_dir,
+            ttl_seconds=cache_ttl_seconds,
+            max_size_bytes=cache_max_size_bytes,
+        ) if cache_dir else None
+
+        self._security_master = SecurityMaster(self._storage, self._cache)
+        self._calendar_master = CalendarMaster(self._storage, self._cache)
+        self._max_concurrency = max_concurrency
+        self._executor = ThreadPoolExecutor(max_workers=max_concurrency)
+
+    @property
+    def security_master(self) -> SecurityMaster:
+        """Access security master for direct lookups."""
+        return self._security_master
+
+    @property
+    def calendar_master(self) -> CalendarMaster:
+        """Access calendar master for trading day lookups."""
+        return self._calendar_master
+
+    def resolve(self, identifier: str, as_of: date | None = None) -> SecurityInfo | None:
+        """Resolve symbol/identifier to SecurityInfo.
+
+        Args:
+            identifier: Symbol, CIK, or security_id
+            as_of: Point-in-time date (default: today)
+
+        Returns:
+            SecurityInfo if found, None otherwise
+        """
+        return self._security_master.resolve(identifier, as_of)
+
+    def _resolve_securities(
+        self,
+        symbols: Sequence[str],
+        as_of: date | None = None,
+    ) -> list[tuple[str, SecurityInfo]]:
+        """Resolve symbols and return list of (symbol, info) pairs."""
+        result: list[tuple[str, SecurityInfo]] = []
+        for sym in symbols:
+            info = self._security_master.resolve(sym, as_of)
+            if info is not None:
+                result.append((sym, info))
+        return result
+
+    def _align_to_calendar(
+        self, wide: pl.DataFrame, start: date, end: date, forward_fill: bool = False
+    ) -> pl.DataFrame:
+        """Align wide table rows to trading calendar."""
+        trading_days = self._calendar_master.get_trading_days(start, end)
+        calendar_df = pl.DataFrame({"timestamp": trading_days})
+        aligned = calendar_df.join(wide, on="timestamp", how="left").sort("timestamp")
+        if forward_fill:
+            # Forward fill all columns except timestamp
+            value_cols = [c for c in aligned.columns if c != "timestamp"]
+            aligned = aligned.with_columns([pl.col(c).forward_fill() for c in value_cols])
+        return aligned
+
+    def _fetch_ticks_single(
+        self,
+        security_id: str,
+        start: date,
+        end: date,
+    ) -> pl.DataFrame | None:
+        """Fetch daily ticks for single security."""
+        path = f"data/raw/ticks/daily/{security_id}/history.parquet"
+
+        # Try cache first
+        if self._cache:
+            cached = self._cache.get(path)
+            if cached is not None:
+                return cached.filter(
+                    (pl.col("timestamp") >= start) & (pl.col("timestamp") <= end)
+                )
+
+        # Fetch from storage
+        try:
+            df = self._storage.read_parquet(path)
+            # Cast timestamp to date if it's a string
+            if df.schema["timestamp"] == pl.String:
+                df = df.with_columns(pl.col("timestamp").str.to_date())
+            # Filter by date range
+            df = df.filter(
+                (pl.col("timestamp") >= start) & (pl.col("timestamp") <= end)
+            )
+            # Cache full file for future use
+            if self._cache:
+                self._cache.put(path, df)
+            return df
+        except Exception:
+            return None
+
+    async def _fetch_ticks_async(
+        self,
+        securities: list[tuple[str, SecurityInfo]],
+        start: date,
+        end: date,
+    ) -> list[tuple[str, pl.DataFrame]]:
+        """Fetch daily data for multiple securities concurrently."""
+        loop = asyncio.get_event_loop()
+        futures: list[tuple[str, asyncio.Future[pl.DataFrame | None]]] = []
+
+        for symbol, info in securities:
+            future = loop.run_in_executor(
+                self._executor,
+                self._fetch_ticks_single,
+                info.security_id,
+                start,
+                end,
+            )
+            futures.append((symbol, future))
+
+        results: list[tuple[str, pl.DataFrame]] = []
+        for symbol, future in futures:
+            df = await future
+            if df is not None and len(df) > 0:
+                results.append((symbol, df))
+
+        return results
+
+    def ticks(
+        self,
+        symbols: Sequence[str] | str,
+        field: str = "close",
+        start: date | str | None = None,
+        end: date | str | None = None,
+    ) -> pl.DataFrame:
+        """Get daily price data as wide table.
+
+        Args:
+            symbols: Symbol(s) to fetch
+            field: Price field (open, high, low, close, volume)
+            start: Start date
+            end: End date (default: today)
+
+        Returns:
+            Wide DataFrame with timestamp as first column, symbols as other columns
+        """
+        if isinstance(symbols, str):
+            symbols = [symbols]
+
+        # Parse dates
+        if isinstance(start, str):
+            start = date.fromisoformat(start)
+        if isinstance(end, str):
+            end = date.fromisoformat(end)
+
+        start = start or date(2000, 1, 1)
+        end = end or date.today() - timedelta(days=1)
+
+        # Resolve symbols to security IDs
+        resolved = self._resolve_securities(symbols, as_of=start)
+        if not resolved:
+            raise DataNotFoundError("ticks", ", ".join(symbols))
+
+        # Fetch data concurrently
+        results = asyncio.run(self._fetch_ticks_async(resolved, start, end))
+
+        if not results:
+            raise DataNotFoundError("ticks", ", ".join(symbols))
+
+        # Build wide table
+        dfs: list[pl.DataFrame] = []
+        for symbol, df in results:
+            if field not in df.columns:
+                continue
+            dfs.append(
+                df.select(
+                    pl.col("timestamp"),
+                    pl.lit(symbol).alias("symbol"),
+                    pl.col(field).alias("value"),
+                )
+            )
+
+        if not dfs:
+            raise DataNotFoundError("ticks", f"field={field}")
+
+        # Concat and pivot
+        combined = pl.concat(dfs)
+        wide = combined.pivot(values="value", index="timestamp", on="symbol")
+
+        # Align to trading calendar
+        return self._align_to_calendar(wide, start, end)
+
+    def _fetch_fundamentals_single(
+        self, cik: str, end: date, source: str = "raw"
+    ) -> pl.DataFrame | None:
+        """Fetch fundamentals for single security by CIK."""
+        if source == "ttm":
+            path = f"data/derived/features/fundamental/{cik}/ttm.parquet"
+        else:
+            path = f"data/raw/fundamental/{cik}/fundamental.parquet"
+
+        date_filter = pl.col("as_of_date") <= end
+
+        if self._cache:
+            cached = self._cache.get(path)
+            if cached is not None:
+                return cached.filter(date_filter)
+
+        try:
+            df = self._storage.read_parquet(path)
+            if df.schema["as_of_date"] == pl.String:
+                df = df.with_columns(pl.col("as_of_date").str.to_date())
+            if self._cache:
+                self._cache.put(path, df)
+            return df.filter(date_filter)
+        except Exception:
+            return None
+
+    async def _fetch_fundamentals_async(
+        self,
+        securities: list[tuple[str, SecurityInfo]],
+        end: date,
+        source: str = "raw",
+    ) -> list[tuple[str, pl.DataFrame]]:
+        """Fetch fundamentals for multiple securities concurrently."""
+        loop = asyncio.get_event_loop()
+        futures: list[tuple[str, asyncio.Future[pl.DataFrame | None]]] = []
+
+        for symbol, info in securities:
+            if info.cik is None:
+                continue
+            future = loop.run_in_executor(
+                self._executor, self._fetch_fundamentals_single, info.cik, end, source
+            )
+            futures.append((symbol, future))
+
+        results: list[tuple[str, pl.DataFrame]] = []
+        for symbol, future in futures:
+            df = await future
+            if df is not None and len(df) > 0:
+                results.append((symbol, df))
+
+        return results
+
+    def _extract_fundamental_values(
+        self, df: pl.DataFrame, concept: str, symbol: str
+    ) -> pl.DataFrame | None:
+        """Extract fundamental concept values from DataFrame."""
+        filtered = df.filter(pl.col("concept") == concept)
+        if len(filtered) == 0:
+            return None
+
+        result = filtered.select(
+            pl.col("as_of_date").alias("timestamp"),
+            pl.lit(symbol).alias("symbol"),
+            pl.col("value").cast(pl.Float64),
+        )
+        # Deduplicate: take first value per timestamp
+        return result.group_by(["timestamp", "symbol"]).agg(pl.col("value").first())
+
+    def fundamentals(
+        self,
+        symbols: Sequence[str] | str,
+        concept: str,
+        start: date | str | None = None,
+        end: date | str | None = None,
+        source: str | None = None,
+    ) -> pl.DataFrame:
+        """Get fundamental data as wide table.
+
+        Args:
+            symbols: Symbol(s) to fetch
+            concept: Fundamental concept (e.g., "rev", "net_inc", "ta")
+            start: Start date
+            end: End date
+            source: Data source - "raw" for quarterly filings, "ttm" for trailing
+                    twelve months. Defaults to "ttm" for duration concepts.
+        """
+        if isinstance(symbols, str):
+            symbols = [symbols]
+
+        if isinstance(start, str):
+            start = date.fromisoformat(start)
+        if isinstance(end, str):
+            end = date.fromisoformat(end)
+
+        start = start or date(2000, 1, 1)
+        end = end or date.today() - timedelta(days=1)
+
+        # Default to TTM for duration concepts, raw for balance sheet items
+        if source is None:
+            source = "ttm" if concept in DURATION_CONCEPTS else "raw"
+
+        resolved = self._resolve_securities(symbols, as_of=start)
+        if not resolved:
+            raise DataNotFoundError("fundamentals", ", ".join(symbols))
+
+        results = asyncio.run(self._fetch_fundamentals_async(resolved, end, source))
+        if not results:
+            raise DataNotFoundError("fundamentals", ", ".join(symbols))
+
+        dfs: list[pl.DataFrame] = []
+        for symbol, df in results:
+            extracted = self._extract_fundamental_values(df, concept, symbol)
+            if extracted is not None:
+                dfs.append(extracted)
+
+        if not dfs:
+            raise DataNotFoundError("fundamentals", f"concept={concept}")
+
+        combined = pl.concat(dfs)
+        wide = combined.pivot(values="value", index="timestamp", on="symbol")
+
+        # Align from earliest data to allow forward-fill into requested range
+        earliest_val = wide["timestamp"].min()
+        earliest = earliest_val if isinstance(earliest_val, date) else None
+        align_start = min(earliest, start) if earliest else start
+        aligned = self._align_to_calendar(wide, align_start, end, forward_fill=True)
+
+        return aligned.filter(pl.col("timestamp") >= start)
+
+    def _fetch_metrics_single(self, cik: str, end: date) -> pl.DataFrame | None:
+        """Fetch metrics for single security by CIK."""
+        path = f"data/derived/features/fundamental/{cik}/metrics.parquet"
+        date_filter = pl.col("as_of_date") <= end
+
+        if self._cache:
+            cached = self._cache.get(path)
+            if cached is not None:
+                return cached.filter(date_filter)
+
+        try:
+            df = self._storage.read_parquet(path)
+            if df.schema["as_of_date"] == pl.String:
+                df = df.with_columns(pl.col("as_of_date").str.to_date())
+            if self._cache:
+                self._cache.put(path, df)
+            return df.filter(date_filter)
+        except Exception:
+            return None
+
+    async def _fetch_metrics_async(
+        self,
+        securities: list[tuple[str, SecurityInfo]],
+        end: date,
+    ) -> list[tuple[str, pl.DataFrame]]:
+        """Fetch metrics for multiple securities concurrently."""
+        loop = asyncio.get_event_loop()
+        futures: list[tuple[str, asyncio.Future[pl.DataFrame | None]]] = []
+
+        for symbol, info in securities:
+            if info.cik is None:
+                continue
+            future = loop.run_in_executor(
+                self._executor, self._fetch_metrics_single, info.cik, end
+            )
+            futures.append((symbol, future))
+
+        results: list[tuple[str, pl.DataFrame]] = []
+        for symbol, future in futures:
+            df = await future
+            if df is not None and len(df) > 0:
+                results.append((symbol, df))
+
+        return results
+
+    def metrics(
+        self,
+        symbols: Sequence[str] | str,
+        metric: str,
+        start: date | str | None = None,
+        end: date | str | None = None,
+    ) -> pl.DataFrame:
+        """Get derived metrics as wide table.
+
+        Args:
+            symbols: Symbol(s) to fetch
+            metric: Metric name (e.g., "pe_ratio", "pb_ratio", "roe", "roa")
+            start: Start date
+            end: End date
+        """
+        if isinstance(symbols, str):
+            symbols = [symbols]
+
+        if isinstance(start, str):
+            start = date.fromisoformat(start)
+        if isinstance(end, str):
+            end = date.fromisoformat(end)
+
+        start = start or date(2000, 1, 1)
+        end = end or date.today() - timedelta(days=1)
+
+        resolved = self._resolve_securities(symbols, as_of=start)
+        if not resolved:
+            raise DataNotFoundError("metrics", ", ".join(symbols))
+
+        results = asyncio.run(self._fetch_metrics_async(resolved, end))
+        if not results:
+            raise DataNotFoundError("metrics", ", ".join(symbols))
+
+        dfs: list[pl.DataFrame] = []
+        for symbol, df in results:
+            extracted = self._extract_metric_values(df, metric, symbol)
+            if extracted is not None:
+                dfs.append(extracted)
+
+        if not dfs:
+            raise DataNotFoundError("metrics", f"metric={metric}")
+
+        combined = pl.concat(dfs)
+        wide = combined.pivot(values="value", index="timestamp", on="symbol")
+
+        # Align from earliest data to allow forward-fill into requested range
+        earliest_val = wide["timestamp"].min()
+        earliest = earliest_val if isinstance(earliest_val, date) else None
+        align_start = min(earliest, start) if earliest else start
+        aligned = self._align_to_calendar(wide, align_start, end, forward_fill=True)
+
+        return aligned.filter(pl.col("timestamp") >= start)
+
+    def _extract_metric_values(
+        self, df: pl.DataFrame, metric: str, symbol: str
+    ) -> pl.DataFrame | None:
+        """Extract metric values from DataFrame, handling long or wide format."""
+        is_long_format = "metric" in df.columns and "value" in df.columns
+
+        if is_long_format:
+            filtered = df.filter(pl.col("metric") == metric)
+            if len(filtered) == 0:
+                return None
+            return filtered.select(
+                pl.col("as_of_date").alias("timestamp"),
+                pl.lit(symbol).alias("symbol"),
+                pl.col("value"),
+            )
+
+        if metric in df.columns:
+            return df.select(
+                pl.col("as_of_date").alias("timestamp"),
+                pl.lit(symbol).alias("symbol"),
+                pl.col(metric).alias("value"),
+            )
+
+        return None
+
+    def universe(self, name: str = "top3000") -> list[str]:
+        """Load universe of symbols.
+
+        Args:
+            name: Universe name (default: "top3000")
+
+        Returns:
+            List of symbols in the universe
+        """
+        path = f"data/universe/{name}.parquet"
+
+        if self._cache:
+            cached = self._cache.get(path)
+            if cached is not None:
+                return cached["symbol"].to_list()
+
+        try:
+            df = self._storage.read_parquet(path)
+            if self._cache:
+                self._cache.put(path, df)
+            return df["symbol"].to_list()
+        except Exception as e:
+            raise DataNotFoundError("universe", name) from e
+
+    def clear_cache(self) -> None:
+        """Clear all cached data."""
+        if self._cache:
+            self._cache.clear()
+
+    def cache_stats(self) -> dict[str, object]:
+        """Get cache statistics."""
+        return self._cache.stats() if self._cache else {}
+
+    def close(self) -> None:
+        """Clean up resources."""
+        self._executor.shutdown(wait=False)
+
+    def __enter__(self) -> QuantDLClient:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
