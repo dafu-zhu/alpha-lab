@@ -56,9 +56,6 @@ class TestDataCollectionWorkflow:
         2. Process/validate data
         3. Upload to S3 (mocked)
         """
-        # This test verifies that data flows correctly through the pipeline
-        # Actual implementation would use real collectors, but here we verify the flow
-
         # Step 1: Mock data fetch
         fetched_data = sample_tick_data
 
@@ -77,9 +74,8 @@ class TestDataCollectionWorkflow:
             assert row['close'] <= row['high']
             assert row['volume'] >= 0
 
-        # Step 4: Mock S3 upload
-        # In real workflow, this would be handled by data_publishers
-        s3_key = 'data/raw/ticks/daily/AAPL/2024/ticks.parquet'
+        # Step 4: Mock S3 upload (single file per security_id)
+        s3_key = 'data/raw/ticks/daily/12345/ticks.parquet'
         parquet_buffer = io.BytesIO()
         fetched_data.write_parquet(parquet_buffer)
         buffer = parquet_buffer.getvalue()
@@ -98,8 +94,7 @@ class TestDataCollectionWorkflow:
         Test complete workflow for fundamental data collection:
         1. Fetch from SEC EDGAR (mocked)
         2. Process into long format
-        3. Compute derived metrics
-        4. Upload to S3
+        3. Upload to S3
         """
         # Step 1: Mock data fetch (already in long format)
         raw_data = sample_fundamental_data
@@ -110,14 +105,12 @@ class TestDataCollectionWorkflow:
         assert 'concept' in raw_data.columns
         assert 'value' in raw_data.columns
 
-        # Step 3: Mock derived metrics computation
-        # In real workflow, this would use derived.metrics.compute_derived
-        # Here we just verify the data can be processed
+        # Step 3: Verify data can be processed
         concepts = raw_data['concept'].unique().to_list()
         assert 'rev' in concepts
 
-        # Step 4: Mock S3 upload
-        s3_key = 'data/raw/fundamental/AAPL/fundamental.parquet'
+        # Step 4: Mock S3 upload (security_id-based path)
+        s3_key = 'data/raw/fundamental/12345/fundamental.parquet'
         parquet_buffer = io.BytesIO()
         raw_data.write_parquet(parquet_buffer)
         buffer = parquet_buffer.getvalue()
@@ -129,75 +122,6 @@ class TestDataCollectionWorkflow:
         )
 
         mock_s3_client.put_object.assert_called_once()
-
-    def test_ttm_computation_workflow(self, sample_fundamental_data):
-        """
-        Test TTM computation workflow:
-        1. Load raw fundamental data
-        2. Compute TTM
-        3. Store separately
-        """
-        from quantdl.derived.ttm import compute_ttm_long
-
-        # Step 1: Start with raw quarterly data
-        raw_data = sample_fundamental_data
-
-        # Add required metadata fields
-        raw_data = raw_data.with_columns([
-            pl.lit('2024-01-01').alias('start'),
-            pl.lit('2024-03-31').alias('end'),
-            pl.lit('CY2024Q1').alias('frame')
-        ])
-
-        # Step 2: Compute TTM
-        ttm_data = compute_ttm_long(raw_data, duration_concepts={'rev'})
-
-        # Step 3: Validate TTM output
-        if len(ttm_data) > 0:
-            assert 'symbol' in ttm_data.columns
-            assert 'as_of_date' in ttm_data.columns
-            assert 'concept' in ttm_data.columns
-            assert 'value' in ttm_data.columns
-
-            # TTM value should be sum of 4 quarters
-            # In this case, we have exactly 4 quarters
-            ttm_value = ttm_data.filter(pl.col('as_of_date') == '2024-12-31')
-            if len(ttm_value) > 0:
-                expected = 100000.0 + 110000.0 + 120000.0 + 130000.0
-                assert ttm_value['value'][0] == expected
-
-    def test_derived_metrics_workflow(self, sample_fundamental_data):
-        """
-        Test derived metrics computation workflow:
-        1. Load TTM data
-        2. Compute derived metrics
-        3. Validate output
-        """
-        from quantdl.derived.metrics import compute_derived
-
-        # Step 1: Prepare TTM-like data with more concepts
-        ttm_data = pl.DataFrame({
-            'symbol': ['AAPL'] * 8,
-            'as_of_date': ['2024-06-30'] * 8,
-            'concept': ['rev', 'cor', 'op_inc', 'net_inc', 'ta', 'te', 'cfo', 'capex'],
-            'value': [100000.0, 60000.0, 30000.0, 25000.0, 200000.0, 120000.0, 35000.0, 15000.0]
-        })
-
-        # Step 2: Compute derived metrics
-        derived_data = compute_derived(ttm_data)
-
-        # Step 3: Validate output
-        if len(derived_data) > 0:
-            assert 'symbol' in derived_data.columns
-            assert 'as_of_date' in derived_data.columns
-            assert 'metric' in derived_data.columns
-            assert 'value' in derived_data.columns
-
-            # Check that some expected metrics are present
-            metrics = derived_data['metric'].unique().to_list()
-            assert 'grs_pft' in metrics  # Gross profit
-            assert 'net_mgn' in metrics  # Net margin
-            assert 'fcf' in metrics      # Free cash flow
 
     def test_multi_symbol_batch_workflow(self, mock_s3_client):
         """
@@ -314,24 +238,20 @@ class TestDataStorageWorkflow:
 
     def test_s3_key_generation(self):
         """Test S3 key generation for different data types"""
-        # Daily ticks
-        daily_key = f"data/raw/ticks/daily/AAPL/2024/ticks.parquet"
-        assert '2024' in daily_key
-        assert 'AAPL' in daily_key
+        # Daily ticks (single file per security_id)
+        daily_key = "data/raw/ticks/daily/12345/ticks.parquet"
+        assert '12345' in daily_key
+        assert daily_key.startswith('data/raw/ticks/daily/')
 
-        # Minute ticks
-        date = dt.date(2024, 6, 15)
-        minute_key = f"data/raw/ticks/minute/AAPL/{date.year}/{date.month:02d}/{date.day:02d}/ticks.parquet"
-        assert '2024/06/15' in minute_key
-
-        # Fundamental
-        fund_key = f"data/raw/fundamental/AAPL/fundamental.parquet"
+        # Fundamental (security_id-based)
+        fund_key = "data/raw/fundamental/12345/fundamental.parquet"
         assert 'fundamental' in fund_key
+        assert fund_key.startswith('data/raw/fundamental/')
 
-        # Derived metrics
-        derived_key = f"data/derived/features/fundamental/AAPL/metrics.parquet"
-        assert 'derived' in derived_key
-        assert 'metrics' in derived_key
+        # Top 3000 universe
+        universe_key = "data/meta/universe/2024/06/top3000.txt"
+        assert '2024' in universe_key
+        assert universe_key.startswith('data/meta/universe/')
 
     def test_parquet_serialization_workflow(self):
         """Test Parquet serialization/deserialization workflow"""
@@ -356,47 +276,41 @@ class TestDataStorageWorkflow:
         assert original_data.columns == restored_data.columns
         assert original_data.equals(restored_data)
 
-    def test_data_tier_organization(self):
-        """Test organization of raw vs derived data tiers"""
-        # Raw data paths
-        raw_paths = {
-            'ticks': 'data/raw/ticks/daily/AAPL/2024/ticks.parquet',
-            'fundamental': 'data/raw/fundamental/AAPL/fundamental.parquet'
-        }
-
-        # Derived data paths
-        derived_paths = {
-            'ttm': 'data/derived/features/fundamental/AAPL/ttm.parquet',
-            'metrics': 'data/derived/features/fundamental/AAPL/metrics.parquet'
+    def test_data_organization(self):
+        """Test organization of data paths"""
+        paths = {
+            'ticks': 'data/raw/ticks/daily/12345/ticks.parquet',
+            'fundamental': 'data/raw/fundamental/12345/fundamental.parquet',
+            'universe': 'data/meta/universe/2024/06/top3000.txt',
+            'master': 'data/meta/master/security_master.parquet',
         }
 
         # Verify proper organization
-        for path in raw_paths.values():
-            assert path.startswith('data/raw/')
-
-        for path in derived_paths.values():
-            assert path.startswith('data/derived/')
+        assert paths['ticks'].startswith('data/raw/ticks/')
+        assert paths['fundamental'].startswith('data/raw/fundamental/')
+        assert paths['universe'].startswith('data/meta/universe/')
+        assert paths['master'].startswith('data/meta/master/')
 
     def test_batch_upload_workflow(self):
         """Test batch upload workflow for multiple files"""
         # Mock multiple files to upload
         files_to_upload = [
-            ('AAPL', pl.DataFrame({'date': ['2024-01-01'], 'close': [150.0]})),
-            ('MSFT', pl.DataFrame({'date': ['2024-01-01'], 'close': [300.0]})),
-            ('GOOGL', pl.DataFrame({'date': ['2024-01-01'], 'close': [140.0]})),
+            (12345, pl.DataFrame({'date': ['2024-01-01'], 'close': [150.0]})),
+            (12346, pl.DataFrame({'date': ['2024-01-01'], 'close': [300.0]})),
+            (12347, pl.DataFrame({'date': ['2024-01-01'], 'close': [140.0]})),
         ]
 
         upload_results = []
-        for symbol, data in files_to_upload:
-            # Mock upload process
-            s3_key = f"data/raw/ticks/daily/{symbol}/2024/ticks.parquet"
+        for security_id, data in files_to_upload:
+            # Single file per security_id
+            s3_key = f"data/raw/ticks/daily/{security_id}/ticks.parquet"
             parquet_buffer = io.BytesIO()
             data.write_parquet(parquet_buffer)
             buffer = parquet_buffer.getvalue()
 
             # Simulate successful upload
             upload_results.append({
-                'symbol': symbol,
+                'security_id': security_id,
                 'key': s3_key,
                 'size': len(buffer),
                 'status': 'success'

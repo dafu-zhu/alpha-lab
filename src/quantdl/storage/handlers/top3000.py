@@ -22,7 +22,7 @@ class Top3000Handler(BaseHandler):
     """
     Handles top 3000 symbols upload.
 
-    Storage: data/symbols/{YYYY}/{MM}/top3000.txt
+    Storage: data/meta/universe/{YYYY}/{MM}/top3000.txt
     """
 
     def __init__(

@@ -35,7 +35,7 @@ class StorageBackend:
         """Scan parquet file as LazyFrame.
 
         Args:
-            path: Path within data directory (e.g., "data/master/security_master.parquet")
+            path: Path within data directory (e.g., "data/meta/master/security_master.parquet")
             columns: Optional list of columns to select
 
         Returns:
@@ -74,6 +74,41 @@ class StorageBackend:
             return lf.collect()
         except Exception as e:
             raise StorageError("read_parquet", path, e) from e
+
+    def read_ipc(
+        self,
+        path: str,
+        columns: list[str] | None = None,
+    ) -> pl.DataFrame:
+        """Read Arrow IPC file into DataFrame.
+
+        Args:
+            path: Path within data directory (e.g., "data/features/close.arrow")
+            columns: Optional list of columns to select
+
+        Returns:
+            DataFrame with data
+        """
+        resolved = self._resolve_path(path)
+        try:
+            return pl.read_ipc(resolved, columns=columns)
+        except Exception as e:
+            raise StorageError("read_ipc", path, e) from e
+
+    def scan_ipc(self, path: str) -> pl.LazyFrame:
+        """Scan Arrow IPC file as LazyFrame.
+
+        Args:
+            path: Path within data directory
+
+        Returns:
+            LazyFrame for lazy evaluation
+        """
+        resolved = self._resolve_path(path)
+        try:
+            return pl.scan_ipc(resolved)
+        except Exception as e:
+            raise StorageError("scan_ipc", path, e) from e
 
     def exists(self, path: str) -> bool:
         """Check if a path exists on local filesystem."""

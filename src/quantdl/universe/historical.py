@@ -23,7 +23,7 @@ except ImportError:
     HAS_WRDS = False
 
 # Default local path for security master
-LOCAL_MASTER_PATH = Path("data/master/security_master.parquet")
+LOCAL_MASTER_PATH = Path("data/meta/master/security_master.parquet")
 
 
 def get_hist_universe_local(

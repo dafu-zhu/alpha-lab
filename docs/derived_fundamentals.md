@@ -6,9 +6,11 @@ This document describes the derived fundamental metrics computed from raw fundam
 
 Derived fundamental data is computed from raw fundamental data collected from SEC EDGAR. These derived metrics provide additional insights into company performance, profitability, efficiency, and growth.
 
-**Storage Structure:**
-- **Input:** `data/raw/fundamental/{symbol}/fundamental.parquet`
-- **Output:** `data/derived/fundamental/{symbol}/{YYYY}/fundamental.parquet`
+**Note:** The derived metrics module (`src/quantdl/derived/`) has been removed. The formulas documented below are retained for reference and potential future reimplementation.
+
+**Storage Structure (historical):**
+- **Input:** `data/fundamental/{security_id}/fundamental.parquet`
+- **Output:** Previously `data/derived/fundamental/{symbol}/{YYYY}/fundamental.parquet` (removed)
 
 ## Derived Concepts
 
@@ -149,7 +151,7 @@ The computation uses **safe arithmetic operations**:
 Ensure raw fundamental data exists before computing derived metrics:
 ```bash
 # Check if raw data exists
-ls data/raw/fundamental/AAPL/fundamental.parquet
+ls data/fundamental/12345/fundamental.parquet
 
 # If missing, collect raw data first
 python -c "from src.collection.fundamental import Fundamental; ..."
@@ -352,5 +354,5 @@ Potential improvements:
 
 - Raw fundamental collection: `src/collection/fundamental.py`
 - Formula definitions: `data/xbrl/fundamental.xlsx`
-- Field mappings: `configs/approved_mapping.yaml`
+- Field mappings: `configs/sec_mapping.yaml`
 - Test suite: `tests/test_derived_fundamental.py`

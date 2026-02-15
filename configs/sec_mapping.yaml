@@ -1,26 +1,31 @@
-rev: # revenue
+sales: # revenue (alias: sales)
 - us-gaap:SalesRevenueNet
 - us-gaap:Revenues
 - ifrs-full:Revenue
 - us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax
-cor: # cost of revenue
+revenue: # revenue (alias: revenue)
+- us-gaap:SalesRevenueNet
+- us-gaap:Revenues
+- ifrs-full:Revenue
+- us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax
+cogs: # cost of revenue
 - us-gaap:CostOfRevenue
 - us-gaap:CostOfGoodsSold
 - ifrs-full:CostOfSales
 - us-gaap:CostsAndExpenses
-op_inc: # operating income
+operating_income: # operating income
 - us-gaap:OperatingIncomeLoss
 - ifrs-full:ProfitLossFromOperatingActivities
 - us-gaap:ComprehensiveIncome
-net_inc: # net income
+income: # net income
 - us-gaap:NetIncomeLoss
 - ifrs-full:ProfitLoss
 - us-gaap:NetIncomeLossAvailableToCommonStockholdersBasic
 - us-gaap:ComprehensiveIncomeNetOfTax
-ibt: # income before tax
+pretax_income: # income before tax
 - us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest
 - ifrs-full:ProfitLossBeforeTax
-inc_tax_exp: # income tax expense
+income_tax: # income tax expense
 - us-gaap:IncomeTaxExpenseBenefit
 - us-gaap:DeferredIncomeTaxExpenseBenefit
 - ifrs-full:IncomeTaxExpenseContinuingOperations
@@ -33,80 +38,88 @@ int_exp: # interest expense
 rnd: # research and development
 - us-gaap:ResearchAndDevelopmentExpense
 - ifrs-full:ResearchAndDevelopmentExpense
-sga: # selling general admin
+sga_expense: # selling general admin
 - us-gaap:SellingGeneralAndAdministrativeExpense
 - ifrs-full:SellingGeneralAndAdministrativeExpense
-dna: # depreciation and amortization
+depre_amort: # depreciation and amortization
 - us-gaap:DepreciationDepletionAndAmortization
 - us-gaap:Depreciation
 - us-gaap:DepreciationAndAmortization
 - ifrs-full:DepreciationAndAmortisationExpense
 - ifrs-full:DepreciationAmortisationAndImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss
-cce: # cash and cash equivalents
+cash: # cash and cash equivalents (alias: cash)
 - us-gaap:CashAndCashEquivalentsAtCarryingValue
 - ifrs-full:CashAndCashEquivalents
-ar: # accounts receivable
+cash_st: # cash and cash equivalents (alias: cash_st)
+- us-gaap:CashAndCashEquivalentsAtCarryingValue
+- ifrs-full:CashAndCashEquivalents
+receivable: # accounts receivable
 - us-gaap:AccountsReceivableNetCurrent
 - us-gaap:NotesReceivableNet
 - ifrs-full:TradeAndOtherCurrentReceivables
-inv: # inventory
+inventory: # inventory
 - us-gaap:InventoryNet
 - ifrs-full:Inventories
-ca: # current assets
+assets_curr: # current assets
 - us-gaap:AssetsCurrent
 - us-gaap:PrepaidExpenseAndOtherAssetsCurrent
 - us-gaap:OtherAssetsCurrent
 - ifrs-full:CurrentAssets
-ppe: # property plant equipment net
+ppent: # property plant equipment net
 - us-gaap:PropertyPlantAndEquipmentNet
 - us-gaap:PropertyPlantAndEquipmentGross
 - ifrs-full:PropertyPlantAndEquipment
-gw: # goodwill
+goodwill: # goodwill
 - us-gaap:Goodwill
 - ifrs-full:Goodwill
 ia: # intangible assets
 - us-gaap:IntangibleAssetsNetExcludingGoodwill
 - us-gaap:FiniteLivedIntangibleAssetsNet
 - ifrs-full:IntangibleAssetsOtherThanGoodwill
-ta: # total assets
+assets: # total assets
 - us-gaap:Assets
 - ifrs-full:Assets
 ap: # accounts payable
 - us-gaap:AccountsPayableCurrent
 - ifrs-full:TradeAndOtherCurrentPayables
-std: # short term debt
+debt_st: # short term debt
 - us-gaap:ShortTermBorrowings
 - ifrs-full:CurrentBorrowingsAndCurrentPortionOfNoncurrentBorrowings
 cpltd: # Current Portion of Long-Term Debt
 - us-gaap:LongTermDebtCurrent
 - ifrs-full:CurrentPortionOfLongtermBorrowings
-cl: # current liabilities
+liabilities_curr: # current liabilities
 - us-gaap:LiabilitiesCurrent
 - us-gaap:OtherLiabilitiesCurrent
 - ifrs-full:LiabilitiesCurrent
-ltd: # long term debt
+debt_lt: # long term debt
 - us-gaap:LongTermDebt
 - us-gaap:LongTermDebtNoncurrent
 - ifrs-full:LongtermBorrowings
-tl: # total liabilities
+liabilities: # total liabilities
 - us-gaap:Liabilities
 - ifrs-full:Liabilities
-te: # total equity
+equity: # total equity (alias: equity)
 - us-gaap:StockholdersEquity
 - ifrs-full:Equity
-sho: # shares outstanding
+retained_earnings: # retained earnings
+- us-gaap:RetainedEarningsAccumulatedDeficit
+sharesout: # shares outstanding
 - dei:EntityCommonStockSharesOutstanding
 - us-gaap:CommonStockSharesOutstanding
 - us-gaap:SharesOutstanding
 - ifrs-full:NumberOfSharesOutstanding
 - ifrs-full:SharesInEntityHeldByEntityOrByItsSubsidiariesOrAssociates
-cfo: # cash flow from operating activities
+cashflow_op: # cash flow from operating activities (alias: cashflow_op)
 - us-gaap:NetCashProvidedByUsedInOperatingActivities
 - ifrs-full:CashFlowsFromUsedInOperatingActivities
-cfi: # cash flow from investing activities
+cashflow: # cash flow from operating activities (alias: cashflow)
+- us-gaap:NetCashProvidedByUsedInOperatingActivities
+- ifrs-full:CashFlowsFromUsedInOperatingActivities
+cashflow_invest: # cash flow from investing activities
 - us-gaap:NetCashProvidedByUsedInInvestingActivities
 - ifrs-full:CashFlowsFromUsedInInvestingActivities
-cff: # cash flow from financing activities
+cashflow_fin: # cash flow from financing activities
 - us-gaap:NetCashProvidedByUsedInFinancingActivities
 - ifrs-full:CashFlowsFromUsedInFinancingActivities
 capex: # capital expenditures
@@ -114,7 +127,13 @@ capex: # capital expenditures
 - us-gaap:PaymentsToAcquirePropertyPlantAndEquipment
 - ifrs-full:PurchaseOfPropertyPlantAndEquipment
 - ifrs-full:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities
-div: # dividends paid
+dividend: # dividends paid (alias: dividend)
+- us-gaap:PaymentsOfDividendsCommonStock
+- us-gaap:PaymentsOfDividends
+- us-gaap:DividendsCommonStockCash
+- ifrs-full:DividendsPaidOrdinaryShares
+- ifrs-full:DividendsPaidClassifiedAsFinancingActivities
+cashflow_dividends: # dividends paid (alias: cashflow_dividends)
 - us-gaap:PaymentsOfDividendsCommonStock
 - us-gaap:PaymentsOfDividends
 - us-gaap:DividendsCommonStockCash
@@ -124,3 +143,24 @@ sto_isu: # stock issuance
 - us-gaap:ProceedsFromIssuanceOfCommonStock
 - ifrs-full:ProceedsFromIssuingShares
 - ifrs-full:IssueOfEquity
+dr_lt: # deferred revenue - long-term
+- us-gaap:DeferredRevenueNoncurrent
+- us-gaap:ContractWithCustomerLiabilityNoncurrent
+dr_st: # deferred revenue - current
+- us-gaap:DeferredRevenueCurrent
+- us-gaap:ContractWithCustomerLiabilityCurrent
+invest_activity_other: # investing activities - other
+- us-gaap:PaymentsForProceedsFromOtherInvestingActivities
+- us-gaap:OtherPaymentsToAcquireBusinesses
+- us-gaap:ProceedsFromSaleOfOtherInvestments
+income_before_extra: # income before extraordinary items
+- us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest
+- us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments
+- us-gaap:IncomeLossFromContinuingOperations
+assets_discontinued: # current assets of discontinued operations
+- us-gaap:AssetsOfDisposalGroupIncludingDiscontinuedOperationCurrent
+other_income_nt: # other comprehensive income net of tax
+- us-gaap:OtherComprehensiveIncomeLossNetOfTax
+rental_expense: # rental/lease expense
+- us-gaap:OperatingLeaseExpense
+- us-gaap:LeaseAndRentalExpense

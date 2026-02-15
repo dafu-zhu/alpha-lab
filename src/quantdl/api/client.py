@@ -11,7 +11,7 @@ import polars as pl
 
 from quantdl.api.data.calendar_master import CalendarMaster
 from quantdl.api.data.security_master import SecurityMaster
-from quantdl.api.exceptions import ConfigurationError, DataNotFoundError
+from quantdl.api.exceptions import ConfigurationError, DataNotFoundError, ValidationError
 from quantdl.api.storage.backend import StorageBackend
 from quantdl.api.storage.cache import DiskCache
 from quantdl.api.types import SecurityInfo
@@ -22,21 +22,21 @@ if TYPE_CHECKING:
 # Duration concepts: income statement and cash flow items measured over time
 # These default to TTM (trailing twelve months) instead of quarterly raw values
 DURATION_CONCEPTS = {
-    "rev",
-    "cor",
-    "op_inc",
-    "net_inc",
-    "ibt",
-    "inc_tax_exp",
+    "sales",
+    "cogs",
+    "operating_income",
+    "income",
+    "pretax_income",
+    "income_tax",
     "int_exp",
     "rnd",
-    "sga",
-    "dna",
-    "cfo",
-    "cfi",
-    "cff",
+    "sga_expense",
+    "depre_amort",
+    "cashflow_op",
+    "cashflow_invest",
+    "cashflow_fin",
     "capex",
-    "div",
+    "dividend",
     "sto_isu",
 }
 
@@ -143,7 +143,7 @@ class QuantDLClient:
         end: date,
     ) -> pl.DataFrame | None:
         """Fetch daily ticks for single security."""
-        path = f"data/raw/ticks/daily/{security_id}/history.parquet"
+        path = f"data/raw/ticks/daily/{security_id}/ticks.parquet"
 
         # Try cache first
         if self._cache:
@@ -263,13 +263,10 @@ class QuantDLClient:
         return self._align_to_calendar(wide, start, end)
 
     def _fetch_fundamentals_single(
-        self, cik: str, end: date, source: str = "raw"
+        self, security_id: str, end: date, source: str = "raw"
     ) -> pl.DataFrame | None:
-        """Fetch fundamentals for single security by CIK."""
-        if source == "ttm":
-            path = f"data/derived/features/fundamental/{cik}/ttm.parquet"
-        else:
-            path = f"data/raw/fundamental/{cik}/fundamental.parquet"
+        """Fetch fundamentals for single security by security_id."""
+        path = f"data/raw/fundamental/{security_id}/fundamental.parquet"
 
         date_filter = pl.col("as_of_date") <= end
 
@@ -299,10 +296,8 @@ class QuantDLClient:
         futures: list[tuple[str, asyncio.Future[pl.DataFrame | None]]] = []
 
         for symbol, info in securities:
-            if info.cik is None:
-                continue
             future = loop.run_in_executor(
-                self._executor, self._fetch_fundamentals_single, info.cik, end, source
+                self._executor, self._fetch_fundamentals_single, info.security_id, end, source
             )
             futures.append((symbol, future))
 
@@ -342,7 +337,7 @@ class QuantDLClient:
 
         Args:
             symbols: Symbol(s) to fetch
-            concept: Fundamental concept (e.g., "rev", "net_inc", "ta")
+            concept: Fundamental concept (e.g., "sales", "income", "assets")
             start: Start date
             end: End date
             source: Data source - "raw" for quarterly filings, "ttm" for trailing
@@ -391,51 +386,6 @@ class QuantDLClient:
 
         return aligned.filter(pl.col("timestamp") >= start)
 
-    def _fetch_metrics_single(self, cik: str, end: date) -> pl.DataFrame | None:
-        """Fetch metrics for single security by CIK."""
-        path = f"data/derived/features/fundamental/{cik}/metrics.parquet"
-        date_filter = pl.col("as_of_date") <= end
-
-        if self._cache:
-            cached = self._cache.get(path)
-            if cached is not None:
-                return cached.filter(date_filter)
-
-        try:
-            df = self._storage.read_parquet(path)
-            if df.schema["as_of_date"] == pl.String:
-                df = df.with_columns(pl.col("as_of_date").str.to_date())
-            if self._cache:
-                self._cache.put(path, df)
-            return df.filter(date_filter)
-        except Exception:
-            return None
-
-    async def _fetch_metrics_async(
-        self,
-        securities: list[tuple[str, SecurityInfo]],
-        end: date,
-    ) -> list[tuple[str, pl.DataFrame]]:
-        """Fetch metrics for multiple securities concurrently."""
-        loop = asyncio.get_event_loop()
-        futures: list[tuple[str, asyncio.Future[pl.DataFrame | None]]] = []
-
-        for symbol, info in securities:
-            if info.cik is None:
-                continue
-            future = loop.run_in_executor(
-                self._executor, self._fetch_metrics_single, info.cik, end
-            )
-            futures.append((symbol, future))
-
-        results: list[tuple[str, pl.DataFrame]] = []
-        for symbol, future in futures:
-            df = await future
-            if df is not None and len(df) > 0:
-                results.append((symbol, df))
-
-        return results
-
     def metrics(
         self,
         symbols: Sequence[str] | str,
@@ -466,7 +416,7 @@ class QuantDLClient:
         if not resolved:
             raise DataNotFoundError("metrics", ", ".join(symbols))
 
-        results = asyncio.run(self._fetch_metrics_async(resolved, end))
+        results = asyncio.run(self._fetch_fundamentals_async(resolved, end))
         if not results:
             raise DataNotFoundError("metrics", ", ".join(symbols))
 
@@ -515,6 +465,82 @@ class QuantDLClient:
 
         return None
 
+    def features(
+        self,
+        field: str,
+        symbols: Sequence[str] | None = None,
+        universe: str | None = None,
+        start: date | str | None = None,
+        end: date | str | None = None,
+    ) -> pl.DataFrame:
+        """Get pre-built feature wide table.
+
+        Args:
+            field: Feature field name (e.g., "close", "assets", "returns")
+            symbols: Symbol(s) to include (columns). If None, all columns returned.
+            universe: Universe name to resolve symbols from (e.g., "top3000")
+            start: Start date filter
+            end: End date filter
+
+        Returns:
+            Wide DataFrame with timestamp + symbol columns
+        """
+        from quantdl.features.registry import VALID_FIELD_NAMES
+
+        if field not in VALID_FIELD_NAMES:
+            raise ValidationError(
+                f"Unknown feature field: '{field}'. "
+                f"Valid fields: {sorted(VALID_FIELD_NAMES)[:10]}..."
+            )
+
+        if isinstance(start, str):
+            start = date.fromisoformat(start)
+        if isinstance(end, str):
+            end = date.fromisoformat(end)
+
+        start = start or date(2000, 1, 1)
+        end = end or date.today() - timedelta(days=1)
+
+        # Resolve symbols
+        if universe:
+            symbol_list = self.universe(universe)
+        elif symbols is not None:
+            symbol_list = list(symbols)
+        else:
+            symbol_list = None
+
+        # Read feature file
+        path = f"data/features/{field}.arrow"
+        df = self._storage.read_ipc(path)
+
+        # Cast timestamp if needed
+        if "timestamp" in df.columns and df.schema["timestamp"] == pl.String:
+            df = df.with_columns(pl.col("timestamp").str.to_date())
+
+        # Filter date range
+        if "timestamp" in df.columns:
+            df = df.filter(
+                (pl.col("timestamp") >= start) & (pl.col("timestamp") <= end)
+            )
+
+        # Map security_id columns to symbols
+        if symbol_list is not None:
+            sid_to_symbol: dict[str, str] = {}
+            for sym in symbol_list:
+                info = self._security_master.resolve(sym, as_of=start)
+                if info is not None:
+                    sid_to_symbol[info.security_id] = sym
+
+            # Select matching columns and rename to symbols
+            sid_cols = [sid for sid in sid_to_symbol if sid in df.columns]
+            if not sid_cols:
+                raise DataNotFoundError("features", f"field={field}")
+            df = df.select("timestamp", *sid_cols)
+            rename_map = {sid: sid_to_symbol[sid] for sid in sid_cols}
+            df = df.rename(rename_map)
+
+        return df.sort("timestamp")
+
     def universe(self, name: str = "top3000") -> list[str]:
         """Load universe of symbols.
 
@@ -524,7 +550,7 @@ class QuantDLClient:
         Returns:
             List of symbols in the universe
         """
-        path = f"data/universe/{name}.parquet"
+        path = f"data/meta/universe/{name}.parquet"
 
         if self._cache:
             cached = self._cache.get(path)

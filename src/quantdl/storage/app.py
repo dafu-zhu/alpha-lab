@@ -29,7 +29,7 @@ class UploadApp:
     Orchestrates data upload workflows.
 
     Delegates actual upload logic to specialized handlers while managing
-    shared resources like S3 client, WRDS connection, and rate limiters.
+    shared resources like S3 client and rate limiters.
     """
 
     def __init__(self, start_year: int = 2017):
@@ -109,53 +109,33 @@ class UploadApp:
             logger=self.logger,
         )
 
-    def _get_minute_ticks_handler(self):
-        from quantdl.storage.handlers.ticks import MinuteTicksHandler
-        return MinuteTicksHandler(
-            s3_client=self.client,
-            bucket_name=self.config.bucket,
-            data_publishers=self.data_publishers,
-            data_collectors=self.data_collectors,
-            security_master=self.security_master,
-            universe_manager=self.universe_manager,
-            validator=self.validator,
-            calendar=self.calendar,
-            logger=self.logger
-        )
-
     def _get_fundamental_handler(self):
         from quantdl.storage.handlers.fundamental import FundamentalHandler
         return FundamentalHandler(
             data_publishers=self.data_publishers,
             data_collectors=self.data_collectors,
             cik_resolver=self.cik_resolver,
+            security_master=self.security_master,
             universe_manager=self.universe_manager,
             validator=self.validator,
             sec_rate_limiter=self.sec_rate_limiter,
             logger=self.logger
         )
 
-    def _get_ttm_handler(self):
-        from quantdl.storage.handlers.fundamental import TTMHandler
-        return TTMHandler(
-            data_publishers=self.data_publishers,
-            data_collectors=self.data_collectors,
-            cik_resolver=self.cik_resolver,
-            universe_manager=self.universe_manager,
-            validator=self.validator,
-            sec_rate_limiter=self.sec_rate_limiter,
-            logger=self.logger
+    def _get_features_handler(self):
+        from quantdl.storage.handlers.features import FeaturesHandler
+        from quantdl.features.builder import FeatureBuilder
+        feature_builder = FeatureBuilder(
+            data_path=".",
+            security_master=self.security_master,
+            logger=self.logger,
         )
-
-    def _get_derived_handler(self):
-        from quantdl.storage.handlers.fundamental import DerivedHandler
-        return DerivedHandler(
-            data_publishers=self.data_publishers,
-            data_collectors=self.data_collectors,
-            cik_resolver=self.cik_resolver,
+        return FeaturesHandler(
+            feature_builder=feature_builder,
+            security_master=self.security_master,
             universe_manager=self.universe_manager,
-            validator=self.validator,
-            logger=self.logger
+            calendar=self.calendar,
+            logger=self.logger,
         )
 
     def _get_top3000_handler(self):
@@ -169,16 +149,6 @@ class UploadApp:
             logger=self.logger,
         )
 
-    def _get_sentiment_handler(self):
-        from quantdl.storage.handlers.sentiment import SentimentHandler
-        return SentimentHandler(
-            s3_client=self.client,
-            bucket=self.config.bucket,
-            cik_resolver=self.cik_resolver,
-            universe_manager=self.universe_manager,
-            logger=self.logger
-        )
-
     # ===========================
     # Public upload methods
     # ===========================
@@ -187,11 +157,8 @@ class UploadApp:
         self,
         year: int,
         overwrite: bool = False,
-        use_monthly_partitions: bool = True,
-        by_year: bool = False,
         chunk_size: int = 200,
         sleep_time: float = 0.2,
-        current_year: Optional[int] = None
     ):
         """Upload daily ticks for a year."""
         handler = self._get_daily_ticks_handler()
@@ -200,50 +167,6 @@ class UploadApp:
             overwrite=overwrite,
             chunk_size=chunk_size,
             sleep_time=sleep_time,
-            current_year=current_year
-        )
-
-    def upload_minute_ticks(
-        self,
-        year: int,
-        month: int,
-        overwrite: bool = False,
-        resume: bool = False,
-        num_workers: int = 50,
-        chunk_size: int = 500,
-        sleep_time: float = 0.0
-    ):
-        """Upload minute ticks for a single month."""
-        self.upload_minute_ticks_year(
-            year=year,
-            months=[month],
-            overwrite=overwrite,
-            resume=resume,
-            num_workers=num_workers,
-            chunk_size=chunk_size,
-            sleep_time=sleep_time
-        )
-
-    def upload_minute_ticks_year(
-        self,
-        year: int,
-        months: list[int] = None,
-        overwrite: bool = False,
-        resume: bool = False,
-        num_workers: int = 50,
-        chunk_size: int = 500,
-        sleep_time: float = 0.0
-    ):
-        """Upload minute ticks for multiple months."""
-        handler = self._get_minute_ticks_handler()
-        return handler.upload_year(
-            year=year,
-            months=months,
-            overwrite=overwrite,
-            resume=resume,
-            num_workers=num_workers,
-            chunk_size=chunk_size,
-            sleep_time=sleep_time
         )
 
     def upload_fundamental(
@@ -256,38 +179,6 @@ class UploadApp:
         """Upload raw fundamental data."""
         handler = self._get_fundamental_handler()
         return handler.upload(start_date, end_date, max_workers, overwrite)
-
-    def upload_ttm_fundamental(
-        self,
-        start_date: str,
-        end_date: str,
-        max_workers: int = 50,
-        overwrite: bool = False
-    ):
-        """Upload TTM fundamental data."""
-        handler = self._get_ttm_handler()
-        return handler.upload(start_date, end_date, max_workers, overwrite)
-
-    def upload_derived_fundamental(
-        self,
-        start_date: str,
-        end_date: str,
-        max_workers: int = 50,
-        overwrite: bool = False
-    ):
-        """Upload derived fundamental data."""
-        handler = self._get_derived_handler()
-        return handler.upload(start_date, end_date, max_workers, overwrite)
-
-    def upload_sentiment(
-        self,
-        start_date: str,
-        end_date: str,
-        overwrite: bool = False
-    ):
-        """Upload sentiment data using FinBERT."""
-        handler = self._get_sentiment_handler()
-        return handler.upload(start_date, end_date, overwrite)
 
     def upload_top_3000_monthly(
         self,
@@ -309,19 +200,12 @@ class UploadApp:
         end_year: int,
         max_workers: int = 50,
         overwrite: bool = False,
-        resume: bool = False,
-        chunk_size: int = 500,
-        sleep_time: float = 0.0,
         daily_chunk_size: int = 200,
         daily_sleep_time: float = 0.2,
-        minute_ticks_start_year: int = 2017,
         run_fundamental: bool = False,
-        run_derived_fundamental: bool = False,
-        run_ttm_fundamental: bool = False,
         run_daily_ticks: bool = False,
-        run_minute_ticks: bool = False,
         run_top_3000: bool = False,
-        run_sentiment: bool = False,
+        run_features: bool = False,
         run_all: bool = False
     ) -> None:
         """Run complete upload workflow."""
@@ -333,12 +217,9 @@ class UploadApp:
 
         if run_all:
             run_fundamental = True
-            run_derived_fundamental = True
-            run_ttm_fundamental = True
             run_daily_ticks = True
-            # Note: minute ticks excluded from --run-all by default (use --run-minute-ticks explicitly)
             run_top_3000 = True
-            run_sentiment = True
+            run_features = True
 
         console_log(self.logger, f"Upload: {start_year}-{end_year}", section=True)
 
@@ -347,22 +228,9 @@ class UploadApp:
             console_log(self.logger, f"Daily Ticks ({start_year}-{end_year})", section=True)
             self._run_daily_ticks(start_year, end_year, overwrite, daily_chunk_size, daily_sleep_time)
 
-        # Minute ticks and top 3000 by year
-        for year in range(start_year, end_year + 1):
-            if run_minute_ticks:
-                today = dt.date.today()
-                if year > today.year:
-                    self.logger.debug(f"Skipping minute ticks for {year}: future")
-                    continue
-
-                if year >= minute_ticks_start_year:
-                    console_log(self.logger, f"Minute Ticks ({year})", section=True)
-                    self.upload_minute_ticks_year(
-                        year, overwrite=overwrite, resume=resume,
-                        num_workers=max_workers, chunk_size=chunk_size, sleep_time=sleep_time
-                    )
-
-            if run_top_3000:
+        # Top 3000 by year
+        if run_top_3000:
+            for year in range(start_year, end_year + 1):
                 self.upload_top_3000_monthly(year, overwrite=overwrite)
 
         # Fundamentals (after ticks)
@@ -370,18 +238,11 @@ class UploadApp:
             console_log(self.logger, f"Raw Fundamental: {start_date} to {end_date}", section=True)
             self.upload_fundamental(start_date, end_date, max_workers, overwrite)
 
-        if run_ttm_fundamental:
-            console_log(self.logger, f"TTM Fundamental: {start_date} to {end_date}", section=True)
-            self.upload_ttm_fundamental(start_date, end_date, max_workers, overwrite)
-
-        if run_derived_fundamental:
-            console_log(self.logger, f"Derived Fundamental: {start_date} to {end_date}", section=True)
-            self.upload_derived_fundamental(start_date, end_date, max_workers, overwrite)
-
-        if run_sentiment:
-            sentiment_start = max(start_date, "2017-01-01")
-            console_log(self.logger, f"Sentiment: {sentiment_start} to {end_date}", section=True)
-            self.upload_sentiment(sentiment_start, end_date, overwrite)
+        # Features (after raw data uploads)
+        if run_features:
+            console_log(self.logger, f"Features: {start_year}-{end_year}", section=True)
+            handler = self._get_features_handler()
+            handler.build(start_year, end_year, overwrite=overwrite)
 
         elapsed = _time.time() - _start_time
         minutes, seconds = divmod(int(elapsed), 60)

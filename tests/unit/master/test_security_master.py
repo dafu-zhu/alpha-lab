@@ -1997,7 +1997,7 @@ class TestPrevUniversePersistence:
         mock_s3.put_object.assert_called_once()
         call_args = mock_s3.put_object.call_args
         assert call_args.kwargs['Bucket'] == 'test-bucket'
-        assert call_args.kwargs['Key'] == 'data/master/prev_universe.json'
+        assert call_args.kwargs['Key'] == 'data/meta/master/prev_universe.json'
 
         # Verify JSON content
         import json

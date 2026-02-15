@@ -45,3 +45,7 @@ class CacheError(QuantDLError):
 
 class ConfigurationError(QuantDLError):
     """Raised when configuration is invalid or missing."""
+
+
+class ValidationError(QuantDLError):
+    """Raised when input validation fails."""

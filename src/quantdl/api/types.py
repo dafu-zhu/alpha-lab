@@ -15,6 +15,10 @@ class SecurityInfo:
     cusip: str | None
     start_date: date
     end_date: date | None
+    exchange: str | None = None
+    sector: str | None = None
+    industry: str | None = None
+    subindustry: str | None = None
 
     def __repr__(self) -> str:
         return f"SecurityInfo({self.symbol}, id={self.security_id})"

@@ -228,7 +228,7 @@ class TestUniverseManager:
         """Test that store directory is created"""
         manager = UniverseManager()
 
-        assert manager.store_dir == Path("data/symbols")
+        assert manager.store_dir == Path("data/meta/universe")
 
     def test_get_top_3000_alpaca(self):
         """Alpaca path returns ranked symbols."""

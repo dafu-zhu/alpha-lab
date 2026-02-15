@@ -135,7 +135,7 @@ class TestSymbolChanges:
         })
 
         # Write to test directory
-        sm_path = test_data_dir / "data" / "master" / "security_master.parquet"
+        sm_path = test_data_dir / "data" / "meta" / "master" / "security_master.parquet"
         security_master_df.write_parquet(sm_path)
 
         # Create fresh security master

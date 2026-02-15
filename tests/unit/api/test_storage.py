@@ -20,24 +20,24 @@ class TestStorageBasics:
 
     def test_local_mode_read(self, local_storage: StorageBackend) -> None:
         """Test reading parquet in local mode."""
-        df = local_storage.read_parquet("data/master/security_master.parquet")
+        df = local_storage.read_parquet("data/meta/master/security_master.parquet")
         assert len(df) > 0
         assert "security_id" in df.columns
 
     def test_local_mode_scan(self, local_storage: StorageBackend) -> None:
         """Test scanning parquet in local mode."""
-        lf = local_storage.scan_parquet("data/master/security_master.parquet")
+        lf = local_storage.scan_parquet("data/meta/master/security_master.parquet")
         df = lf.collect()
         assert len(df) > 0
 
     def test_exists_local_true(self, local_storage: StorageBackend) -> None:
         """Test exists returns True for existing local file."""
-        result = local_storage.exists("data/master/security_master.parquet")
+        result = local_storage.exists("data/meta/master/security_master.parquet")
         assert result is True
 
     def test_exists_local_false(self, local_storage: StorageBackend) -> None:
         """Test exists returns False for non-existing local file."""
-        result = local_storage.exists("data/master/nonexistent.parquet")
+        result = local_storage.exists("data/meta/master/nonexistent.parquet")
         assert result is False
 
 
@@ -74,7 +74,7 @@ class TestColumnSelection:
     def test_scan_parquet_with_columns(self, local_storage: StorageBackend) -> None:
         """Test scanning with column selection."""
         lf = local_storage.scan_parquet(
-            "data/master/security_master.parquet",
+            "data/meta/master/security_master.parquet",
             columns=["security_id", "symbol"],
         )
         df = lf.collect()
@@ -83,7 +83,7 @@ class TestColumnSelection:
     def test_read_parquet_with_columns(self, local_storage: StorageBackend) -> None:
         """Test reading with column selection."""
         df = local_storage.read_parquet(
-            "data/master/security_master.parquet",
+            "data/meta/master/security_master.parquet",
             columns=["security_id", "symbol"],
         )
         assert df.columns == ["security_id", "symbol"]
@@ -91,7 +91,7 @@ class TestColumnSelection:
     def test_read_parquet_with_filters(self, local_storage: StorageBackend) -> None:
         """Test reading with filters."""
         df = local_storage.read_parquet(
-            "data/master/security_master.parquet",
+            "data/meta/master/security_master.parquet",
             filters=[pl.col("symbol") == "AAPL"],
         )
         assert len(df) == 1

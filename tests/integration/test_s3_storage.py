@@ -186,23 +186,23 @@ class TestValidatorIntegration:
         # Mock S3 response
         mock_s3_client.list_objects_v2.return_value = {
             'Contents': [
-                {'Key': 'data/raw/fundamental/AAPL/fundamental.parquet'},
-                {'Key': 'data/raw/fundamental/MSFT/fundamental.parquet'},
+                {'Key': 'data/raw/fundamental/12345/fundamental.parquet'},
+                {'Key': 'data/raw/fundamental/12346/fundamental.parquet'},
             ],
             'IsTruncated': False
         }
 
         validator = Validator(s3_client=mock_s3_client)
-        files = validator.list_files_under_prefix('data/raw/fundamental')
+        files = validator.list_files_under_prefix('data/fundamental')
 
         assert len(files) == 2
-        assert 'data/raw/fundamental/AAPL/fundamental.parquet' in files
-        assert 'data/raw/fundamental/MSFT/fundamental.parquet' in files
+        assert 'data/raw/fundamental/12345/fundamental.parquet' in files
+        assert 'data/raw/fundamental/12346/fundamental.parquet' in files
 
         # Verify S3 call
         mock_s3_client.list_objects_v2.assert_called_once_with(
             Bucket='test-bucket',
-            Prefix='data/raw/fundamental'
+            Prefix='data/fundamental'
         )
 
     def test_list_files_with_pagination(self, mock_s3_client):
@@ -242,69 +242,56 @@ class TestValidatorIntegration:
 
         assert len(files) == 0
 
-    def test_data_exists_daily_ticks(self, mock_s3_client, mock_env_vars):
-        """Test checking existence of daily ticks data"""
+    def test_data_exists_ticks_with_security_id(self, mock_s3_client, mock_env_vars):
+        """Test checking existence of daily ticks data with security_id"""
         mock_s3_client.head_object.return_value = {}
 
         validator = Validator(s3_client=mock_s3_client)
-        exists = validator.data_exists('AAPL', 'ticks', year=2024)
+        exists = validator.data_exists('AAPL', 'ticks', security_id=12345)
 
         assert exists is True
         mock_s3_client.head_object.assert_called_once_with(
             Bucket='test-bucket',
-            Key='data/raw/ticks/daily/AAPL/2024/ticks.parquet'
+            Key='data/raw/ticks/daily/12345/ticks.parquet'
         )
 
-    def test_data_exists_minute_ticks(self, mock_s3_client, mock_env_vars):
-        """Test checking existence of minute ticks data"""
+    def test_data_exists_ticks_without_security_id(self, mock_s3_client, mock_env_vars):
+        """Test checking existence of daily ticks data without security_id (symbol fallback)"""
         mock_s3_client.head_object.return_value = {}
 
         validator = Validator(s3_client=mock_s3_client)
-        exists = validator.data_exists('AAPL', 'ticks', day='2024-06-15')
+        exists = validator.data_exists('AAPL', 'ticks')
 
         assert exists is True
         mock_s3_client.head_object.assert_called_once_with(
             Bucket='test-bucket',
-            Key='data/raw/ticks/minute/AAPL/2024/06/15/ticks.parquet'
+            Key='data/raw/ticks/daily/AAPL/ticks.parquet'
         )
 
-    def test_data_exists_fundamental(self, mock_s3_client, mock_env_vars):
-        """Test checking existence of fundamental data"""
+    def test_data_exists_fundamental_with_security_id(self, mock_s3_client, mock_env_vars):
+        """Test checking existence of fundamental data with security_id"""
         mock_s3_client.head_object.return_value = {}
 
         validator = Validator(s3_client=mock_s3_client)
-        exists = validator.data_exists('AAPL', 'fundamental')
+        exists = validator.data_exists('AAPL', 'fundamental', security_id=12345)
 
         assert exists is True
         mock_s3_client.head_object.assert_called_once_with(
             Bucket='test-bucket',
-            Key='data/raw/fundamental/AAPL/fundamental.parquet'
+            Key='data/raw/fundamental/12345/fundamental.parquet'
         )
 
-    def test_data_exists_derived_fundamental(self, mock_s3_client, mock_env_vars):
-        """Test checking existence of derived fundamental data"""
+    def test_data_exists_fundamental_with_cik(self, mock_s3_client, mock_env_vars):
+        """Test checking existence of fundamental data with CIK fallback"""
         mock_s3_client.head_object.return_value = {}
 
         validator = Validator(s3_client=mock_s3_client)
-        exists = validator.data_exists('AAPL', 'fundamental', data_tier='derived')
+        exists = validator.data_exists('AAPL', 'fundamental', cik='0000320193')
 
         assert exists is True
         mock_s3_client.head_object.assert_called_once_with(
             Bucket='test-bucket',
-            Key='data/derived/features/fundamental/AAPL/metrics.parquet'
-        )
-
-    def test_data_exists_ttm(self, mock_s3_client, mock_env_vars):
-        """Test checking existence of TTM data"""
-        mock_s3_client.head_object.return_value = {}
-
-        validator = Validator(s3_client=mock_s3_client)
-        exists = validator.data_exists('AAPL', 'ttm')
-
-        assert exists is True
-        mock_s3_client.head_object.assert_called_once_with(
-            Bucket='test-bucket',
-            Key='data/derived/features/fundamental/AAPL/ttm.parquet'
+            Key='data/raw/fundamental/0000320193/fundamental.parquet'
         )
 
     def test_data_not_exists(self, mock_s3_client, mock_env_vars):
@@ -314,7 +301,7 @@ class TestValidatorIntegration:
         mock_s3_client.head_object.side_effect = ClientError(error_response, 'HeadObject')
 
         validator = Validator(s3_client=mock_s3_client)
-        exists = validator.data_exists('AAPL', 'ticks', year=2024)
+        exists = validator.data_exists('AAPL', 'ticks', security_id=12345)
 
         assert exists is False
 
@@ -325,30 +312,17 @@ class TestValidatorIntegration:
         mock_s3_client.head_object.side_effect = ClientError(error_response, 'HeadObject')
 
         validator = Validator(s3_client=mock_s3_client)
-        exists = validator.data_exists('AAPL', 'ticks', year=2024)
+        exists = validator.data_exists('AAPL', 'ticks', security_id=12345)
 
         # Should return False and log error
         assert exists is False
 
-    def test_data_exists_invalid_parameters(self, mock_s3_client, mock_env_vars):
-        """Test data_exists with invalid parameters"""
+    def test_data_exists_invalid_data_type(self, mock_s3_client, mock_env_vars):
+        """Test data_exists with invalid data_type"""
         validator = Validator(s3_client=mock_s3_client)
 
-        # Both year and day specified
-        with pytest.raises(ValueError, match="Specify year OR day"):
-            validator.data_exists('AAPL', 'ticks', year=2024, day='2024-06-15')
-
-        # Invalid data_tier
-        with pytest.raises(ValueError, match="Expected data_tier is raw or derived"):
-            validator.data_exists('AAPL', 'ticks', year=2024, data_tier='invalid')
-
-        # Invalid data_type
         with pytest.raises(ValueError, match="Expected data_type"):
-            validator.data_exists('AAPL', 'invalid_type', year=2024)
-
-        # Ticks without year or day
-        with pytest.raises(ValueError, match="Must provide either year or day"):
-            validator.data_exists('AAPL', 'ticks')
+            validator.data_exists('AAPL', 'invalid_type')
 
     def test_top_3000_exists(self, mock_s3_client, mock_env_vars):
         """Test checking existence of top 3000 symbols file"""
@@ -360,7 +334,7 @@ class TestValidatorIntegration:
         assert exists is True
         mock_s3_client.head_object.assert_called_once_with(
             Bucket='test-bucket',
-            Key='data/symbols/2024/06/top3000.txt'
+            Key='data/meta/universe/2024/06/top3000.txt'
         )
 
     def test_top_3000_not_exists(self, mock_s3_client, mock_env_vars):
@@ -406,7 +380,7 @@ class TestS3ClientValidatorWorkflow:
 
     @patch('quantdl.storage.clients.s3.boto3.client')
     def test_end_to_end_workflow(self, mock_boto_client, mock_config_file, mock_env_vars):
-        """Test end-to-end workflow: S3Client → Validator → S3 operations"""
+        """Test end-to-end workflow: S3Client -> Validator -> S3 operations"""
         # Setup mock S3 client
         mock_s3 = MagicMock()
         mock_boto_client.return_value = mock_s3
@@ -422,7 +396,7 @@ class TestS3ClientValidatorWorkflow:
         validator = Validator(s3_client=boto_client)
 
         # Test data existence check
-        exists = validator.data_exists('AAPL', 'ticks', year=2024)
+        exists = validator.data_exists('AAPL', 'ticks', security_id=12345)
 
         assert exists is True
         mock_s3.head_object.assert_called_once()
@@ -436,7 +410,7 @@ class TestS3ClientValidatorWorkflow:
         # Mock different responses for different operations
         mock_s3.head_object.return_value = {}
         mock_s3.list_objects_v2.return_value = {
-            'Contents': [{'Key': 'data/raw/fundamental/AAPL/fundamental.parquet'}],
+            'Contents': [{'Key': 'data/raw/fundamental/12345/fundamental.parquet'}],
             'IsTruncated': False
         }
 
@@ -445,8 +419,8 @@ class TestS3ClientValidatorWorkflow:
         validator = Validator(s3_client=s3_client.client)
 
         # Perform multiple operations
-        exists_check = validator.data_exists('AAPL', 'fundamental')
-        files = validator.list_files_under_prefix('data/raw/fundamental')
+        exists_check = validator.data_exists('AAPL', 'fundamental', security_id=12345)
+        files = validator.list_files_under_prefix('data/fundamental')
 
         assert exists_check is True
         assert len(files) == 1

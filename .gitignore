@@ -146,9 +146,10 @@ activemq-data/
 
 # Local data
 /data/
-!/data/master/
-/data/master/*
-!/data/master/security_master.parquet
+!/data/meta/
+!/data/meta/master/
+/data/meta/master/*
+!/data/meta/master/security_master.parquet
 
 # SageMath parsed files
 *.sage.py

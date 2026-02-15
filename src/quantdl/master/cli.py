@@ -31,7 +31,7 @@ def main():
     parser.add_argument(
         '--s3-key',
         type=str,
-        default='data/master/security_master.parquet',
+        default='data/meta/master/security_master.parquet',
         help='S3 key for export'
     )
 

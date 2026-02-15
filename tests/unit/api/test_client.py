@@ -79,13 +79,10 @@ class TestFundamentals:
 class TestMetrics:
     """Metrics API tests."""
 
-    def test_metrics_basic(self, client: QuantDLClient) -> None:
-        """Test basic metrics fetch."""
-        df = client.metrics("AAPL", "pe_ratio", "2024-01-01", "2024-12-31")
-
-        assert "timestamp" in df.columns
-        assert "AAPL" in df.columns
-        assert len(df) > 0
+    def test_metrics_derived_removed(self, client: QuantDLClient) -> None:
+        """Test derived metrics raise DataNotFoundError (derived module removed)."""
+        with pytest.raises(DataNotFoundError):
+            client.metrics("AAPL", "pe_ratio", "2024-01-01", "2024-12-31")
 
     def test_metrics_invalid_symbol(self, client: QuantDLClient) -> None:
         """Test metrics with invalid symbol."""

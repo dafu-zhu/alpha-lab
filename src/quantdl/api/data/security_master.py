@@ -16,7 +16,7 @@ class SecurityMaster:
     handling symbol changes and corporate actions.
     """
 
-    SECURITY_MASTER_PATH = "data/master/security_master.parquet"
+    SECURITY_MASTER_PATH = "data/meta/master/security_master.parquet"
 
     def __init__(self, storage: StorageBackend, cache: DiskCache | None = None) -> None:
         self._storage = storage
@@ -54,6 +54,10 @@ class SecurityMaster:
             cusip=str(row["cusip"]) if row.get("cusip") is not None else None,
             start_date=row["start_date"],  # type: ignore[arg-type]
             end_date=row["end_date"] if row.get("end_date") is not None else None,  # type: ignore[arg-type]
+            exchange=str(row["exchange"]) if row.get("exchange") is not None else None,
+            sector=str(row["sector"]) if row.get("sector") is not None else None,
+            industry=str(row["industry"]) if row.get("industry") is not None else None,
+            subindustry=str(row["subindustry"]) if row.get("subindustry") is not None else None,
         )
 
     def resolve(

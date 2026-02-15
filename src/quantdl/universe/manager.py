@@ -16,7 +16,7 @@ class UniverseManager:
         self,
         security_master: Optional[SecurityMaster] = None
     ):
-        self.store_dir = Path("data/symbols")
+        self.store_dir = Path("data/meta/universe")
         self.store_dir.mkdir(parents=True, exist_ok=True)
 
         log_dir = Path("data/logs/symbols")

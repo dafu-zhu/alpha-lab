@@ -14,10 +14,10 @@ def test_data_dir(tmp_path: Path) -> Generator[Path, None, None]:
     """Create temporary test data directory with parquet files.
 
     Files are created at paths matching the storage directory structure.
-    E.g., data/master/security_master.parquet
+    E.g., data/meta/master/security_master.parquet
     """
     # Create security master test data
-    security_master_dir = tmp_path / "data" / "master"
+    security_master_dir = tmp_path / "data" / "meta" / "master"
     security_master_dir.mkdir(parents=True)
     security_master = pl.DataFrame({
         "security_id": ["SEC001", "SEC002", "SEC003", "SEC004"],
@@ -48,7 +48,7 @@ def test_data_dir(tmp_path: Path) -> Generator[Path, None, None]:
     calendar_master = pl.DataFrame({"date": trading_days})
     calendar_master.write_parquet(security_master_dir / "calendar_master.parquet")
 
-    # Create daily ticks test data for AAPL
+    # Create daily ticks test data for AAPL (single file per security_id)
     daily_ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily" / "SEC001"
     daily_ticks_dir.mkdir(parents=True)
     daily_ticks = pl.DataFrame({
@@ -59,10 +59,10 @@ def test_data_dir(tmp_path: Path) -> Generator[Path, None, None]:
         "close": [185.5 + i * 0.5 for i in range(10)],
         "volume": [1000000 + i * 10000 for i in range(10)],
     })
-    daily_ticks.write_parquet(daily_ticks_dir / "history.parquet")
+    daily_ticks.write_parquet(daily_ticks_dir / "ticks.parquet")
 
-    # Create fundamentals test data
-    fundamentals_dir = tmp_path / "data" / "raw" / "fundamental" / "0000320193"
+    # Create fundamentals test data (keyed by security_id)
+    fundamentals_dir = tmp_path / "data" / "raw" / "fundamental" / "SEC001"
     fundamentals_dir.mkdir(parents=True)
     fundamentals = pl.DataFrame({
         "symbol": ["AAPL"] * 4,
@@ -83,29 +83,15 @@ def test_data_dir(tmp_path: Path) -> Generator[Path, None, None]:
     })
     fundamentals.write_parquet(fundamentals_dir / "fundamental.parquet")
 
-    # Create metrics test data
-    metrics_dir = tmp_path / "data" / "derived" / "features" / "fundamental" / "0000320193"
-    metrics_dir.mkdir(parents=True)
-    metrics = pl.DataFrame({
-        "as_of_date": [date(2024, 3, 31), date(2024, 6, 30)],
-        "pe_ratio": [28.5, 29.2],
-        "pb_ratio": [35.2, 36.1],
-        "roe": [0.45, 0.47],
-        "roa": [0.21, 0.22],
-    })
-    metrics.write_parquet(metrics_dir / "metrics.parquet")
-
-    # Create universe test data
-    universe_dir = tmp_path / "data" / "universe"
+    # Create universe test data (top3000)
+    universe_dir = tmp_path / "data" / "meta" / "universe"
     universe_dir.mkdir(parents=True)
     universe = pl.DataFrame({
-        "security_id": ["SEC001", "SEC002", "SEC003"],
-        "symbol": ["AAPL", "MSFT", "GOOGL"],
-        "market_cap_rank": [1, 2, 3],
+        "symbol": ["AAPL", "MSFT", "GOOGL", "META"],
     })
     universe.write_parquet(universe_dir / "top3000.parquet")
 
-    # Return tmp_path as the base, so paths like "data/master/..." work
+    # Return tmp_path as the base, so paths like "data/meta/master/..." work
     yield tmp_path
 
 

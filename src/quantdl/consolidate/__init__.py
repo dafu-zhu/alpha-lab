@@ -1,1 +1,0 @@
-"""Year consolidation module."""

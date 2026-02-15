@@ -11,7 +11,7 @@ from quantdl.collection.fundamental import extract_concept, MAPPINGS
 class TestExtractConcept:
     """Test extract_concept function"""
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'rev': ['us-gaap:Revenues', 'us-gaap:SalesRevenueNet']})
+    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues', 'us-gaap:SalesRevenueNet']})
     def test_extract_single_tag_found(self):
         """Test extraction when single tag is found"""
         facts = {
@@ -28,14 +28,14 @@ class TestExtractConcept:
             }
         }
 
-        result = extract_concept(facts, 'rev')
+        result = extract_concept(facts, 'sales')
 
         assert result is not None
         assert result['label'] == 'Revenues'
         assert 'USD' in result['units']
         assert result['units']['USD'][0]['val'] == 1000000
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'rev': ['us-gaap:Revenues', 'us-gaap:SalesRevenueNet']})
+    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues', 'us-gaap:SalesRevenueNet']})
     def test_extract_multiple_tags_merged(self):
         """Test extraction and merging when multiple tags are found"""
         facts = {
@@ -61,14 +61,14 @@ class TestExtractConcept:
             }
         }
 
-        result = extract_concept(facts, 'rev')
+        result = extract_concept(facts, 'sales')
 
         assert result is not None
         # Should merge units from both tags
         assert 'USD' in result['units']
         assert len(result['units']['USD']) == 2
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'ta': ['us-gaap:Assets']})
+    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'assets': ['us-gaap:Assets']})
     def test_extract_tag_not_found(self):
         """Test extraction when tag is not found"""
         facts = {
@@ -80,7 +80,7 @@ class TestExtractConcept:
             }
         }
 
-        result = extract_concept(facts, 'ta')
+        result = extract_concept(facts, 'assets')
 
         assert result is None
 
@@ -92,21 +92,21 @@ class TestExtractConcept:
         with pytest.raises(KeyError, match="Concept 'unknown' not defined"):
             extract_concept(facts, 'unknown')
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'rev': 'us-gaap:Revenues'})  # String instead of list
+    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': 'us-gaap:Revenues'})  # String instead of list
     def test_extract_invalid_mapping_format(self):
         """Test extraction with invalid mapping format (not a list)"""
         facts = {}
 
         with pytest.raises(ValueError, match="Invalid mapping format"):
-            extract_concept(facts, 'rev')
+            extract_concept(facts, 'sales')
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'rev': ['InvalidTag']})
+    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['InvalidTag']})
     def test_extract_tag_without_prefix(self):
         """Test extraction with tag missing prefix"""
         facts = {}
 
         with pytest.raises(ValueError, match="Tag must include prefix"):
-            extract_concept(facts, 'rev')
+            extract_concept(facts, 'sales')
 
 
 class TestSECClient:
@@ -523,7 +523,7 @@ class TestFundamentalExtractor:
         assert q4["val"] == 340.0
         assert q4["start"] == "2024-10-01"
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'rev': ['us-gaap:Revenues']})
+    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues']})
     def test_extract_prefix_not_in_facts(self):
         """Test extraction when prefix doesn't exist in facts"""
         facts = {
@@ -532,11 +532,11 @@ class TestFundamentalExtractor:
             }
         }
 
-        result = extract_concept(facts, 'rev')
+        result = extract_concept(facts, 'sales')
 
         assert result is None
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'rev': ['us-gaap:Revenues', 'us-gaap:SalesRevenueNet']})
+    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues', 'us-gaap:SalesRevenueNet']})
     def test_extract_multiple_units(self):
         """Test extraction with multiple unit types"""
         facts = {
@@ -556,7 +556,7 @@ class TestFundamentalExtractor:
             }
         }
 
-        result = extract_concept(facts, 'rev')
+        result = extract_concept(facts, 'sales')
 
         assert result is not None
         assert 'USD' in result['units']
@@ -564,7 +564,7 @@ class TestFundamentalExtractor:
         assert result['units']['USD'][0]['val'] == 1000000
         assert result['units']['shares'][0]['val'] == 5000
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'rev': ['us-gaap:Revenues', 'custom:CompanyRevenue']})
+    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues', 'custom:CompanyRevenue']})
     def test_extract_custom_prefix(self):
         """Test extraction with custom (company-specific) prefix"""
         facts = {
@@ -581,12 +581,12 @@ class TestFundamentalExtractor:
             }
         }
 
-        result = extract_concept(facts, 'rev')
+        result = extract_concept(facts, 'sales')
 
         assert result is not None
         assert result['label'] == 'Company Revenue'
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'rev': ['us-gaap:Revenues']})
+    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues']})
     def test_extract_field_without_units(self):
         """Test extraction when field data doesn't have units"""
         facts = {
@@ -599,13 +599,13 @@ class TestFundamentalExtractor:
             }
         }
 
-        result = extract_concept(facts, 'rev')
+        result = extract_concept(facts, 'sales')
 
         assert result is not None
         assert result['label'] == 'Revenues'
         # Should handle missing units gracefully
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'rev': ['us-gaap:Rev1', 'us-gaap:Rev2']})
+    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Rev1', 'us-gaap:Rev2']})
     def test_extract_merges_from_multiple_fields(self):
         """Test that units are properly merged from multiple fields"""
         facts = {
@@ -631,7 +631,7 @@ class TestFundamentalExtractor:
             }
         }
 
-        result = extract_concept(facts, 'rev')
+        result = extract_concept(facts, 'sales')
 
         assert result is not None
         assert 'USD' in result['units']
@@ -641,7 +641,7 @@ class TestFundamentalExtractor:
         assert 1000000 in values
         assert 2000000 in values
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'rev': ['us-gaap:Revenues:Extra']})
+    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues:Extra']})
     def test_extract_tag_with_multiple_colons(self):
         """Test extraction with tag containing multiple colons"""
         facts = {
@@ -658,7 +658,7 @@ class TestFundamentalExtractor:
             }
         }
 
-        result = extract_concept(facts, 'rev')
+        result = extract_concept(facts, 'sales')
 
         assert result is not None
         assert result['label'] == 'Revenues'
@@ -679,7 +679,7 @@ class TestDurationConcepts:
         from quantdl.collection.fundamental import DURATION_CONCEPTS
 
         # Check for key duration concepts
-        expected_concepts = ['rev', 'net_inc', 'cfo', 'capex']
+        expected_concepts = ['sales', 'income', 'cashflow_op', 'capex']
         for concept in expected_concepts:
             assert concept in DURATION_CONCEPTS
 
@@ -887,17 +887,17 @@ class TestEDGARDataSource:
         # Should fetch company facts
         mock_client.fetch_company_facts.assert_called_once_with('320193')
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'rev': ['us-gaap:Revenues']})
+    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues']})
     def test_edgar_supports_concept(self):
         """Test supports_concept method"""
         from quantdl.collection.fundamental import EDGARDataSource
 
         source = EDGARDataSource(cik='320193', response={'facts': {}})
 
-        assert source.supports_concept('rev') is True
+        assert source.supports_concept('sales') is True
         assert source.supports_concept('unknown_concept') is False
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'rev': ['us-gaap:Revenues']})
+    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues']})
     def test_edgar_extract_concept_success(self):
         """Test extract_concept with successful extraction"""
         from quantdl.collection.fundamental import EDGARDataSource
@@ -926,13 +926,13 @@ class TestEDGARDataSource:
         }
 
         source = EDGARDataSource(cik='320193', response=response)
-        result = source.extract_concept('rev')
+        result = source.extract_concept('sales')
 
         assert result is not None
         assert len(result) == 1
         assert result[0].value == 1000000
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'rev': ['us-gaap:Revenues']})
+    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues']})
     def test_edgar_extract_concept_not_found(self):
         """Test extract_concept when concept not found"""
         from quantdl.collection.fundamental import EDGARDataSource
@@ -944,7 +944,7 @@ class TestEDGARDataSource:
         }
 
         source = EDGARDataSource(cik='320193', response=response)
-        result = source.extract_concept('rev')
+        result = source.extract_concept('sales')
 
         assert result is None
 
@@ -1013,13 +1013,13 @@ class TestFundamental:
         mock_sec_client_class.return_value = mock_client
 
         fund = Fundamental(cik='320193')
-        result = fund.get_concept_data('rev')
+        result = fund.get_concept_data('sales')
 
         assert result is not None
         assert len(result) == 1
         assert result[0].value == 1000000
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'rev': ['us-gaap:Revenues']})
+    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues']})
     @patch('quantdl.collection.fundamental.SECClient')
     def test_fundamental_get_concept_data_with_date_filter(self, mock_sec_client_class):
         """Test get_concept_data with date filtering"""
@@ -1063,7 +1063,7 @@ class TestFundamental:
 
         fund = Fundamental(cik='320193')
         # Filter to only get Q1 filing
-        result = fund.get_concept_data('rev', start_date='2024-01-01', end_date='2024-05-01')
+        result = fund.get_concept_data('sales', start_date='2024-01-01', end_date='2024-05-01')
 
         assert result is not None
         assert len(result) == 1

@@ -2,7 +2,7 @@
 Storage Configuration Loader
 Loads S3 client and transfer settings from configs/storage.yaml
 
-Note: Fundamental data fields are now managed via approved_mapping.yaml
+Note: Fundamental data fields are now managed via sec_mapping.yaml
       using concept-based extraction. This config only handles S3 settings.
 """
 import os

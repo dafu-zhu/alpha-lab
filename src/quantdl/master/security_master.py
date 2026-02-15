@@ -26,7 +26,7 @@ from quantdl.storage.utils import RateLimiter, NoSuchKeyError
 load_dotenv()
 
 # Default local path for security master parquet
-LOCAL_MASTER_PATH = Path("data/master/security_master.parquet")
+LOCAL_MASTER_PATH = Path("data/meta/master/security_master.parquet")
 
 # OpenFIGI rate limits (with API key: 25 req/6s, 100 jobs/req)
 OPENFIGI_RATE_LIMIT_NO_KEY = 25 / 60  # ~0.42 req/sec (no key)
@@ -70,7 +70,7 @@ class SymbolNormalizer:
 
         :param security_master: SecurityMaster instance for validation (optional)
         """
-        # Load current stock list (cached in data/symbols/stock_exchange.csv)
+        # Load current stock list (cached in data/meta/universe/stock_exchange.csv)
         self.current_stocks_df = fetch_all_stocks(with_filter=True, refresh=False)
 
         # Create normalized lookup: {crsp_format: nasdaq_format}
@@ -197,7 +197,7 @@ class SecurityMaster:
         db: Optional[Any] = None,
         s3_client: Optional[Any] = None,
         bucket_name: str = 'us-equity-datalake',
-        s3_key: str = 'data/master/security_master.parquet',
+        s3_key: str = 'data/meta/master/security_master.parquet',
         force_rebuild: bool = False,
         local_path: Optional[Path] = None
     ):
@@ -215,7 +215,7 @@ class SecurityMaster:
         :param bucket_name: S3 bucket name
         :param s3_key: S3 key for security master
         :param force_rebuild: If True, skip local/S3 and rebuild from WRDS
-        :param local_path: Path to local parquet file (default: data/master/security_master.parquet)
+        :param local_path: Path to local parquet file (default: data/meta/master/security_master.parquet)
         """
         # Setup logger first (needed for all paths)
         self.logger = setup_logger(
@@ -267,7 +267,7 @@ class SecurityMaster:
             raise ImportError(
                 "wrds package not installed and no local/S3 security master found. "
                 "Either install wrds (`pip install wrds`) or place security_master.parquet "
-                "at data/master/security_master.parquet"
+                "at data/meta/master/security_master.parquet"
             )
 
         from quantdl.utils.wrds import raw_sql_with_retry
@@ -278,7 +278,7 @@ class SecurityMaster:
             if not username or not password:
                 raise ValueError(
                     "WRDS credentials not found. Set WRDS_USERNAME and WRDS_PASSWORD environment variables. "
-                    "Alternatively, place security_master.parquet at data/master/security_master.parquet"
+                    "Alternatively, place security_master.parquet at data/meta/master/security_master.parquet"
                 )
             self.db = wrds.Connection(
                 wrds_username=username,
@@ -302,7 +302,16 @@ class SecurityMaster:
     @staticmethod
     def _load_from_local(path: Path) -> pl.DataFrame:
         """Load master_tb from local parquet file."""
-        return pl.read_parquet(str(path))
+        df = pl.read_parquet(str(path))
+        return SecurityMaster._ensure_gics_columns(df)
+
+    @staticmethod
+    def _ensure_gics_columns(df: pl.DataFrame) -> pl.DataFrame:
+        """Ensure GICS/exchange columns exist (add as null if missing)."""
+        for col in ("exchange", "sector", "industry", "subindustry"):
+            if col not in df.columns:
+                df = df.with_columns(pl.lit(None).cast(pl.Utf8).alias(col))
+        return df
     
     def _fetch_sec_cik_mapping(self) -> pl.DataFrame:
         """
@@ -839,7 +848,7 @@ class SecurityMaster:
         self,
         s3_client: Any,
         bucket_name: str = 'us-equity-datalake',
-        s3_key: str = 'data/master/security_master.parquet'
+        s3_key: str = 'data/meta/master/security_master.parquet'
     ) -> Dict[str, str]:
         """
         Export master_tb to S3 with embedded metadata.
@@ -917,6 +926,7 @@ class SecurityMaster:
         # Convert to Polars (from_arrow on Table always returns DataFrame)
         df = pl.from_arrow(table)
         assert isinstance(df, pl.DataFrame)
+        df = SecurityMaster._ensure_gics_columns(df)
 
         self.logger.debug(f"Loaded SecurityMaster from S3: {len(df)} rows, metadata: {metadata}")
         return df, metadata
@@ -1175,7 +1185,7 @@ class SecurityMaster:
 
         :return: Tuple of (prev_universe set, prev_date string or None)
         """
-        s3_key = "data/master/prev_universe.json"
+        s3_key = "data/meta/master/prev_universe.json"
 
         try:
             response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
@@ -1208,7 +1218,7 @@ class SecurityMaster:
         :param universe: Set of ticker symbols
         :param date: Date string (YYYY-MM-DD)
         """
-        s3_key = "data/master/prev_universe.json"
+        s3_key = "data/meta/master/prev_universe.json"
 
         import json
         data = {

@@ -136,7 +136,6 @@ class TestUploadAppDailyTicks:
                 overwrite=True,
                 chunk_size=100,
                 sleep_time=0.5,
-                current_year=2024
             )
 
         mock_handler.upload_year.assert_called_once_with(
@@ -144,7 +143,6 @@ class TestUploadAppDailyTicks:
             overwrite=True,
             chunk_size=100,
             sleep_time=0.5,
-            current_year=2024
         )
         assert result is None
 
@@ -161,58 +159,6 @@ class TestUploadAppDailyTicks:
             overwrite=False,
             chunk_size=200,
             sleep_time=0.2,
-            current_year=None
-        )
-
-
-class TestUploadAppMinuteTicks:
-    """Test minute ticks upload delegation to handler."""
-
-    def test_upload_minute_ticks_delegates_to_handler(self):
-        """Test upload_minute_ticks creates handler and calls upload_year."""
-        app = _make_app()
-        mock_handler = Mock()
-        mock_handler.upload_year.return_value = None
-
-        with patch.object(app, '_get_minute_ticks_handler', return_value=mock_handler):
-            app.upload_minute_ticks(
-                year=2024,
-                month=6,
-                overwrite=True,
-                resume=True,
-                num_workers=25
-            )
-
-        mock_handler.upload_year.assert_called_once_with(
-            year=2024,
-            months=[6],
-            overwrite=True,
-            resume=True,
-            num_workers=25,
-            chunk_size=500,
-            sleep_time=0.0
-        )
-
-    def test_upload_minute_ticks_year_multiple_months(self):
-        """Test upload_minute_ticks_year with multiple months."""
-        app = _make_app()
-        mock_handler = Mock()
-
-        with patch.object(app, '_get_minute_ticks_handler', return_value=mock_handler):
-            app.upload_minute_ticks_year(
-                year=2024,
-                months=[1, 2, 3],
-                overwrite=False
-            )
-
-        mock_handler.upload_year.assert_called_once_with(
-            year=2024,
-            months=[1, 2, 3],
-            overwrite=False,
-            resume=False,
-            num_workers=50,
-            chunk_size=500,
-            sleep_time=0.0
         )
 
 
@@ -238,40 +184,6 @@ class TestUploadAppFundamental:
         )
         assert result == {'success': 10, 'failed': 0}
 
-    def test_upload_ttm_fundamental_delegates_to_handler(self):
-        """Test upload_ttm_fundamental creates handler and calls upload."""
-        app = _make_app()
-        mock_handler = Mock()
-        mock_handler.upload.return_value = None
-
-        with patch.object(app, '_get_ttm_handler', return_value=mock_handler):
-            app.upload_ttm_fundamental(
-                start_date='2024-01-01',
-                end_date='2024-12-31'
-            )
-
-        mock_handler.upload.assert_called_once_with(
-            '2024-01-01', '2024-12-31', 50, False
-        )
-
-    def test_upload_derived_fundamental_delegates_to_handler(self):
-        """Test upload_derived_fundamental creates handler and calls upload."""
-        app = _make_app()
-        mock_handler = Mock()
-        mock_handler.upload.return_value = None
-
-        with patch.object(app, '_get_derived_handler', return_value=mock_handler):
-            app.upload_derived_fundamental(
-                start_date='2024-01-01',
-                end_date='2024-12-31',
-                max_workers=100
-            )
-
-        mock_handler.upload.assert_called_once_with(
-            '2024-01-01', '2024-12-31', 100, False
-        )
-
-
 class TestUploadAppTop3000:
     """Test top 3000 upload delegation to handler."""
 
@@ -291,27 +203,6 @@ class TestUploadAppTop3000:
         mock_handler.upload_year.assert_called_once_with(2024, True, False)
 
 
-class TestUploadAppSentiment:
-    """Test sentiment upload delegation to handler."""
-
-    def test_upload_sentiment_delegates_to_handler(self):
-        """Test upload_sentiment creates handler and calls upload."""
-        app = _make_app()
-        mock_handler = Mock()
-        mock_handler.upload.return_value = None
-
-        with patch.object(app, '_get_sentiment_handler', return_value=mock_handler):
-            app.upload_sentiment(
-                start_date='2024-01-01',
-                end_date='2024-12-31',
-                overwrite=True
-            )
-
-        mock_handler.upload.assert_called_once_with(
-            '2024-01-01', '2024-12-31', True
-        )
-
-
 class TestUploadAppRun:
     """Test UploadApp.run() orchestration."""
 
@@ -321,21 +212,14 @@ class TestUploadAppRun:
 
         # Mock the internal methods that run() calls
         app._run_daily_ticks = Mock()
-        app.upload_minute_ticks_year = Mock()
         app.upload_fundamental = Mock()
-        app.upload_ttm_fundamental = Mock()
-        app.upload_derived_fundamental = Mock()
         app.upload_top_3000_monthly = Mock()
-        app.upload_sentiment = Mock()
 
         app.run(
             start_year=2024,
             end_year=2024,
             run_fundamental=True,
             run_daily_ticks=True,
-            run_minute_ticks=False,
-            run_derived_fundamental=False,
-            run_ttm_fundamental=False,
             run_top_3000=False
         )
 
@@ -343,76 +227,29 @@ class TestUploadAppRun:
         assert app.upload_fundamental.called
         assert app._run_daily_ticks.called
 
-        # Others should not be called
-        assert not app.upload_minute_ticks_year.called
-        assert not app.upload_derived_fundamental.called
-        assert not app.upload_ttm_fundamental.called
+        # Top 3000 should not be called
         assert not app.upload_top_3000_monthly.called
 
     def test_run_all_enables_all_flows(self):
-        """Test run_all=True enables all upload methods except minute ticks."""
+        """Test run_all=True enables all upload methods."""
         app = _make_app()
 
         app._run_daily_ticks = Mock()
-        app.upload_minute_ticks_year = Mock()
         app.upload_fundamental = Mock()
-        app.upload_ttm_fundamental = Mock()
-        app.upload_derived_fundamental = Mock()
         app.upload_top_3000_monthly = Mock()
-        app.upload_sentiment = Mock()
+        mock_features_handler = Mock()
+        app._get_features_handler = Mock(return_value=mock_features_handler)
 
         app.run(
             start_year=2024,
             end_year=2024,
             run_all=True,
-            minute_ticks_start_year=2024
         )
 
         assert app._run_daily_ticks.called
-        assert not app.upload_minute_ticks_year.called  # minute ticks excluded from run_all by design
         assert app.upload_fundamental.called
-        assert app.upload_ttm_fundamental.called
-        assert app.upload_derived_fundamental.called
         assert app.upload_top_3000_monthly.called
-        assert app.upload_sentiment.called
-
-    def test_run_skips_minute_ticks_before_start_year(self):
-        """Test run() skips minute ticks for years before minute_ticks_start_year."""
-        app = _make_app()
-
-        app._run_daily_ticks = Mock()
-        app.upload_minute_ticks_year = Mock()
-        app.upload_fundamental = Mock()
-
-        app.run(
-            start_year=2015,
-            end_year=2016,
-            run_minute_ticks=True,
-            minute_ticks_start_year=2017
-        )
-
-        # Minute ticks should not be called (years are before 2017)
-        assert not app.upload_minute_ticks_year.called
-
-    def test_run_minute_ticks_runs_all_months(self):
-        """Test run() calls minute ticks for valid years."""
-        app = _make_app()
-
-        app._run_daily_ticks = Mock()
-        app.upload_minute_ticks_year = Mock()
-        app.upload_fundamental = Mock()
-
-        app.run(
-            start_year=2020,
-            end_year=2020,
-            run_minute_ticks=True,
-            minute_ticks_start_year=2017
-        )
-
-        app.upload_minute_ticks_year.assert_called()
-        # Check that 2020 was passed
-        call_args = app.upload_minute_ticks_year.call_args
-        assert call_args[0][0] == 2020 or call_args[1].get('year') == 2020
+        assert mock_features_handler.build.called
 
     def test_run_passes_daily_chunk_and_sleep(self):
         """Test run() passes daily_chunk_size and daily_sleep_time to _run_daily_ticks."""
@@ -477,18 +314,6 @@ class TestUploadAppHandlerFactories:
         assert call_kwargs['data_publishers'] == app.data_publishers
         assert call_kwargs['logger'] == app.logger
 
-    def test_get_minute_ticks_handler_creates_handler(self):
-        """Test _get_minute_ticks_handler creates MinuteTicksHandler."""
-        app = _make_app()
-
-        with patch('quantdl.storage.handlers.ticks.MinuteTicksHandler') as MockHandler:
-            handler = app._get_minute_ticks_handler()
-
-        MockHandler.assert_called_once()
-        call_kwargs = MockHandler.call_args[1]
-        assert call_kwargs['s3_client'] == app.client
-        assert call_kwargs['calendar'] == app.calendar
-
     def test_get_fundamental_handler_creates_handler(self):
         """Test _get_fundamental_handler creates FundamentalHandler."""
         app = _make_app()
@@ -500,24 +325,7 @@ class TestUploadAppHandlerFactories:
         call_kwargs = MockHandler.call_args[1]
         assert call_kwargs['cik_resolver'] == app.cik_resolver
         assert call_kwargs['sec_rate_limiter'] == app.sec_rate_limiter
-
-    def test_get_ttm_handler_creates_handler(self):
-        """Test _get_ttm_handler creates TTMHandler."""
-        app = _make_app()
-
-        with patch('quantdl.storage.handlers.fundamental.TTMHandler') as MockHandler:
-            handler = app._get_ttm_handler()
-
-        MockHandler.assert_called_once()
-
-    def test_get_derived_handler_creates_handler(self):
-        """Test _get_derived_handler creates DerivedHandler."""
-        app = _make_app()
-
-        with patch('quantdl.storage.handlers.fundamental.DerivedHandler') as MockHandler:
-            handler = app._get_derived_handler()
-
-        MockHandler.assert_called_once()
+        assert call_kwargs['security_master'] == app.security_master
 
     def test_get_top3000_handler_creates_handler(self):
         """Test _get_top3000_handler creates Top3000Handler."""
@@ -530,14 +338,3 @@ class TestUploadAppHandlerFactories:
         call_kwargs = MockHandler.call_args[1]
         assert call_kwargs['calendar'] == app.calendar
         assert call_kwargs['logger'] == app.logger
-
-    def test_get_sentiment_handler_creates_handler(self):
-        """Test _get_sentiment_handler creates SentimentHandler."""
-        app = _make_app()
-
-        with patch('quantdl.storage.handlers.sentiment.SentimentHandler') as MockHandler:
-            handler = app._get_sentiment_handler()
-
-        MockHandler.assert_called_once()
-        call_kwargs = MockHandler.call_args[1]
-        assert call_kwargs['bucket'] == 'test-bucket'

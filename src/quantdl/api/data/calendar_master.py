@@ -15,7 +15,7 @@ class CalendarMaster:
     range queries for trading days between dates.
     """
 
-    CALENDAR_MASTER_PATH = "data/master/calendar_master.parquet"
+    CALENDAR_MASTER_PATH = "data/meta/master/calendar_master.parquet"
 
     def __init__(self, storage: StorageBackend, cache: DiskCache | None = None) -> None:
         self._storage = storage
