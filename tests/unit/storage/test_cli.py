@@ -19,23 +19,14 @@ class TestStorageCLI:
         mock_args.start_year = 2020
         mock_args.end_year = 2024
         mock_args.overwrite = False
-        mock_args.resume = False
         mock_args.run_fundamental = True
-        mock_args.run_derived_fundamental = False
-        mock_args.run_ttm_fundamental = False
         mock_args.run_daily_ticks = False
-        mock_args.run_minute_ticks = False
         mock_args.run_top_3000 = False
-        mock_args.run_sentiment = False
         mock_args.run_all = False
         mock_args.alpaca_start_year = 2025
-        mock_args.minute_start_year = 2017
         mock_args.daily_chunk_size = 200
         mock_args.daily_sleep_time = 0.2
         mock_args.max_workers = 50
-        mock_args.minute_workers = 50
-        mock_args.minute_chunk_size = 500
-        mock_args.minute_sleep_time = 0.0
         mock_parse_args.return_value = mock_args
 
         mock_app = Mock()
@@ -43,7 +34,7 @@ class TestStorageCLI:
 
         main()
 
-        mock_upload_app.assert_called_once_with(alpaca_start_year=2025)
+        mock_upload_app.assert_called_once_with(start_year=2025)
         mock_app.run.assert_called_once()
         mock_app.close.assert_called_once()
 
@@ -57,23 +48,14 @@ class TestStorageCLI:
         mock_args.start_year = 2009
         mock_args.end_year = 2024
         mock_args.overwrite = True
-        mock_args.resume = False
         mock_args.run_fundamental = False
-        mock_args.run_derived_fundamental = False
-        mock_args.run_ttm_fundamental = False
         mock_args.run_daily_ticks = False
-        mock_args.run_minute_ticks = False
         mock_args.run_top_3000 = False
-        mock_args.run_sentiment = False
         mock_args.run_all = True
         mock_args.alpaca_start_year = 2025
-        mock_args.minute_start_year = 2017
         mock_args.daily_chunk_size = 200
         mock_args.daily_sleep_time = 0.2
         mock_args.max_workers = 50
-        mock_args.minute_workers = 50
-        mock_args.minute_chunk_size = 500
-        mock_args.minute_sleep_time = 0.0
         mock_parse_args.return_value = mock_args
 
         mock_app = Mock()
@@ -95,23 +77,14 @@ class TestStorageCLI:
         mock_args.start_year = 2020
         mock_args.end_year = 2024
         mock_args.overwrite = False
-        mock_args.resume = False
         mock_args.run_fundamental = True
-        mock_args.run_derived_fundamental = False
-        mock_args.run_ttm_fundamental = False
         mock_args.run_daily_ticks = False
-        mock_args.run_minute_ticks = False
         mock_args.run_top_3000 = False
-        mock_args.run_sentiment = False
         mock_args.run_all = False
         mock_args.alpaca_start_year = 2025
-        mock_args.minute_start_year = 2017
         mock_args.daily_chunk_size = 200
         mock_args.daily_sleep_time = 0.2
         mock_args.max_workers = 50
-        mock_args.minute_workers = 50
-        mock_args.minute_chunk_size = 500
-        mock_args.minute_sleep_time = 0.0
         mock_parse_args.return_value = mock_args
 
         mock_app = Mock()
@@ -146,77 +119,3 @@ class TestStorageCLI:
 
         mock_error.assert_called_once()
         assert "2025" in str(mock_error.call_args)
-
-    @patch('quantdl.storage.cli.UploadApp')
-    @patch('quantdl.storage.cli.argparse.ArgumentParser.parse_args')
-    def test_main_with_sentiment_flag(self, mock_parse_args, mock_upload_app):
-        """Test CLI with --run-sentiment flag."""
-        from quantdl.storage.cli import main
-
-        mock_args = Mock()
-        mock_args.start_year = 2020
-        mock_args.end_year = 2024
-        mock_args.overwrite = False
-        mock_args.resume = False
-        mock_args.run_fundamental = False
-        mock_args.run_derived_fundamental = False
-        mock_args.run_ttm_fundamental = False
-        mock_args.run_daily_ticks = False
-        mock_args.run_minute_ticks = False
-        mock_args.run_top_3000 = False
-        mock_args.run_sentiment = True
-        mock_args.run_all = False
-        mock_args.alpaca_start_year = 2025
-        mock_args.minute_start_year = 2017
-        mock_args.daily_chunk_size = 200
-        mock_args.daily_sleep_time = 0.2
-        mock_args.max_workers = 50
-        mock_args.minute_workers = 50
-        mock_args.minute_chunk_size = 500
-        mock_args.minute_sleep_time = 0.0
-        mock_parse_args.return_value = mock_args
-
-        mock_app = Mock()
-        mock_upload_app.return_value = mock_app
-
-        main()
-
-        call_kwargs = mock_app.run.call_args[1]
-        assert call_kwargs['run_sentiment'] is True
-
-    @patch('quantdl.storage.cli.UploadApp')
-    @patch('quantdl.storage.cli.argparse.ArgumentParser.parse_args')
-    def test_main_with_resume_flag(self, mock_parse_args, mock_upload_app):
-        """Test CLI with --resume flag."""
-        from quantdl.storage.cli import main
-
-        mock_args = Mock()
-        mock_args.start_year = 2020
-        mock_args.end_year = 2024
-        mock_args.overwrite = False
-        mock_args.resume = True
-        mock_args.run_fundamental = False
-        mock_args.run_derived_fundamental = False
-        mock_args.run_ttm_fundamental = False
-        mock_args.run_daily_ticks = False
-        mock_args.run_minute_ticks = True
-        mock_args.run_top_3000 = False
-        mock_args.run_sentiment = False
-        mock_args.run_all = False
-        mock_args.alpaca_start_year = 2025
-        mock_args.minute_start_year = 2017
-        mock_args.daily_chunk_size = 200
-        mock_args.daily_sleep_time = 0.2
-        mock_args.max_workers = 50
-        mock_args.minute_workers = 50
-        mock_args.minute_chunk_size = 500
-        mock_args.minute_sleep_time = 0.0
-        mock_parse_args.return_value = mock_args
-
-        mock_app = Mock()
-        mock_upload_app.return_value = mock_app
-
-        main()
-
-        call_kwargs = mock_app.run.call_args[1]
-        assert call_kwargs['resume'] is True

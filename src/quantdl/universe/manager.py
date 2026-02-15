@@ -5,60 +5,34 @@ import datetime as dt
 import polars as pl
 import logging
 from typing import Dict, Optional
-from quantdl.collection.crsp_ticks import CRSPDailyTicks
 from quantdl.collection.alpaca_ticks import Ticks
 from quantdl.universe.current import fetch_all_stocks
-from quantdl.universe.historical import get_hist_universe_nasdaq
+from quantdl.universe.historical import get_hist_universe_local
 from quantdl.master.security_master import SecurityMaster
 from quantdl.utils.logger import setup_logger
 
 class UniverseManager:
     def __init__(
         self,
-        crsp_fetcher: Optional[CRSPDailyTicks] = None,
         security_master: Optional[SecurityMaster] = None
     ):
-        self.store_dir = Path("data/symbols")
+        self.store_dir = Path("data/meta/universe")
         self.store_dir.mkdir(parents=True, exist_ok=True)
 
         log_dir = Path("data/logs/symbols")
         self.logger = setup_logger("symbols", log_dir, logging.INFO, console_output=True)
 
-        # Initialize fetchers and security master once to reuse connections
         self.alpaca_fetcher = Ticks()
-        if crsp_fetcher is None:
-            if security_master is None:
-                # Create new CRSP fetcher with WRDS
-                self.crsp_fetcher = CRSPDailyTicks(require_wrds=True)
-                self.security_master = self.crsp_fetcher.security_master
-                self._owns_wrds_conn = True
-            else:
-                # Use provided SecurityMaster
-                # Only create CRSPDailyTicks if SecurityMaster has WRDS connection
-                if hasattr(security_master, 'db') and security_master.db is not None:
-                    self.crsp_fetcher = CRSPDailyTicks(
-                        conn=security_master.db,
-                        require_wrds=False
-                    )
-                else:
-                    # S3-only SecurityMaster: No CRSP fetcher available
-                    self.crsp_fetcher = None
-                    self.logger.info(
-                        "UniverseManager initialized without CRSP fetcher (S3-only mode). "
-                        "Historical universe queries (<2025) will fail."
-                    )
-                self.security_master = security_master
-                self._owns_wrds_conn = False
+
+        if security_master is None:
+            self.security_master = SecurityMaster()
         else:
-            # Use provided CRSP fetcher
-            self.crsp_fetcher = crsp_fetcher
-            self.security_master = security_master or crsp_fetcher.security_master
-            self._owns_wrds_conn = False
+            self.security_master = security_master
 
         # Cache for current symbols to avoid re-reading CSV
         self._current_symbols_cache: Optional[list[str]] = None
 
-        # Cache for historical universe to avoid re-querying WRDS
+        # Cache for historical universe
         self._historical_cache: Dict[int, list[str]] = {}
 
     def get_current_symbols(self, refresh=False) -> list[str]:
@@ -78,7 +52,7 @@ class UniverseManager:
         else:
             raise ValueError("Failed to fetch symbols from Nasdaq Trader.")
 
-        self.logger.info(f"Market Universe Size: {len(symbols)} tickers")
+        self.logger.debug(f"Market Universe Size: {len(symbols)} tickers")
 
         # Cache the result
         self._current_symbols_cache = symbols
@@ -89,89 +63,44 @@ class UniverseManager:
         Load symbol list for a given year with format support.
         Returns all stocks that were active at any point during the year.
 
-        SEC uses '-' as separator ('BRK-B'), Alpaca uses '.' ('BRK.B')
+        For year >= 2025: uses current Nasdaq FTP list.
+        For year < 2025: uses local security master to filter by date range.
 
         :param year: Year (e.g., 2024)
         :param sym_type: "sec" or "alpaca" (default: "alpaca")
         :return: List of symbols in the specified format
         """
-        from sqlalchemy.exc import OperationalError
-        import os
-
         try:
-            # For years >= 2025 (using Alpaca), use current ticker list
+            # Check cache first
+            cache_key = (year, sym_type)
+            if cache_key in self._historical_cache:
+                symbols = self._historical_cache[cache_key]
+                self.logger.debug(f"Loaded {len(symbols)} symbols for {year} from cache (format={sym_type})")
+                return symbols
+
             if year >= 2025:
                 if self._current_symbols_cache is None:
                     df = fetch_all_stocks(with_filter=True, refresh=True, logger=self.logger)
                     self._current_symbols_cache = df['Ticker'].to_list()
                 nasdaq_symbols = self._current_symbols_cache
-                self.logger.info(f"Using current ticker list for {year} ({len(nasdaq_symbols)} symbols)")
+                self.logger.debug(f"Using current ticker list for {year} ({len(nasdaq_symbols)} symbols)")
             else:
-                # Check cache first
-                cache_key = (year, sym_type)
-                if cache_key in self._historical_cache:
-                    symbols = self._historical_cache[cache_key]
-                    self.logger.info(f"Loaded {len(symbols)} symbols for {year} from cache (format={sym_type})")
-                    return symbols
-
-                # For historical years (< 2025), use CRSP historical universe
-                # NEW: Check WRDS availability for historical years
-                if self.crsp_fetcher is None or self.crsp_fetcher._conn is None:
-                    raise RuntimeError(
-                        f"Cannot load symbols for year {year}: WRDS connection required for historical universe. "
-                        "CRSP data frozen at 2024-12-31. For year >= 2025, use current symbols."
-                    )
-
-                # Reuse CRSP database connection for performance
-                db = self.crsp_fetcher.conn if hasattr(self.crsp_fetcher, 'conn') else None
-
-                try:
-                    df = get_hist_universe_nasdaq(year, with_validation=False, db=db)
-                    nasdaq_symbols = df['Ticker'].to_list()
-                except OperationalError as e:
-                    # Connection stale - recreate if we own it
-                    if "closed the connection" in str(e) or "server closed" in str(e):
-                        self.logger.warning(f"WRDS connection stale, recreating for {year}")
-                        if self._owns_wrds_conn:
-                            # Recreate connection
-                            username = os.getenv('WRDS_USERNAME')
-                            password = os.getenv('WRDS_PASSWORD')
-                            try:
-                                if hasattr(self.crsp_fetcher, 'conn') and self.crsp_fetcher.conn:
-                                    self.crsp_fetcher.conn.close()
-                            except:
-                                pass
-                            import wrds
-                            self.crsp_fetcher.conn = wrds.Connection(
-                                wrds_username=username,
-                                wrds_password=password
-                            )
-                            # Retry query with new connection
-                            df = get_hist_universe_nasdaq(year, with_validation=False, db=self.crsp_fetcher.conn)
-                            nasdaq_symbols = df['Ticker'].to_list()
-                        else:
-                            raise
-                    else:
-                        raise
-
-                self.logger.info(f"Using CRSP historical universe for {year} ({len(nasdaq_symbols)} symbols)")
+                # Use local security master for historical years
+                df = get_hist_universe_local(year, security_master=self.security_master)
+                nasdaq_symbols = df['Ticker'].to_list()
+                self.logger.debug(f"Using local security master for {year} ({len(nasdaq_symbols)} symbols)")
 
             if sym_type == "alpaca":
-                # Alpaca format is same as Nasdaq format (e.g., 'BRK.B')
                 symbols = nasdaq_symbols
             elif sym_type == "sec":
-                # SEC format uses '-' instead of '.' (e.g., 'BRK-B')
                 symbols = [sym.replace('.', '-') for sym in nasdaq_symbols]
             else:
-                msg = f"Expected sym_type: 'sec' or 'alpaca', get {sym_type}"
-                raise ValueError(msg)
+                raise ValueError(f"Expected sym_type: 'sec' or 'alpaca', get {sym_type}")
 
-            # Cache the result for future use
-            if year < 2025:
-                cache_key = (year, sym_type)
-                self._historical_cache[cache_key] = symbols
+            # Cache the result
+            self._historical_cache[cache_key] = symbols
 
-            self.logger.info(f"Loaded {len(symbols)} symbols for {year} (format={sym_type})")
+            self.logger.debug(f"Loaded {len(symbols)} symbols for {year} (format={sym_type})")
             return symbols
 
         except Exception as e:
@@ -182,7 +111,7 @@ class UniverseManager:
         self,
         day: str,
         symbols: list[str],
-        source: str,
+        source: str = 'alpaca',
         auto_resolve: bool = True
     ) -> list[str]:
         """
@@ -190,24 +119,13 @@ class UniverseManager:
 
         :param day: Date string in format "YYYY-MM-DD"
         :param symbols: List of symbols to analyze
-        :param source: 'crsp' or 'alpaca'
-        :param auto_resolve: If True, resolve symbol changes when using CRSP
+        :param source: 'alpaca' (only supported source)
+        :param auto_resolve: Unused, kept for API compatibility
         :return: List of top 3000 symbols ranked by average dollar volume
         """
-        self.logger.info(f"Fetching recent data on {day} for {len(symbols)} symbols using {source}...")
+        self.logger.info(f"Fetching recent data on {day} for {len(symbols)} symbols using alpaca...")
 
-        # Fetch recent data (returns Dict[str, pl.DataFrame])
-        # Use pre-initialized fetchers to avoid reconnecting to databases
-        if source.lower() == 'crsp':
-            recent_data = self.crsp_fetcher.recent_daily_ticks(
-                symbols,
-                end_day=day,
-                auto_resolve=auto_resolve
-            )
-        elif source.lower() == 'alpaca':
-            recent_data = self.alpaca_fetcher.recent_daily_ticks(symbols, end_day=day)
-        else:
-            raise ValueError(f"Invalid source: {source}. Must be 'crsp' or 'alpaca'")
+        recent_data = self.alpaca_fetcher.recent_daily_ticks(symbols, end_day=day)
 
         self.logger.info(f"Data fetched for {len(recent_data)} symbols, calculating liquidity...")
 
@@ -245,8 +163,5 @@ class UniverseManager:
         return result
 
     def close(self) -> None:
-        """Close WRDS connection if this manager owns it."""
-        if self._owns_wrds_conn and hasattr(self, "crsp_fetcher") and self.crsp_fetcher is not None:
-            if hasattr(self.crsp_fetcher, "conn") and self.crsp_fetcher.conn is not None:
-                self.crsp_fetcher.conn.close()
-                self.logger.info("WRDS connection closed (UniverseManager)")
+        """Clean up resources."""
+        pass

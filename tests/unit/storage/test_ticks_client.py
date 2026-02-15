@@ -86,30 +86,6 @@ class TestTicksClient:
         ticks_client._resolve_symbol('AAPL', 2024)
         mock_security_master.get_security_id.assert_called_once()
 
-    def test_determine_months_no_filters(self, ticks_client):
-        """Test _determine_months with no date filters."""
-        start, end = ticks_client._determine_months(None, None)
-        assert start == 1
-        assert end == 12
-
-    def test_determine_months_with_start_date(self, ticks_client):
-        """Test _determine_months with start_date filter."""
-        start, end = ticks_client._determine_months('2024-03-15', None)
-        assert start == 3
-        assert end == 12
-
-    def test_determine_months_with_end_date(self, ticks_client):
-        """Test _determine_months with end_date filter."""
-        start, end = ticks_client._determine_months(None, '2024-09-30')
-        assert start == 1
-        assert end == 9
-
-    def test_determine_months_with_both_dates(self, ticks_client):
-        """Test _determine_months with both date filters."""
-        start, end = ticks_client._determine_months('2024-03-01', '2024-08-31')
-        assert start == 3
-        assert end == 8
-
     def test_apply_date_filter_start_only(self, ticks_client):
         """Test _apply_date_filter with start_date only."""
         df = pl.DataFrame({
@@ -157,26 +133,6 @@ class TestTicksClient:
 
         assert len(result) == 3
 
-    @patch('quantdl.storage.clients.ticks.dt')
-    def test_fetch_by_security_id_routes_to_history(self, mock_dt, ticks_client):
-        """Test that _fetch_by_security_id routes completed years to history."""
-        mock_dt.date.today.return_value = dt.date(2024, 6, 15)
-
-        with patch.object(ticks_client, '_fetch_history_year') as mock_fetch:
-            mock_fetch.return_value = pl.DataFrame()
-            ticks_client._fetch_by_security_id(123, 2023, None, None)
-            mock_fetch.assert_called_once_with(123, 2023, None, None)
-
-    @patch('quantdl.storage.clients.ticks.dt')
-    def test_fetch_by_security_id_routes_to_monthly(self, mock_dt, ticks_client):
-        """Test that _fetch_by_security_id routes current year to monthly."""
-        mock_dt.date.today.return_value = dt.date(2024, 6, 15)
-
-        with patch.object(ticks_client, '_fetch_monthly') as mock_fetch:
-            mock_fetch.return_value = pl.DataFrame()
-            ticks_client._fetch_by_security_id(123, 2024, None, None)
-            mock_fetch.assert_called_once_with(123, 2024, None, None)
-
     def test_get_daily_ticks_resolves_and_fetches(self, ticks_client):
         """Test that get_daily_ticks resolves symbol and fetches data."""
         with patch.object(ticks_client, '_resolve_symbol') as mock_resolve, \
@@ -187,7 +143,7 @@ class TestTicksClient:
             result = ticks_client.get_daily_ticks('AAPL', 2024)
 
             mock_resolve.assert_called_once_with('AAPL', 2024)
-            mock_fetch.assert_called_once_with(123, 2024, None, None)
+            mock_fetch.assert_called_once_with(123, None, None)
 
     def test_get_daily_ticks_history_uses_end_date_year(self, ticks_client, mock_s3_client):
         """Test that get_daily_ticks_history uses end_date year for resolution."""
@@ -208,6 +164,26 @@ class TestTicksClient:
             result = ticks_client.get_daily_ticks_history('AAPL', end_date='2023-12-31')
 
             mock_resolve.assert_called_once_with('AAPL', 2023)
+
+    def test_fetch_by_security_id_reads_single_file(self, ticks_client, mock_s3_client):
+        """Test _fetch_by_security_id reads single ticks.parquet file."""
+        df = pl.DataFrame({
+            'timestamp': ['2024-01-15', '2024-06-15'],
+            'close': [100.0, 105.0]
+        })
+        buffer = BytesIO()
+        df.write_parquet(buffer)
+        buffer.seek(0)
+
+        mock_s3_client.get_object.return_value = {'Body': buffer}
+
+        result = ticks_client._fetch_by_security_id(123)
+
+        mock_s3_client.get_object.assert_called_once_with(
+            Bucket='test-bucket',
+            Key='data/raw/ticks/daily/123/ticks.parquet'
+        )
+        assert len(result) == 2
 
 
 class TestTicksClientErrors:
@@ -235,25 +211,15 @@ class TestTicksClientErrors:
             security_master=mock_security_master
         )
 
-    def test_fetch_history_year_raises_on_no_such_key(self, ticks_client, mock_s3_client):
-        """Test that _fetch_history_year raises ValueError on missing data."""
-        from botocore.exceptions import ClientError
-
-        error_response = {'Error': {'Code': 'NoSuchKey', 'Message': 'Not found'}}
-        mock_s3_client.get_object.side_effect = ClientError(error_response, 'GetObject')
-
-        with pytest.raises(ValueError, match="No historical data found"):
-            ticks_client._fetch_history_year(123, 2023, None, None)
-
-    def test_fetch_monthly_raises_when_no_months_found(self, ticks_client, mock_s3_client):
-        """Test that _fetch_monthly raises ValueError when no month files exist."""
+    def test_fetch_by_security_id_raises_on_no_such_key(self, ticks_client, mock_s3_client):
+        """Test that _fetch_by_security_id raises ValueError on missing data."""
         from botocore.exceptions import ClientError
 
         error_response = {'Error': {'Code': 'NoSuchKey', 'Message': 'Not found'}}
         mock_s3_client.get_object.side_effect = ClientError(error_response, 'GetObject')
 
         with pytest.raises(ValueError, match="No data found"):
-            ticks_client._fetch_monthly(123, 2024, None, None)
+            ticks_client._fetch_by_security_id(123)
 
     def test_get_daily_ticks_history_raises_on_missing(self, ticks_client, mock_s3_client):
         """Test that get_daily_ticks_history raises ValueError on missing data."""
@@ -262,5 +228,5 @@ class TestTicksClientErrors:
         error_response = {'Error': {'Code': 'NoSuchKey', 'Message': 'Not found'}}
         mock_s3_client.get_object.side_effect = ClientError(error_response, 'GetObject')
 
-        with pytest.raises(ValueError, match="No historical data found"):
+        with pytest.raises(ValueError, match="No data found"):
             ticks_client.get_daily_ticks_history('AAPL')

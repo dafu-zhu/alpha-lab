@@ -34,27 +34,6 @@ def validate_date_string(date_str: str) -> str:
     return date_str
 
 
-def validate_permno(permno: int) -> int:
-    """
-    Validate CRSP permanent number to ensure it's a positive integer.
-
-    :param permno: CRSP permanent number (unique security identifier)
-    :return: Validated permno
-    :raises ValueError: If permno is invalid (not an integer or non-positive)
-
-    Example:
-        >>> validate_permno(10516)
-        10516
-        >>> validate_permno(-100)
-        ValueError: Invalid permno: -100
-        >>> validate_permno("10516")  # String instead of int
-        ValueError: Invalid permno: "10516"
-    """
-    if not isinstance(permno, int) or permno <= 0:
-        raise ValueError(f"Invalid permno: {permno}. Must be a positive integer")
-    return permno
-
-
 def validate_year(year: int, min_year: int = 1900, max_year: int = 2100) -> int:
     """
     Validate year parameter to ensure it's within reasonable bounds.

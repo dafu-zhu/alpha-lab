@@ -1,3 +1,5 @@
+"""One-time CRSP FIGI overwrite script. Requires: pip install wrds"""
+
 from quantdl.master.security_master import SecurityMaster
 import wrds
 import boto3

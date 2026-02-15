@@ -6,9 +6,18 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 import pandas as pd
 import polars as pl
-from quantdl.universe.historical import get_hist_universe_crsp, get_hist_universe_nasdaq
+from quantdl.universe.historical import HAS_WRDS
+
+requires_wrds = pytest.mark.skipif(
+    not HAS_WRDS,
+    reason="Test exercises WRDS code paths (wrds package not installed)"
+)
+
+if HAS_WRDS:
+    from quantdl.universe.historical import get_hist_universe_crsp, get_hist_universe_nasdaq
 
 
+@requires_wrds
 class TestGetHistUniverseCRSP:
     """Test get_hist_universe_crsp function"""
 
@@ -235,6 +244,7 @@ class TestGetHistUniverseCRSP:
         assert result['Ticker'][1] == 'MSFT'
 
 
+@requires_wrds
 class TestGetHistUniverseNasdaq:
     """Test get_hist_universe_nasdaq function"""
 
@@ -426,6 +436,7 @@ class TestGetHistUniverseNasdaq:
         mock_normalizer.batch_normalize.assert_called_once_with(['AAPL'], day=None)
 
 
+@requires_wrds
 class TestGetHistUniverseEdgeCases:
     """Test edge cases for historical universe functions"""
 

@@ -178,6 +178,10 @@ class CIKResolver:
             f"(year={year}, cached={len(cik_map)})"
         )
 
+        # Pre-warm SEC CIK cache before thread pool (avoids thundering herd)
+        if year >= 2025:
+            self.security_master._fetch_sec_cik_mapping()
+
         # Reference date for CIK lookup (mid-year is most likely to be active)
         reference_date = f"{year}-06-30"
 

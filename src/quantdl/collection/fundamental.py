@@ -19,28 +19,32 @@ load_dotenv()
 # Set via environment variable SEC_USER_AGENT or fallback to placeholder
 HEADER = {'User-Agent': os.getenv('SEC_USER_AGENT', 'your_name@example.com')}
 
-FIELD_CONFIG_PATH = Path("configs/approved_mapping.yaml")
+FIELD_CONFIG_PATH = Path("configs/sec_mapping.yaml")
 
 with open(FIELD_CONFIG_PATH) as file:
     MAPPINGS = yaml.safe_load(file)
 
 DURATION_CONCEPTS = {
-    "rev",
-    "cor",
-    "op_inc",
-    "net_inc",
-    "ibt",
-    "inc_tax_exp",
+    "sales",
+    "cogs",
+    "operating_income",
+    "income",
+    "pretax_income",
+    "income_tax",
     "int_exp",
     "rnd",
-    "sga",
-    "dna",
-    "cfo",
-    "cfi",
-    "cff",
+    "sga_expense",
+    "depre_amort",
+    "cashflow_op",
+    "cashflow_invest",
+    "cashflow_fin",
     "capex",
-    "div",
+    "dividend",
     "sto_isu",
+    "invest_activity_other",
+    "income_before_extra",
+    "other_income_nt",
+    "rental_expense",
 }
 
 
@@ -52,11 +56,11 @@ def extract_concept(facts: dict, concept: str) -> Optional[dict]:
     This handles cases where companies switch from deprecated to new XBRL tags
     (e.g., SalesRevenueNet -> Revenues in 2018).
 
-    Mapping format in approved_mapping.yaml:
+    Mapping format in sec_mapping.yaml:
         concept: [tag1, tag2, ...]
 
     :param facts: Complete facts dictionary from SEC EDGAR API response
-    :param concept: Concept name as defined in MAPPINGS (e.g., 'rev', 'ta')
+    :param concept: Concept name as defined in MAPPINGS (e.g., 'sales', 'assets')
     :return: Field data with merged units from all matching tags, or None if no tags found
     :raises KeyError: If concept not defined in MAPPINGS
     :raises ValueError: If tag format is invalid
@@ -404,7 +408,7 @@ class EDGARDataSource(DataSource):
             self.response = client.fetch_company_facts(cik)
 
     def supports_concept(self, concept: str) -> bool:
-        """Check if concept exists in approved_mapping.yaml"""
+        """Check if concept exists in sec_mapping.yaml"""
         return concept in MAPPINGS
 
     def extract_concept(self, concept: str) -> Optional[List[FndDataPoint]]:
@@ -452,15 +456,13 @@ class Fundamental:
         self,
         cik: str,
         symbol: Optional[str] = None,
-        permno: Optional[str] = None,
         rate_limiter=None
     ) -> None:
         self.cik = cik
         self.symbol = symbol
-        self.permno = permno  # For future CRSP integration
         self.log_dir = Path("data/logs/fundamental")
         self.calendar_path = Path("data/calendar/master.parquet")
-        self.output_dir = Path("data/raw/fundamental")
+        self.output_dir = Path("data/fundamental")
         self.fields_df = None
 
         # Create service instances

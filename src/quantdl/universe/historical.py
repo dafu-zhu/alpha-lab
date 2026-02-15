@@ -1,32 +1,96 @@
+"""
+Historical universe functions.
+
+Primary: get_hist_universe_local() — uses local security master parquet.
+Legacy: get_hist_universe_crsp() / get_hist_universe_nasdaq() — require wrds package.
+"""
+
 import polars as pl
-import pandas as pd
+from datetime import date
 from pathlib import Path
-from typing import Optional
-import wrds
+from typing import Optional, Any
 import os
 from dotenv import load_dotenv
-from quantdl.master.security_master import SymbolNormalizer, SecurityMaster
-from quantdl.utils.wrds import raw_sql_with_retry
-from quantdl.utils.validation import validate_date_string, validate_year, validate_month
+
+from quantdl.utils.validation import validate_year
 
 load_dotenv()
 
-def get_hist_universe_crsp(year: int, month: int = 12, db: Optional[wrds.Connection] = None) -> pl.DataFrame:
-    """
-    Historical universe common stock list from CRSP database for a given year.
-    Returns ALL stocks that were active at ANY POINT during the year to avoid
-    survivorship bias (includes mid-year IPOs and delistings).
+try:
+    import wrds
+    HAS_WRDS = True
+except ImportError:
+    HAS_WRDS = False
 
-    Ticker name has no '-' or '.', e.g. BRK.B in alpaca, BRK-B in SEC, BRKB in CRSP
+# Default local path for security master
+LOCAL_MASTER_PATH = Path("data/meta/master/security_master.parquet")
+
+
+def get_hist_universe_local(
+    year: int,
+    security_master: Any = None
+) -> pl.DataFrame:
+    """
+    Historical universe from local security master parquet.
+
+    Filters securities active at any point during the year.
+    No WRDS or exchcd filtering (uses all securities in the master).
 
     :param year: Year (e.g., 2024)
-    :param month: Month (deprecated, kept for backward compatibility - now uses full year range)
-    :param db: Optional WRDS connection (creates new one if not provided)
-    :return: DataFrame with columns: Ticker (CRSP format), Name, PERMNO
+    :param security_master: Optional SecurityMaster instance (uses master_tb attribute)
+    :return: DataFrame with columns: Ticker, Name
     """
+    validated_year = validate_year(year)
+
+    if security_master is not None:
+        master_df = security_master.master_tb
+    elif LOCAL_MASTER_PATH.exists():
+        master_df = pl.read_parquet(str(LOCAL_MASTER_PATH))
+    else:
+        raise FileNotFoundError(
+            f"No security master found at {LOCAL_MASTER_PATH}. "
+            "Run: python scripts/download_security_master.py"
+        )
+
+    year_start = date(validated_year, 1, 1)
+    year_end = date(validated_year, 12, 31)
+
+    result = (
+        master_df
+        .filter(
+            pl.col('start_date').le(year_end),
+            pl.col('end_date').ge(year_start),
+        )
+        .select(
+            pl.col('symbol').alias('Ticker'),
+            pl.col('company').alias('Name'),
+        )
+        .unique(subset=['Ticker'], maintain_order=True)
+    )
+
+    return result
+
+
+def get_hist_universe_crsp(year: int, month: int = 12, db: Any = None) -> pl.DataFrame:
+    """
+    Historical universe from CRSP database.
+
+    Requires: wrds package and WRDS credentials.
+
+    :param year: Year (e.g., 2024)
+    :param month: Deprecated, kept for backward compatibility
+    :param db: Optional WRDS connection
+    :return: DataFrame with columns: Ticker, Name, PERMNO
+    """
+    if not HAS_WRDS:
+        raise ImportError(
+            "get_hist_universe_crsp() requires the wrds package. "
+            "Use get_hist_universe_local() instead."
+        )
+
+    from quantdl.utils.wrds import raw_sql_with_retry
     from sqlalchemy.exc import OperationalError
 
-    # Create WRDS connection if not provided
     close_db = False
     if db is None:
         username = os.getenv('WRDS_USERNAME')
@@ -39,14 +103,7 @@ def get_hist_universe_crsp(year: int, month: int = 12, db: Optional[wrds.Connect
         close_db = True
 
     try:
-        # Validate year
         validated_year = validate_year(year)
-
-        # Use full year range to capture ALL stocks active at any point during the year
-        # This eliminates survivorship bias by including:
-        # - Stocks that IPO'd mid-year (namedt during year)
-        # - Stocks that delisted mid-year (nameendt during year)
-        # - Stocks active all year
         year_start = f"{validated_year}-01-01"
         year_end = f"{validated_year}-12-31"
 
@@ -62,11 +119,9 @@ def get_hist_universe_crsp(year: int, month: int = 12, db: Optional[wrds.Connect
         ORDER BY ticker;
         """
 
-        # Execute query with retry
         try:
             df = raw_sql_with_retry(db, sql)
         except OperationalError as e:
-            # If connection is stale and we own it, recreate it
             if close_db and ("closed the connection" in str(e) or "server closed" in str(e)):
                 username = os.getenv('WRDS_USERNAME')
                 password = os.getenv('WRDS_PASSWORD')
@@ -86,9 +141,8 @@ def get_hist_universe_crsp(year: int, month: int = 12, db: Optional[wrds.Connect
                 'PERMNO': []
             })
 
-        # Convert to Polars DataFrame with proper schema
         result = pl.DataFrame({
-            'Ticker': df['tsymbol'].str.upper().tolist(),  # Ensure uppercase
+            'Ticker': df['tsymbol'].str.upper().tolist(),
             'Name': df['comnam'].tolist(),
             'PERMNO': df['permno'].tolist()
         }).unique(subset=['Ticker'], maintain_order=True)
@@ -96,7 +150,6 @@ def get_hist_universe_crsp(year: int, month: int = 12, db: Optional[wrds.Connect
         return result
 
     finally:
-        # Close connection only if we created it
         if close_db:
             db.close()
 
@@ -104,55 +157,49 @@ def get_hist_universe_crsp(year: int, month: int = 12, db: Optional[wrds.Connect
 def get_hist_universe_nasdaq(
     year: int,
     with_validation: bool = True,
-    security_master: Optional[SecurityMaster] = None,
-    db: Optional[wrds.Connection] = None
+    security_master: Any = None,
+    db: Any = None
 ) -> pl.DataFrame:
     """
-    Historical universe with symbols converted to Nasdaq format (with periods/hyphens).
+    Historical universe with symbols in Nasdaq format.
 
-    Uses SymbolNormalizer with SecurityMaster validation to prevent false matches
-    between delisted stocks and new stocks with similar symbols.
+    Requires: wrds package.
 
     :param year: Year (e.g., 2024)
-    :param with_validation: Use SecurityMaster to validate symbol conversions
-    :param security_master: Optional pre-initialized SecurityMaster instance (recommended for batch processing)
-    :param db: Optional WRDS connection (for performance when calling multiple times)
+    :param with_validation: Use SecurityMaster for symbol validation
+    :param security_master: Optional SecurityMaster instance
+    :param db: Optional WRDS connection
     :return: DataFrame with columns: Ticker (Nasdaq format), Name, PERMNO
-
-    Note: Returns all stocks that were active on the last trading day of the year
-
-    Example:
-        get_hist_universe_nasdaq(2022)
-        # Returns: BRK.B, AAPL, GOOGL, etc. (Nasdaq format)
     """
-    # Get historical universe in CRSP format
+    if not HAS_WRDS:
+        raise ImportError(
+            "get_hist_universe_nasdaq() requires the wrds package. "
+            "Use get_hist_universe_local() instead."
+        )
+
+    from quantdl.master.security_master import SymbolNormalizer, SecurityMaster as SM
+
     crsp_df = get_hist_universe_crsp(year, month=12, db=db)
     crsp_symbols = crsp_df['Ticker'].to_list()
 
-    # Initialize normalizer with optional SecurityMaster validation
     sm_to_close = None
     if with_validation:
-        # Use provided security_master or create a new one
         if security_master is not None:
             sm = security_master
         else:
-            sm = SecurityMaster()
-            sm_to_close = sm  # Mark for closing later
+            sm = SM()
+            sm_to_close = sm
 
         normalizer = SymbolNormalizer(security_master=sm)
     else:
         normalizer = SymbolNormalizer()
 
-    # Convert to Nasdaq format with validation
-    # Use July 1st of the year as reference date for validation
     reference_day = f"{year}-12-31" if with_validation else None
     nasdaq_symbols = normalizer.batch_normalize(crsp_symbols, day=reference_day)
 
-    # Close SecurityMaster connection only if we created it
     if sm_to_close is not None:
         sm_to_close.close()
 
-    # Create result DataFrame
     result = pl.DataFrame({
         'Ticker': nasdaq_symbols,
         'Name': crsp_df['Name'].to_list(),

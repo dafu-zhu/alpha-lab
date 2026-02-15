@@ -166,9 +166,11 @@ class Ticks:
                             pl.col('high').cast(pl.Float64),
                             pl.col('low').cast(pl.Float64),
                             pl.col('close').cast(pl.Float64),
-                            pl.col('volume').cast(pl.Int64)
+                            pl.col('volume').cast(pl.Int64),
+                            pl.col('num_trades').cast(pl.Int64),
+                            pl.col('vwap').cast(pl.Float64),
                         ])
-                        .select(['timestamp', 'close', 'volume'])
+                        .select(['timestamp', 'close', 'volume', 'num_trades', 'vwap'])
                     )
 
                     result_dict[symbol] = df
@@ -799,8 +801,10 @@ class Ticks:
             pl.col('high').cast(pl.Float64),
             pl.col('low').cast(pl.Float64),
             pl.col('close').cast(pl.Float64),
-            pl.col('volume').cast(pl.Int64)
-        ]).select(['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            pl.col('volume').cast(pl.Int64),
+            pl.col('num_trades').cast(pl.Int64),
+            pl.col('vwap').cast(pl.Float64),
+        ]).select(['timestamp', 'open', 'high', 'low', 'close', 'volume', 'num_trades', 'vwap'])
 
         return df
 

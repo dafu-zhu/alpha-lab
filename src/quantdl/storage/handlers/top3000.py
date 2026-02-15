@@ -22,7 +22,7 @@ class Top3000Handler(BaseHandler):
     """
     Handles top 3000 symbols upload.
 
-    Storage: data/symbols/{YYYY}/{MM}/top3000.txt
+    Storage: data/meta/universe/{YYYY}/{MM}/top3000.txt
     """
 
     def __init__(
@@ -57,7 +57,7 @@ class Top3000Handler(BaseHandler):
             return self.stats
 
         source = 'crsp' if year < self.alpaca_start_year else 'alpaca'
-        self.logger.info(
+        self.logger.debug(
             f"Starting {year} top3000 upload for {len(symbols)} symbols "
             f"(source={source}, overwrite={overwrite})"
         )
@@ -68,7 +68,7 @@ class Top3000Handler(BaseHandler):
         for month in range(1, 13):
             # Skip existing
             if not overwrite and self.validator.top_3000_exists(year, month):
-                self.logger.info(f"Skipping {year}-{month:02d}: exists")
+                self.logger.debug(f"Skipping {year}-{month:02d}: exists")
                 self.stats['skipped'] += 1
                 continue
 
@@ -83,7 +83,7 @@ class Top3000Handler(BaseHandler):
 
             # Stop at future months
             if as_of_date > today and (as_of_date.year, as_of_date.month) > (today.year, today.month):
-                self.logger.info(f"Stopping at {year}-{month:02d}: future month")
+                self.logger.debug(f"Stopping at {year}-{month:02d}: future month")
                 break
 
             top_3000 = self.universe_manager.get_top_3000(
@@ -100,7 +100,7 @@ class Top3000Handler(BaseHandler):
 
             if result['status'] == 'success':
                 self.stats['success'] += 1
-                self.logger.info(
+                self.logger.debug(
                     f"Uploaded top3000 for {year}-{month:02d} (as_of={as_of}, count={len(top_3000)})"
                 )
             elif result['status'] == 'skipped':

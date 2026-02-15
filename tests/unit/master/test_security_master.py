@@ -8,9 +8,16 @@ import polars as pl
 import pandas as pd
 import datetime as dt
 import os
+import threading
 import io
 import requests
-from quantdl.master.security_master import SymbolNormalizer, SecurityMaster
+from quantdl.master.security_master import SymbolNormalizer, SecurityMaster, HAS_WRDS
+
+# Marker for tests that require wrds-dependent code paths
+requires_wrds_mock = pytest.mark.skipif(
+    not HAS_WRDS,
+    reason="Test exercises WRDS code paths (wrds package not installed)"
+)
 
 
 class TestSymbolNormalizer:
@@ -395,30 +402,6 @@ class TestSecurityMaster:
         with pytest.raises(ValueError, match="never existed"):
             sm.auto_resolve('ZZZ', '2020-06-15')
 
-    def test_sid_to_permno(self):
-        """Test sid_to_permno uses master_tb directly (works when loaded from S3)"""
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = pl.DataFrame({
-            'security_id': [101, 102],
-            'permno': [555, 666],
-            'symbol': ['AAA', 'BBB'],
-            'company': ['AAA Corp', 'BBB Corp'],
-            'cik': ['0001', '0002'],
-            'cusip': ['11111111', '22222222'],
-            'start_date': [dt.date(2020, 1, 1), dt.date(2020, 1, 1)],
-            'end_date': [dt.date(2020, 12, 31), dt.date(2020, 12, 31)]
-        })
-
-        result = sm.sid_to_permno(101)
-
-        assert result == 555
-    
-    def test_sid_to_permno_none(self):
-        sm = SecurityMaster.__new__(SecurityMaster)
-
-        with pytest.raises(ValueError, match="security_id is None"):
-            sm.sid_to_permno(None)
-
     def test_sid_to_info(self):
         master_tb = pl.DataFrame({
             'security_id': [101],
@@ -533,6 +516,7 @@ class TestSecurityMaster:
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
         sm._sec_cik_cache = None
+        sm._sec_cik_lock = threading.Lock()
 
         mock_response = Mock()
         mock_response.raise_for_status.return_value = None
@@ -552,6 +536,7 @@ class TestSecurityMaster:
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
         sm._sec_cik_cache = None
+        sm._sec_cik_lock = threading.Lock()
 
         with patch('quantdl.master.security_master.requests.get', side_effect=Exception("boom")):
             result = sm._fetch_sec_cik_mapping()
@@ -563,6 +548,7 @@ class TestSecurityMaster:
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
         sm._sec_cik_cache = None
+        sm._sec_cik_lock = threading.Lock()
 
         mock_response = Mock()
         mock_response.raise_for_status.return_value = None
@@ -578,6 +564,7 @@ class TestSecurityMaster:
         assert "ZERO" not in tickers
         assert "AAPL" in tickers
 
+    @requires_wrds_mock
     def test_cik_cusip_mapping_sec_fallback_unavailable(self):
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
@@ -603,6 +590,7 @@ class TestSecurityMaster:
         assert result.filter(pl.col('cik').is_null()).height == 1
         sm.logger.warning.assert_called()
 
+    @requires_wrds_mock
     def test_cik_cusip_mapping_sec_fallback_fills_nulls(self):
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
@@ -631,6 +619,7 @@ class TestSecurityMaster:
         filled = result.filter(pl.col('symbol') == 'AAA').select('cik').item()
         assert filled == '0000000001'
 
+    @requires_wrds_mock
     def test_cik_cusip_mapping_no_fallback_needed(self):
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
@@ -768,6 +757,7 @@ class TestSecurityMaster:
         assert result.select('permno').item() == 1
 
 
+@requires_wrds_mock
 class TestSecurityMasterInitialization:
     """Test SecurityMaster initialization with different configurations"""
 
@@ -877,6 +867,7 @@ class TestSecurityMasterInitialization:
         assert sm._sec_cik_cache is None
 
 
+@requires_wrds_mock
 class TestSecurityMasterCikCusipMapping:
     """Test SecurityMaster cik_cusip_mapping edge cases"""
 
@@ -1272,20 +1263,17 @@ class TestSecurityMasterS3Operations:
         assert table.schema.metadata[b'row_count'] == b'1'
 
     @patch('quantdl.master.security_master.setup_logger')
-    @patch('quantdl.master.security_master.raw_sql_with_retry')
-    def test_init_s3_fast_path_success(self, mock_sql, mock_logger):
-        """Test initialization with S3 fast path (lines 212-230)"""
+    def test_init_s3_fast_path_success(self, mock_logger):
+        """Test initialization with S3 fast path"""
         import io
         import pyarrow.parquet as pq
 
-        # Create test data with valid metadata (including permno)
+        # Create test data with valid metadata
         test_df = pl.DataFrame({
             'security_id': [101],
-            'permno': [555],
             'symbol': ['AAPL'],
             'company': ['Apple Inc'],
             'cik': ['0000320193'],
-            'cusip': ['037833100'],
             'start_date': [dt.date(2020, 1, 1)],
             'end_date': [dt.date(2020, 12, 31)]
         })
@@ -1322,8 +1310,8 @@ class TestSecurityMasterS3Operations:
         assert len(sm.master_tb) == 1
         assert sm.cik_cusip is None  # Not needed when loaded from S3
         mock_s3.get_object.assert_called_once()
-        mock_sql.assert_not_called()  # Should not query WRDS
 
+    @requires_wrds_mock
     @patch('quantdl.master.security_master.setup_logger')
     @patch('quantdl.master.security_master.raw_sql_with_retry')
     def test_init_s3_missing_permno_fallback(self, mock_sql, mock_logger):
@@ -1387,6 +1375,7 @@ class TestSecurityMasterS3Operations:
         assert 'permno' in sm.master_tb.columns  # Built from WRDS has permno
         mock_sql.assert_called()
 
+    @requires_wrds_mock
     @patch('quantdl.master.security_master.setup_logger')
     @patch('quantdl.master.security_master.raw_sql_with_retry')
     def test_init_s3_stale_metadata_fallback(self, mock_sql, mock_logger):
@@ -1451,6 +1440,7 @@ class TestSecurityMasterS3Operations:
         mock_sql.assert_called()  # Should query WRDS
         assert sm.cik_cusip is not None  # Built from WRDS
 
+    @requires_wrds_mock
     @patch('quantdl.master.security_master.setup_logger')
     @patch('quantdl.master.security_master.raw_sql_with_retry')
     def test_init_s3_load_failure_fallback(self, mock_sql, mock_logger):
@@ -1486,6 +1476,7 @@ class TestSecurityMasterS3Operations:
         assert sm._from_s3 is False
         mock_sql.assert_called()
 
+    @requires_wrds_mock
     @patch('quantdl.master.security_master.wrds.Connection')
     @patch('quantdl.master.security_master.setup_logger')
     @patch.dict(os.environ, {}, clear=True)  # Clear env vars
@@ -1494,6 +1485,7 @@ class TestSecurityMasterS3Operations:
         with pytest.raises(ValueError, match="WRDS credentials not found"):
             SecurityMaster(db=None, s3_client=None, force_rebuild=False)
 
+    @requires_wrds_mock
     @patch('quantdl.master.security_master.setup_logger')
     @patch('quantdl.master.security_master.raw_sql_with_retry')
     def test_init_auto_export_to_s3_after_wrds_build(self, mock_sql, mock_logger):
@@ -1529,6 +1521,7 @@ class TestSecurityMasterS3Operations:
         assert call_args[0][1] == 'test-bucket'
         assert call_args[0][2] == 'test-key'
 
+    @requires_wrds_mock
     @patch('quantdl.master.security_master.setup_logger')
     @patch('quantdl.master.security_master.raw_sql_with_retry')
     def test_init_auto_export_failure_logged(self, mock_sql, mock_logger):
@@ -1564,6 +1557,7 @@ class TestSecurityMasterS3Operations:
         assert sm._from_s3 is False
         assert sm.master_tb is not None
 
+    @requires_wrds_mock
     @patch('quantdl.master.security_master.setup_logger')
     @patch('quantdl.master.security_master.raw_sql_with_retry')
     def test_init_force_rebuild_skips_s3(self, mock_sql, mock_logger):
@@ -1632,66 +1626,6 @@ class TestSecurityMasterS3Operations:
         table = pq.read_table(uploaded_buffer)
         assert table.schema.metadata[b'row_count'] == b'100'
 
-    @patch('quantdl.master.security_master.setup_logger')
-    @patch('quantdl.master.security_master.raw_sql_with_retry')
-    def test_sid_to_permno_works_when_loaded_from_s3(self, mock_sql, mock_logger):
-        """Test sid_to_permno works when cik_cusip is None (S3 fast path).
-
-        This tests the bug fix where sid_to_permno called security_map() which
-        required cik_cusip, but cik_cusip was None when loaded from S3.
-        """
-        import io
-        import pyarrow.parquet as pq
-
-        # Create test data WITH permno column (required for sid_to_permno)
-        test_df = pl.DataFrame({
-            'security_id': [101, 102],
-            'permno': [555, 666],
-            'symbol': ['AAPL', 'MSFT'],
-            'company': ['Apple Inc', 'Microsoft'],
-            'cik': ['0000320193', '0000789019'],
-            'cusip': ['037833100', '594918104'],
-            'start_date': [dt.date(2020, 1, 1), dt.date(2020, 1, 1)],
-            'end_date': [dt.date(2020, 12, 31), dt.date(2020, 12, 31)]
-        })
-
-        table = test_df.to_arrow()
-        metadata = {
-            b'crsp_end_date': b'2024-12-31',
-            b'version': b'1.0',
-            b'row_count': b'2'
-        }
-        table = table.replace_schema_metadata(metadata)
-
-        buffer = io.BytesIO()
-        pq.write_table(table, buffer)
-        buffer.seek(0)
-
-        mock_s3 = Mock()
-        mock_s3.get_object.return_value = {
-            'Body': Mock(read=Mock(return_value=buffer.read()))
-        }
-
-        # Initialize from S3 (fast path)
-        sm = SecurityMaster(
-            db=None,
-            s3_client=mock_s3,
-            bucket_name='test-bucket',
-            s3_key='test-key',
-            force_rebuild=False
-        )
-
-        # Verify S3 fast path was used
-        assert sm._from_s3 is True
-        assert sm.cik_cusip is None  # cik_cusip is None when loaded from S3
-
-        # This should work without calling security_map()
-        result = sm.sid_to_permno(101)
-        assert result == 555
-
-        # Verify second lookup works too
-        result2 = sm.sid_to_permno(102)
-        assert result2 == 666
 
 
 class TestSecurityMasterSecOperations:
@@ -2063,7 +1997,7 @@ class TestPrevUniversePersistence:
         mock_s3.put_object.assert_called_once()
         call_args = mock_s3.put_object.call_args
         assert call_args.kwargs['Bucket'] == 'test-bucket'
-        assert call_args.kwargs['Key'] == 'data/master/prev_universe.json'
+        assert call_args.kwargs['Key'] == 'data/meta/master/prev_universe.json'
 
         # Verify JSON content
         import json
@@ -2238,6 +2172,7 @@ class TestUpdateNoWRDS:
         assert stats['delisted'] == 0
 
 
+@requires_wrds_mock
 class TestOverwriteFromCRSP:
     """Test overwrite_from_crsp method"""
 

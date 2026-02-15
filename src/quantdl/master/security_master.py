@@ -1,4 +1,9 @@
-import wrds
+try:
+    import wrds
+    HAS_WRDS = True
+except ImportError:
+    HAS_WRDS = False
+
 import pandas as pd
 import polars as pl
 from dotenv import load_dotenv
@@ -6,6 +11,7 @@ import os
 import time
 import requests
 import datetime as dt
+import threading
 from typing import List, Tuple, Optional, Dict, Set, Any
 from pathlib import Path
 import logging
@@ -15,10 +21,12 @@ import pyarrow.parquet as pq
 from botocore.exceptions import ClientError
 from quantdl.utils.logger import setup_logger
 from quantdl.universe.current import fetch_all_stocks
-from quantdl.utils.wrds import raw_sql_with_retry
 from quantdl.storage.utils import RateLimiter, NoSuchKeyError
 
 load_dotenv()
+
+# Default local path for security master parquet
+LOCAL_MASTER_PATH = Path("data/meta/master/security_master.parquet")
 
 # OpenFIGI rate limits (with API key: 25 req/6s, 100 jobs/req)
 OPENFIGI_RATE_LIMIT_NO_KEY = 25 / 60  # ~0.42 req/sec (no key)
@@ -62,7 +70,7 @@ class SymbolNormalizer:
 
         :param security_master: SecurityMaster instance for validation (optional)
         """
-        # Load current stock list (cached in data/symbols/stock_exchange.csv)
+        # Load current stock list (cached in data/meta/universe/stock_exchange.csv)
         self.current_stocks_df = fetch_all_stocks(with_filter=True, refresh=False)
 
         # Create normalized lookup: {crsp_format: nasdaq_format}
@@ -177,33 +185,37 @@ class SymbolNormalizer:
 
 class SecurityMaster:
     """
-    Map stock symbols, CIKs, CUSIPs across time horizon using WRDS
+    Map stock symbols, CIKs across time horizon.
+
+    Loading sequence: Local parquet → S3 → WRDS (if available)
     """
     # CRSP data coverage end date
     CRSP_LATEST_DATE = '2024-12-31'
 
     def __init__(
         self,
-        db: Optional[wrds.Connection] = None,
+        db: Optional[Any] = None,
         s3_client: Optional[Any] = None,
         bucket_name: str = 'us-equity-datalake',
-        s3_key: str = 'data/master/security_master.parquet',
-        force_rebuild: bool = False
+        s3_key: str = 'data/meta/master/security_master.parquet',
+        force_rebuild: bool = False,
+        local_path: Optional[Path] = None
     ):
         """
-        Initialize SecurityMaster with lazy S3 loading.
+        Initialize SecurityMaster.
 
         Loading sequence:
-        1. If force_rebuild: Build from WRDS
-        2. Try S3 (fast path)
-        3. If S3 fails: Build from WRDS (slow path)
-        4. If built from WRDS: Auto-export to S3
+        1. If force_rebuild: Build from WRDS (requires wrds package)
+        2. Try local parquet file (fastest)
+        3. Try S3
+        4. Fall back to WRDS (if available)
 
-        :param db: Optional WRDS connection
+        :param db: Optional WRDS connection (only used if wrds installed)
         :param s3_client: Optional S3 client for lazy loading
         :param bucket_name: S3 bucket name
         :param s3_key: S3 key for security master
-        :param force_rebuild: If True, skip S3 and rebuild from WRDS
+        :param force_rebuild: If True, skip local/S3 and rebuild from WRDS
+        :param local_path: Path to local parquet file (default: data/meta/master/security_master.parquet)
         """
         # Setup logger first (needed for all paths)
         self.logger = setup_logger(
@@ -212,49 +224,61 @@ class SecurityMaster:
             level=logging.INFO
         )
 
-        # Cache for SEC CIK mapping (loaded on-demand)
+        # Cache for SEC CIK mapping (loaded on-demand, thread-safe)
         self._sec_cik_cache: Optional[pl.DataFrame] = None
+        self._sec_cik_lock = threading.Lock()
         self._from_s3 = False
+        self.db = db
+        self.cik_cusip = None
 
-        # Try S3 lazy loading (FAST PATH)
-        if not force_rebuild and s3_client:
+        if local_path is None:
+            local_path = LOCAL_MASTER_PATH
+
+        # 1. Force rebuild from WRDS
+        if force_rebuild:
+            self._build_from_wrds(db, s3_client, bucket_name, s3_key)
+            return
+
+        # 2. Try local parquet (FASTEST PATH)
+        if local_path.exists():
+            try:
+                self.master_tb = self._load_from_local(local_path)
+                self.logger.info(f"Loaded SecurityMaster from local ({len(self.master_tb)} rows)")
+                return
+            except Exception as e:
+                self.logger.info(f"Local load failed ({type(e).__name__}: {e}), trying S3")
+
+        # 3. Try S3
+        if s3_client:
             try:
                 self.master_tb, metadata = self._load_from_s3(s3_client, bucket_name, s3_key)
-
-                # Validate schema - must have permno column
-                if 'permno' not in self.master_tb.columns:
-                    self.logger.warning("S3 data missing 'permno' column, rebuilding from WRDS")
-                    raise ValueError("Schema mismatch: missing permno")
-
-                # Validate metadata
-                crsp_end = metadata.get('crsp_end_date')
-                if crsp_end != self.CRSP_LATEST_DATE:
-                    self.logger.warning(
-                        f"S3 data stale: crsp_end_date={crsp_end} vs expected={self.CRSP_LATEST_DATE}, rebuilding from WRDS"
-                    )
-                    raise ValueError("Stale S3 data")
-
                 self._from_s3 = True
-                self.logger.info(f"Loaded SecurityMaster from S3 ({len(self.master_tb)} rows, CRSP end: {crsp_end})")
-
-                # Setup minimal WRDS connection for close() compatibility
-                # (won't be used for queries if loaded from S3)
-                self.db = db
-                self.cik_cusip = None  # Not needed when loaded from S3
+                self.logger.info(f"Loaded SecurityMaster from S3 ({len(self.master_tb)} rows)")
                 return
-
             except Exception as e:
                 self.logger.info(f"S3 load failed ({type(e).__name__}: {e}), falling back to WRDS")
 
-        # Build from WRDS (SLOW PATH)
+        # 4. Fall back to WRDS
+        self._build_from_wrds(db, s3_client, bucket_name, s3_key)
+
+    def _build_from_wrds(self, db, s3_client, bucket_name, s3_key):
+        """Build SecurityMaster from WRDS CRSP data."""
+        if not HAS_WRDS:
+            raise ImportError(
+                "wrds package not installed and no local/S3 security master found. "
+                "Either install wrds (`pip install wrds`) or place security_master.parquet "
+                "at data/meta/master/security_master.parquet"
+            )
+
+        from quantdl.utils.wrds import raw_sql_with_retry
+
         if db is None:
             username = os.getenv('WRDS_USERNAME')
             password = os.getenv('WRDS_PASSWORD')
             if not username or not password:
                 raise ValueError(
                     "WRDS credentials not found. Set WRDS_USERNAME and WRDS_PASSWORD environment variables. "
-                    "Alternatively, export SecurityMaster to S3 first using: "
-                    "uv run quantdl-export-security-master --export"
+                    "Alternatively, place security_master.parquet at data/meta/master/security_master.parquet"
                 )
             self.db = wrds.Connection(
                 wrds_username=username,
@@ -274,6 +298,20 @@ class SecurityMaster:
                 self.logger.info("Auto-exported SecurityMaster to S3 for next time")
             except Exception as e:
                 self.logger.warning(f"Auto-export to S3 failed: {e}")
+
+    @staticmethod
+    def _load_from_local(path: Path) -> pl.DataFrame:
+        """Load master_tb from local parquet file."""
+        df = pl.read_parquet(str(path))
+        return SecurityMaster._ensure_gics_columns(df)
+
+    @staticmethod
+    def _ensure_gics_columns(df: pl.DataFrame) -> pl.DataFrame:
+        """Ensure GICS/exchange columns exist (add as null if missing)."""
+        for col in ("exchange", "sector", "industry", "subindustry"):
+            if col not in df.columns:
+                df = df.with_columns(pl.lit(None).cast(pl.Utf8).alias(col))
+        return df
     
     def _fetch_sec_cik_mapping(self) -> pl.DataFrame:
         """
@@ -282,42 +320,49 @@ class SecurityMaster:
         Returns DataFrame with columns: [ticker, cik]
         Note: This is a snapshot mapping (current tickers only), not historical.
 
-        Caches result to avoid repeated API calls.
+        Caches result to avoid repeated API calls. Thread-safe via double-checked locking.
         """
         if self._sec_cik_cache is not None:
             return self._sec_cik_cache
 
-        try:
-            url = "https://www.sec.gov/files/company_tickers.json"
-            headers = {'User-Agent': 'name@example.com'}  # SEC requires User-Agent
+        with self._sec_cik_lock:
+            # Double-check after acquiring lock
+            if self._sec_cik_cache is not None:
+                return self._sec_cik_cache
 
-            self.logger.info("Fetching SEC official CIK-Ticker mapping...")
-            response = requests.get(url, headers=headers, timeout=30)
-            response.raise_for_status()
+            try:
+                url = "https://www.sec.gov/files/company_tickers.json"
+                headers = {'User-Agent': 'name@example.com'}  # SEC requires User-Agent
 
-            data = response.json()
+                self.logger.info("Fetching SEC official CIK-Ticker mapping...")
+                response = requests.get(url, headers=headers, timeout=30)
+                response.raise_for_status()
 
-            # Parse JSON structure: {0: {cik_str, ticker, title}, 1: {...}, ...}
-            records = []
-            for entry in data.values():
-                # Normalize ticker to CRSP format (remove separators)
-                ticker = str(entry.get('ticker', '')).replace('.', '').replace('-', '').upper()
-                cik = str(entry.get('cik_str', '')).zfill(10)  # Zero-pad to 10 digits
+                data = response.json()
 
-                if ticker and cik != '0000000000':
-                    records.append({'ticker': ticker, 'cik': cik})
+                # Parse JSON structure: {0: {cik_str, ticker, title}, 1: {...}, ...}
+                records = []
+                for entry in data.values():
+                    # Normalize ticker to CRSP format (remove separators)
+                    ticker = str(entry.get('ticker', '')).replace('.', '').replace('-', '').upper()
+                    cik = str(entry.get('cik_str', '')).zfill(10)  # Zero-pad to 10 digits
 
-            # Create DataFrame
-            sec_df = pl.DataFrame(records)
+                    if ticker and cik != '0000000000':
+                        records.append({'ticker': ticker, 'cik': cik})
 
-            self.logger.info(f"Loaded {len(sec_df)} CIK mappings from SEC")
-            self._sec_cik_cache = sec_df
-            return sec_df
+                # Create DataFrame
+                sec_df = pl.DataFrame(records)
 
-        except Exception as e:
-            self.logger.error(f"Failed to fetch SEC CIK mapping: {e}", exc_info=True)
-            # Return empty DataFrame on failure
-            return pl.DataFrame({'ticker': [], 'cik': []}, schema={'ticker': pl.Utf8, 'cik': pl.Utf8})
+                self.logger.info(f"Loaded {len(sec_df)} CIK mappings from SEC")
+                self._sec_cik_cache = sec_df
+                return sec_df
+
+            except Exception as e:
+                self.logger.error(f"Failed to fetch SEC CIK mapping: {e}", exc_info=True)
+                # Cache empty DataFrame on failure to prevent thundering herd retries
+                empty = pl.DataFrame({'ticker': [], 'cik': []}, schema={'ticker': pl.Utf8, 'cik': pl.Utf8})
+                self._sec_cik_cache = empty
+                return empty
 
     def _fetch_sec_mapping_full(self) -> pl.DataFrame:
         """
@@ -366,7 +411,14 @@ class SecurityMaster:
         - Small companies (below $10M threshold)
         - OTC/Pink Sheet stocks
         - Non-operating entities (shells, SPACs)
+
+        Requires: wrds package and active WRDS connection
         """
+        if not HAS_WRDS:
+            raise ImportError("cik_cusip_mapping() requires the wrds package")
+
+        from quantdl.utils.wrds import raw_sql_with_retry
+
         query = """
         SELECT DISTINCT
             a.kypermno,
@@ -778,19 +830,6 @@ class SecurityMaster:
 
         return isoformat_hist
     
-    def sid_to_permno(self, sid: Optional[int]) -> int:
-        if sid is None:
-            raise ValueError("security_id is None")
-        permno = (
-            self.master_tb.filter(
-                pl.col('security_id').eq(sid)
-            )
-            .select('permno')
-            .head(1)
-            .item()
-        )
-        return permno
-
     def sid_to_info(self, sid: int, day: str, info: str):
 
         date_obj = dt.datetime.strptime(day, "%Y-%m-%d").date()
@@ -809,7 +848,7 @@ class SecurityMaster:
         self,
         s3_client: Any,
         bucket_name: str = 'us-equity-datalake',
-        s3_key: str = 'data/master/security_master.parquet'
+        s3_key: str = 'data/meta/master/security_master.parquet'
     ) -> Dict[str, str]:
         """
         Export master_tb to S3 with embedded metadata.
@@ -887,6 +926,7 @@ class SecurityMaster:
         # Convert to Polars (from_arrow on Table always returns DataFrame)
         df = pl.from_arrow(table)
         assert isinstance(df, pl.DataFrame)
+        df = SecurityMaster._ensure_gics_columns(df)
 
         self.logger.debug(f"Loaded SecurityMaster from S3: {len(df)} rows, metadata: {metadata}")
         return df, metadata
@@ -1145,7 +1185,7 @@ class SecurityMaster:
 
         :return: Tuple of (prev_universe set, prev_date string or None)
         """
-        s3_key = "data/master/prev_universe.json"
+        s3_key = "data/meta/master/prev_universe.json"
 
         try:
             response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
@@ -1178,7 +1218,7 @@ class SecurityMaster:
         :param universe: Set of ticker symbols
         :param date: Date string (YYYY-MM-DD)
         """
-        s3_key = "data/master/prev_universe.json"
+        s3_key = "data/meta/master/prev_universe.json"
 
         import json
         data = {
@@ -1466,11 +1506,16 @@ class SecurityMaster:
         2. Add shareClassFIGI column via OpenFIGI
         3. Export to S3, replacing existing master_tb
 
+        Requires: wrds package
+
         :param db: WRDS database connection
         :param s3_client: S3 client
         :param bucket_name: S3 bucket name
         :return: Dict with stats {'rows', 'figi_mapped'}
         """
+        if not HAS_WRDS:
+            raise ImportError("overwrite_from_crsp() requires the wrds package")
+
         self.logger.info("Rebuilding SecurityMaster from CRSP with OpenFIGI...")
 
         # Store old db connection
@@ -1516,7 +1561,10 @@ class SecurityMaster:
         return stats
 
     def close(self):
-        """Close WRDS connection"""
-        if self.db is not None:
-            self.db.close()
+        """Close WRDS connection if present."""
+        if hasattr(self, 'db') and self.db is not None:
+            try:
+                self.db.close()
+            except Exception:
+                pass
     
