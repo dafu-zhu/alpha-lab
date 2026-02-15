@@ -94,6 +94,7 @@ from quantdl.api.operators.time_series import (
     ts_sum,
     ts_zscore,
 )
+from quantdl.api.operators.transformational import trade_when
 from quantdl.api.operators.vector import vec_avg, vec_sum
 
 __all__ = [
@@ -175,4 +176,6 @@ __all__ = [
     "ge",
     "eq",
     "ne",
+    # Transformational operators
+    "trade_when",
 ]

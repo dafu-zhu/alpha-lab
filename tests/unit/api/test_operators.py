@@ -1965,3 +1965,85 @@ class TestRankLargeUniverse:
             for val in result[col]:
                 if val is not None:
                     assert 0.0 <= val <= 1.0
+
+
+# =============================================================================
+# TRANSFORMATIONAL OPERATORS
+# =============================================================================
+
+
+class TestTradeWhen:
+    """Tests for trade_when operator."""
+
+    @pytest.fixture
+    def dates(self) -> list[date]:
+        return [date(2024, 1, i) for i in range(1, 6)]
+
+    def test_basic_trigger_enter(self, dates: list[date]) -> None:
+        """Entry signal sets alpha value."""
+        from quantdl.api.operators import trade_when
+        trigger = pl.DataFrame({"Date": dates, "A": [1.0, 0.0, 0.0, 1.0, 0.0]})
+        alpha = pl.DataFrame({"Date": dates, "A": [10.0, 20.0, 30.0, 40.0, 50.0]})
+        result = trade_when(trigger, alpha, -1)  # never exit
+        assert result["A"][0] == 10.0  # enter
+        assert result["A"][3] == 40.0  # re-enter
+
+    def test_carry_forward(self, dates: list[date]) -> None:
+        """Position carries forward when no trigger."""
+        from quantdl.api.operators import trade_when
+        trigger = pl.DataFrame({"Date": dates, "A": [1.0, 0.0, 0.0, 0.0, 0.0]})
+        alpha = pl.DataFrame({"Date": dates, "A": [10.0, 20.0, 30.0, 40.0, 50.0]})
+        result = trade_when(trigger, alpha, -1)
+        assert result["A"][0] == 10.0
+        assert result["A"][1] == 10.0  # carry forward
+        assert result["A"][4] == 10.0  # still carrying
+
+    def test_exit_trigger_clears(self, dates: list[date]) -> None:
+        """Exit signal produces NaN."""
+        from quantdl.api.operators import trade_when
+        import math
+        trigger = pl.DataFrame({"Date": dates, "A": [1.0, 0.0, 0.0, 0.0, 0.0]})
+        alpha = pl.DataFrame({"Date": dates, "A": [10.0, 20.0, 30.0, 40.0, 50.0]})
+        exit_df = pl.DataFrame({"Date": dates, "A": [0.0, 0.0, 1.0, 0.0, 0.0]})
+        result = trade_when(trigger, alpha, exit_df)
+        assert result["A"][0] == 10.0  # entered
+        assert result["A"][1] == 10.0  # carry
+        assert math.isnan(result["A"][2])  # exit → NaN
+        assert math.isnan(result["A"][3])  # no trigger, carry NaN
+
+    def test_scalar_exit_never(self, dates: list[date]) -> None:
+        """Scalar exit -1 means never exit."""
+        from quantdl.api.operators import trade_when
+        trigger = pl.DataFrame({"Date": dates, "A": [1.0, 0.0, 0.0, 0.0, 0.0]})
+        alpha = pl.DataFrame({"Date": dates, "A": [99.0, 0.0, 0.0, 0.0, 0.0]})
+        result = trade_when(trigger, alpha, -1)
+        # All values should be 99.0 (entered, never exited)
+        for i in range(5):
+            assert result["A"][i] == 99.0
+
+    def test_all_nan_when_exit_always(self, dates: list[date]) -> None:
+        """Scalar exit 1 means always exit (all NaN)."""
+        from quantdl.api.operators import trade_when
+        import math
+        trigger = pl.DataFrame({"Date": dates, "A": [1.0, 1.0, 1.0, 1.0, 1.0]})
+        alpha = pl.DataFrame({"Date": dates, "A": [10.0, 20.0, 30.0, 40.0, 50.0]})
+        result = trade_when(trigger, alpha, 1)  # always exit
+        for i in range(5):
+            assert math.isnan(result["A"][i])
+
+    def test_multiple_columns(self, dates: list[date]) -> None:
+        """Works with multiple symbol columns."""
+        from quantdl.api.operators import trade_when
+        trigger = pl.DataFrame({
+            "Date": dates,
+            "A": [1.0, 0.0, 0.0, 0.0, 0.0],
+            "B": [0.0, 1.0, 0.0, 0.0, 0.0],
+        })
+        alpha = pl.DataFrame({
+            "Date": dates,
+            "A": [10.0, 20.0, 30.0, 40.0, 50.0],
+            "B": [100.0, 200.0, 300.0, 400.0, 500.0],
+        })
+        result = trade_when(trigger, alpha, -1)
+        assert result["A"][0] == 10.0
+        assert result["B"][1] == 200.0
