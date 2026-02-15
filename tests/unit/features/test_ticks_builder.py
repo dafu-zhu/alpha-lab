@@ -11,7 +11,7 @@ class TestTicksFeatureBuilderDirect:
         builder = TicksFeatureBuilder(str(raw_data_dir))
         result = builder.build_direct("close", "close", trading_days, security_ids)
 
-        assert "timestamp" in result.columns
+        assert "Date" in result.columns
         assert len(result) == len(trading_days)
         for sid in security_ids:
             assert sid in result.columns
@@ -105,11 +105,11 @@ class TestTicksFeatureBuilderComputed:
         """Cap returns timestamp-only when no common sids."""
         from quantdl.features.builders.ticks import TicksFeatureBuilder
         builder = TicksFeatureBuilder(str(raw_data_dir))
-        close = pl.DataFrame({"timestamp": trading_days, "A": [1.0] * len(trading_days)})
-        sharesout = pl.DataFrame({"timestamp": trading_days, "B": [1.0] * len(trading_days)})
+        close = pl.DataFrame({"Date": trading_days, "A": [1.0] * len(trading_days)})
+        sharesout = pl.DataFrame({"Date": trading_days, "B": [1.0] * len(trading_days)})
         built = {"close": close, "sharesout": sharesout}
         result = builder.build_computed("cap", built, trading_days, ["A", "B"])
-        assert result.columns == ["timestamp"]
+        assert result.columns == ["Date"]
 
 
 class TestTicksEdgeCases:

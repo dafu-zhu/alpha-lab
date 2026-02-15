@@ -26,7 +26,7 @@ class CalendarMaster:
         if self._df is not None:
             return self._df
         self._df = self._storage.read_parquet(self.CALENDAR_MASTER_PATH)
-        date_col = "date" if "date" in self._df.columns else "timestamp"
+        date_col = "date" if "date" in self._df.columns else "Date"
         self._trading_days = set(self._df[date_col].to_list())
         return self._df
 
@@ -53,6 +53,6 @@ class CalendarMaster:
             Sorted list of trading days
         """
         df = self._load()
-        date_col = "date" if "date" in df.columns else "timestamp"
+        date_col = "date" if "date" in df.columns else "Date"
         filtered = df.filter((pl.col(date_col) >= start) & (pl.col(date_col) <= end))
         return sorted(filtered[date_col].to_list())

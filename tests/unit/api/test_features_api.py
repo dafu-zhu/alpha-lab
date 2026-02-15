@@ -16,7 +16,7 @@ class TestFeaturesAPI:
 
         # close.arrow
         df = pl.DataFrame({
-            "timestamp": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
+            "Date": [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)],
             "100": [150.0, 151.0, 152.0],
             "200": [300.0, 301.0, 302.0],
         })
@@ -67,7 +67,7 @@ class TestFeaturesAPI:
     def test_features_returns_dataframe(self, client):
         result = client.features("close", symbols=["AAPL"])
         assert isinstance(result, pl.DataFrame)
-        assert "timestamp" in result.columns
+        assert "Date" in result.columns
         assert "AAPL" in result.columns
 
     def test_features_multiple_symbols(self, client):
@@ -84,7 +84,7 @@ class TestFeaturesAPI:
             end="2024-01-03",
         )
         assert len(result) == 1
-        assert result["timestamp"][0] == date(2024, 1, 3)
+        assert result["Date"][0] == date(2024, 1, 3)
 
     def test_features_invalid_field_raises(self, client):
         from quantdl.api.exceptions import ValidationError

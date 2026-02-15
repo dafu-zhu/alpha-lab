@@ -66,7 +66,7 @@ class TestFundamentals:
         """Test basic fundamentals fetch."""
         df = client.fundamentals("AAPL", "Revenue", "2024-01-01", "2024-12-31")
 
-        assert "timestamp" in df.columns
+        assert "Date" in df.columns
         assert "AAPL" in df.columns
         assert len(df) > 0
 

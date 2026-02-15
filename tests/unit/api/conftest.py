@@ -52,7 +52,7 @@ def test_data_dir(tmp_path: Path) -> Generator[Path, None, None]:
     daily_ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily" / "SEC001"
     daily_ticks_dir.mkdir(parents=True)
     daily_ticks = pl.DataFrame({
-        "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 10), eager=True),
+        "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 10), eager=True),
         "open": [185.0 + i * 0.5 for i in range(10)],
         "high": [186.0 + i * 0.5 for i in range(10)],
         "low": [184.0 + i * 0.5 for i in range(10)],

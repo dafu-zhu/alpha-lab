@@ -19,7 +19,7 @@ from quantdl.alpha import (
 def wide_df() -> pl.DataFrame:
     """Sample wide DataFrame."""
     return pl.DataFrame({
-        "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+        "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
         "AAPL": [100.0, 102.0, 101.0, 103.0, 105.0],
         "MSFT": [200.0, 202.0, 201.0, 203.0, 205.0],
     })
@@ -29,7 +29,7 @@ def wide_df() -> pl.DataFrame:
 def wide_df2() -> pl.DataFrame:
     """Second sample DataFrame for binary ops."""
     return pl.DataFrame({
-        "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+        "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
         "AAPL": [10.0, 20.0, 30.0, 40.0, 50.0],
         "MSFT": [5.0, 10.0, 15.0, 20.0, 25.0],
     })
@@ -101,7 +101,7 @@ class TestAlphaClass:
     def test_pow_scalar(self) -> None:
         """Test Alpha ** scalar."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [2.0, 3.0, 4.0],
         })
         alpha = Alpha(df)
@@ -118,7 +118,7 @@ class TestAlphaClass:
     def test_abs(self) -> None:
         """Test abs(Alpha)."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [-10.0, 20.0, -30.0],
         })
         alpha = Alpha(df)
@@ -200,11 +200,11 @@ class TestAlphaClass:
     def test_and_alpha(self) -> None:
         """Test Alpha & Alpha (logical and)."""
         df1 = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [1.0, 0.0, 1.0],
         })
         df2 = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [1.0, 1.0, 0.0],
         })
         a1 = Alpha(df1)
@@ -217,11 +217,11 @@ class TestAlphaClass:
     def test_or_alpha(self) -> None:
         """Test Alpha | Alpha (logical or)."""
         df1 = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [1.0, 0.0, 0.0],
         })
         df2 = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [0.0, 1.0, 0.0],
         })
         a1 = Alpha(df1)
@@ -234,7 +234,7 @@ class TestAlphaClass:
     def test_invert(self) -> None:
         """Test ~Alpha (logical not)."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [0.0, 1.0, 5.0],
         })
         alpha = Alpha(df)
@@ -250,11 +250,11 @@ class TestAlphaValidation:
     def test_column_mismatch(self) -> None:
         """Test ColumnMismatchError on mismatched columns."""
         df1 = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [1.0, 2.0, 3.0],
         })
         df2 = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "B": [1.0, 2.0, 3.0],
         })
         a1 = Alpha(df1)
@@ -265,11 +265,11 @@ class TestAlphaValidation:
     def test_date_mismatch(self) -> None:
         """Test DateMismatchError on mismatched row counts."""
         df1 = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [1.0, 2.0, 3.0],
         })
         df2 = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "A": [1.0, 2.0, 3.0, 4.0, 5.0],
         })
         a1 = Alpha(df1)
@@ -408,7 +408,7 @@ class TestBuiltinFunctions:
     def test_sqrt(self) -> None:
         """Test sqrt builtin."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [4.0, 9.0, 16.0],
         })
         result = alpha_eval("sqrt(x)", {"x": df})
@@ -419,7 +419,7 @@ class TestBuiltinFunctions:
     def test_sign(self) -> None:
         """Test sign builtin."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 4), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 4), eager=True),
             "A": [-5.0, 0.0, 10.0, -1.0],
         })
         result = alpha_eval("sign(x)", {"x": df})
@@ -447,7 +447,7 @@ class TestBooleanOperations:
     def test_and_expression(self) -> None:
         """Test 'and' expression."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [100.0, 102.0, 98.0],
         })
         result = alpha_eval("(x > 99) & (x < 101)", {"x": df})
@@ -458,7 +458,7 @@ class TestBooleanOperations:
     def test_or_expression(self) -> None:
         """Test 'or' expression."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [100.0, 102.0, 98.0],
         })
         result = alpha_eval("(x < 99) | (x > 101)", {"x": df})
@@ -469,7 +469,7 @@ class TestBooleanOperations:
     def test_chained_comparison(self) -> None:
         """Test chained comparison: a < b < c."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [50.0, 100.0, 150.0],
         })
         result = alpha_eval("0 < x < 100", {"x": df})

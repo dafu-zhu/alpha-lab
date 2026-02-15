@@ -11,7 +11,7 @@ class TestFundamentalBuilderRaw:
         builder = FundamentalFeatureBuilder(str(raw_data_dir))
         result = builder.build_raw("assets", "assets", trading_days, security_ids)
 
-        assert "timestamp" in result.columns
+        assert "Date" in result.columns
         assert len(result) == len(trading_days)
         for sid in security_ids:
             assert sid in result.columns
@@ -34,7 +34,7 @@ class TestFundamentalBuilderRaw:
         result = builder.build_raw("nonexistent", "nonexistent_concept", trading_days, security_ids)
 
         # Should return calendar-only with no value columns added
-        assert "timestamp" in result.columns
+        assert "Date" in result.columns
         assert len(result) == len(trading_days)
 
 
@@ -93,7 +93,7 @@ class TestFundamentalBuilderDerived:
         builder = FundamentalFeatureBuilder(".")
 
         # Create deps with zero denominator
-        calendar = pl.DataFrame({"timestamp": trading_days})
+        calendar = pl.DataFrame({"Date": trading_days})
         income = calendar.clone()
         equity_zero = calendar.clone()
         for sid in security_ids:
@@ -128,7 +128,7 @@ class TestFundamentalBuilderDerived:
         deps, builder = built_deps
         # enterprise_value needs "cap" which is not in built_deps
         # Add a mock cap
-        calendar = pl.DataFrame({"timestamp": trading_days})
+        calendar = pl.DataFrame({"Date": trading_days})
         cap = calendar.clone()
         for sid in security_ids:
             cap = cap.with_columns(pl.lit(5e9).alias(sid))
@@ -149,22 +149,22 @@ class TestFundamentalBuilderDerived:
         """Derived field returns empty wide table when no common sids."""
         from quantdl.features.builders.fundamental import FundamentalFeatureBuilder
         builder = FundamentalFeatureBuilder(".")
-        calendar = pl.DataFrame({"timestamp": trading_days})
+        calendar = pl.DataFrame({"Date": trading_days})
         deps = {
             "income": calendar.with_columns(pl.lit(1.0).alias("A")),
             "equity": calendar.with_columns(pl.lit(1.0).alias("B")),
         }
         result = builder.build_derived("return_equity", deps, trading_days, ["C"])
-        assert result.columns == ["timestamp"]
+        assert result.columns == ["Date"]
 
     def test_sales_growth_empty_cols(self, trading_days):
         """sales_growth returns empty wide when no matching sids in sales."""
         from quantdl.features.builders.fundamental import FundamentalFeatureBuilder
         builder = FundamentalFeatureBuilder(".")
-        calendar = pl.DataFrame({"timestamp": trading_days})
+        calendar = pl.DataFrame({"Date": trading_days})
         deps = {"sales": calendar.with_columns(pl.lit(1.0).alias("X"))}
         result = builder.build_derived("sales_growth", deps, trading_days, ["Y"])
-        assert result.columns == ["timestamp"]
+        assert result.columns == ["Date"]
 
 
 class TestFundamentalEdgeCases:
@@ -173,7 +173,7 @@ class TestFundamentalEdgeCases:
         from quantdl.features.builders.fundamental import FundamentalFeatureBuilder
         builder = FundamentalFeatureBuilder(str(tmp_path))
         result = builder.build_raw("assets", "assets", trading_days, ["NOSID"])
-        assert "timestamp" in result.columns
+        assert "Date" in result.columns
         assert "NOSID" not in result.columns
 
     def test_string_as_of_date_cast(self, tmp_path, trading_days):

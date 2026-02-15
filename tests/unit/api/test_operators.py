@@ -87,7 +87,7 @@ from quantdl.api.operators import (
 def wide_df() -> pl.DataFrame:
     """Create sample wide DataFrame."""
     return pl.DataFrame({
-        "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 10), eager=True),
+        "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 10), eager=True),
         "AAPL": [100.0, 102.0, 101.0, 103.0, 105.0, 104.0, 106.0, 108.0, 107.0, 110.0],
         "MSFT": [200.0, 202.0, 201.0, 203.0, 205.0, 204.0, 206.0, 208.0, 207.0, 210.0],
         "GOOGL": [150.0, 152.0, 151.0, 153.0, 155.0, 154.0, 156.0, 158.0, 157.0, 160.0],
@@ -174,7 +174,7 @@ class TestTimeSeriesOperators:
     def test_ts_count_nans(self) -> None:
         """Test counting nulls in window."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "AAPL": [100.0, None, 101.0, None, 105.0],
         })
         result = ts_count_nans(df, 3)
@@ -232,7 +232,7 @@ class TestTimeSeriesOperators:
     def test_ts_backfill(self) -> None:
         """Test forward fill with limit."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "AAPL": [100.0, None, None, None, 105.0],
         })
         result = ts_backfill(df, 2)
@@ -252,7 +252,7 @@ class TestTimeSeriesOperators:
     def test_last_diff_value(self) -> None:
         """Test finding last different value."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "AAPL": [100.0, 100.0, 102.0, 102.0, 102.0],
         })
         result = last_diff_value(df, 3)
@@ -262,7 +262,7 @@ class TestTimeSeriesOperators:
     def test_days_from_last_change(self) -> None:
         """Test days since value changed."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "AAPL": [100.0, 100.0, 102.0, 102.0, 102.0],
         })
         result = days_from_last_change(df)
@@ -275,7 +275,7 @@ class TestTimeSeriesOperators:
     def test_hump(self) -> None:
         """Test hump limiting change magnitude."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [100.0, 200.0, 150.0],
             "B": [50.0, 50.0, 50.0],
         })
@@ -442,7 +442,7 @@ class TestCrossSectionalOperators:
         """Test asymmetric long/short scaling."""
         # Create data with both positive and negative values
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [10.0, -5.0, 20.0],
             "B": [-20.0, 15.0, -10.0],
             "C": [5.0, -10.0, 30.0],
@@ -466,7 +466,7 @@ class TestCrossSectionalOperators:
     def test_scale_only_longscale(self) -> None:
         """Test scaling only long positions."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 2), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 2), eager=True),
             "A": [10.0, -5.0],
             "B": [-20.0, 15.0],
             "C": [5.0, -10.0],
@@ -483,7 +483,7 @@ class TestCrossSectionalOperators:
     def test_scale_only_shortscale(self) -> None:
         """Test scaling only short positions."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 2), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 2), eager=True),
             "A": [10.0, -5.0],
             "B": [-20.0, 15.0],
             "C": [5.0, -10.0],
@@ -532,7 +532,7 @@ class TestCrossSectionalOperators:
     def test_winsorize_with_outliers(self) -> None:
         """Test winsorization clips outliers."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 1), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 1), eager=True),
             "A": [1.0],
             "B": [2.0],
             "C": [100.0],  # Outlier
@@ -555,7 +555,7 @@ class TestArithmeticOperators:
     def arith_df(self) -> pl.DataFrame:
         """Create sample wide DataFrame for arithmetic tests."""
         return pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "AAPL": [100.0, -50.0, 25.0, 0.0, -10.0],
             "MSFT": [200.0, 100.0, -50.0, 75.0, 0.0],
             "GOOGL": [-150.0, 0.0, 30.0, -20.0, 40.0],
@@ -565,7 +565,7 @@ class TestArithmeticOperators:
     def arith_df2(self) -> pl.DataFrame:
         """Create second sample wide DataFrame for two-input ops."""
         return pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "AAPL": [10.0, 5.0, 5.0, 2.0, -2.0],
             "MSFT": [20.0, 10.0, -10.0, 15.0, 1.0],
             "GOOGL": [-30.0, 1.0, 6.0, -4.0, 8.0],
@@ -595,15 +595,15 @@ class TestArithmeticOperators:
 
     def test_add_filter_null(self) -> None:
         """Test add with filter=True treats null as 0."""
-        df1 = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [10.0]})
-        df2 = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [None]})
+        df1 = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [10.0]})
+        df2 = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [None]})
         result = add(df1, df2, filter=True)
         assert result["A"][0] == 10.0  # 10 + 0
 
     def test_add_without_filter_propagates_null(self) -> None:
         """Test add without filter propagates null."""
-        df1 = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [10.0]})
-        df2 = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [None]})
+        df1 = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [10.0]})
+        df2 = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [None]})
         result = add(df1, df2, filter=False)
         assert result["A"][0] is None
 
@@ -621,8 +621,8 @@ class TestArithmeticOperators:
 
     def test_subtract_filter_null(self) -> None:
         """Test subtract with filter=True treats null as 0."""
-        df1 = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [10.0]})
-        df2 = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [None]})
+        df1 = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [10.0]})
+        df2 = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [None]})
         result = subtract(df1, df2, filter=True)
         assert result["A"][0] == 10.0  # 10 - 0
 
@@ -635,15 +635,15 @@ class TestArithmeticOperators:
 
     def test_multiply_filter_null(self) -> None:
         """Test multiply with filter=True treats null as 1."""
-        df1 = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [10.0]})
-        df2 = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [None]})
+        df1 = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [10.0]})
+        df2 = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [None]})
         result = multiply(df1, df2, filter=True)
         assert result["A"][0] == 10.0  # 10 * 1
 
     def test_multiply_without_filter_propagates_null(self) -> None:
         """Test multiply without filter propagates null."""
-        df1 = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [10.0]})
-        df2 = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [None]})
+        df1 = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [10.0]})
+        df2 = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [None]})
         result = multiply(df1, df2, filter=False)
         assert result["A"][0] is None
 
@@ -660,22 +660,22 @@ class TestArithmeticOperators:
 
     def test_divide_by_zero_returns_null(self) -> None:
         """Test division by zero returns null."""
-        df1 = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [10.0]})
-        df2 = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [0.0]})
+        df1 = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [10.0]})
+        df2 = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [0.0]})
         result = divide(df1, df2)
         assert result["A"][0] is None
 
     def test_divide_zero_by_nonzero(self) -> None:
         """Test 0/x = 0."""
-        df1 = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [0.0]})
-        df2 = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [5.0]})
+        df1 = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [0.0]})
+        df2 = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [5.0]})
         result = divide(df1, df2)
         assert result["A"][0] == 0.0
 
     def test_inverse_basic(self) -> None:
         """Test basic inverse computation."""
         df = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1), date(2024, 1, 2)],
+            "Date": [date(2024, 1, 1), date(2024, 1, 2)],
             "A": [2.0, 4.0],
         })
         result = inverse(df)
@@ -684,20 +684,20 @@ class TestArithmeticOperators:
 
     def test_inverse_of_zero_returns_null(self) -> None:
         """Test 1/0 returns null."""
-        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [0.0]})
+        df = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [0.0]})
         result = inverse(df)
         assert result["A"][0] is None
 
     def test_inverse_negative(self) -> None:
         """Test inverse of negative number."""
-        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [-5.0]})
+        df = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [-5.0]})
         result = inverse(df)
         assert result["A"][0] == -0.2
 
     def test_log_basic(self) -> None:
         """Test basic natural log computation."""
         df = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1), date(2024, 1, 2)],
+            "Date": [date(2024, 1, 1), date(2024, 1, 2)],
             "A": [math.e, math.e ** 2],
         })
         result = log(df)
@@ -706,19 +706,19 @@ class TestArithmeticOperators:
 
     def test_log_of_one(self) -> None:
         """Test ln(1) = 0."""
-        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [1.0]})
+        df = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [1.0]})
         result = log(df)
         assert result["A"][0] == 0.0
 
     def test_log_of_zero_returns_null(self) -> None:
         """Test ln(0) returns null."""
-        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [0.0]})
+        df = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [0.0]})
         result = log(df)
         assert result["A"][0] is None
 
     def test_log_of_negative_returns_null(self) -> None:
         """Test ln(negative) returns null."""
-        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [-5.0]})
+        df = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [-5.0]})
         result = log(df)
         assert result["A"][0] is None
 
@@ -731,9 +731,9 @@ class TestArithmeticOperators:
 
     def test_max_three_inputs(self) -> None:
         """Test element-wise max of three DataFrames."""
-        df1 = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [1.0]})
-        df2 = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [5.0]})
-        df3 = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [3.0]})
+        df1 = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [1.0]})
+        df2 = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [5.0]})
+        df3 = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [3.0]})
         result = op_max(df1, df2, df3)
         assert result["A"][0] == 5.0
 
@@ -751,9 +751,9 @@ class TestArithmeticOperators:
 
     def test_min_three_inputs(self) -> None:
         """Test element-wise min of three DataFrames."""
-        df1 = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [1.0]})
-        df2 = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [5.0]})
-        df3 = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [3.0]})
+        df1 = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [1.0]})
+        df2 = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [5.0]})
+        df3 = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [3.0]})
         result = op_min(df1, df2, df3)
         assert result["A"][0] == 1.0
 
@@ -765,11 +765,11 @@ class TestArithmeticOperators:
     def test_power_basic(self) -> None:
         """Test basic power computation."""
         df_base = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1), date(2024, 1, 2)],
+            "Date": [date(2024, 1, 1), date(2024, 1, 2)],
             "A": [2.0, 3.0],
         })
         df_exp = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1), date(2024, 1, 2)],
+            "Date": [date(2024, 1, 1), date(2024, 1, 2)],
             "A": [3.0, 2.0],
         })
         result = power(df_base, df_exp)
@@ -778,43 +778,43 @@ class TestArithmeticOperators:
 
     def test_power_zero_exponent(self) -> None:
         """Test x^0 = 1."""
-        df_base = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [5.0]})
-        df_exp = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [0.0]})
+        df_base = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [5.0]})
+        df_exp = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [0.0]})
         result = power(df_base, df_exp)
         assert result["A"][0] == 1.0
 
     def test_power_negative_base(self) -> None:
         """Test negative base with integer exponent."""
-        df_base = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [-2.0]})
-        df_exp = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [3.0]})
+        df_base = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [-2.0]})
+        df_exp = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [3.0]})
         result = power(df_base, df_exp)
         assert result["A"][0] == -8.0  # (-2)^3
 
     def test_signed_power_positive(self) -> None:
         """Test signed_power with positive base."""
-        df_base = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [4.0]})
-        df_exp = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [2.0]})
+        df_base = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [4.0]})
+        df_exp = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [2.0]})
         result = signed_power(df_base, df_exp)
         assert result["A"][0] == 16.0  # sign(4) * |4|^2 = 1 * 16
 
     def test_signed_power_negative(self) -> None:
         """Test signed_power with negative base."""
-        df_base = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [-4.0]})
-        df_exp = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [2.0]})
+        df_base = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [-4.0]})
+        df_exp = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [2.0]})
         result = signed_power(df_base, df_exp)
         assert result["A"][0] == -16.0  # sign(-4) * |-4|^2 = -1 * 16
 
     def test_signed_power_fractional_exp(self) -> None:
         """Test signed_power with fractional exponent preserves sign."""
-        df_base = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [-9.0]})
-        df_exp = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [0.5]})
+        df_base = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [-9.0]})
+        df_exp = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [0.5]})
         result = signed_power(df_base, df_exp)
         assert result["A"][0] == -3.0  # sign(-9) * |-9|^0.5 = -1 * 3
 
     def test_sqrt_basic(self) -> None:
         """Test basic square root computation."""
         df = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1), date(2024, 1, 2)],
+            "Date": [date(2024, 1, 1), date(2024, 1, 2)],
             "A": [4.0, 9.0],
         })
         result = sqrt(df)
@@ -823,37 +823,37 @@ class TestArithmeticOperators:
 
     def test_sqrt_of_zero(self) -> None:
         """Test sqrt(0) = 0."""
-        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [0.0]})
+        df = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [0.0]})
         result = sqrt(df)
         assert result["A"][0] == 0.0
 
     def test_sqrt_of_negative_returns_null(self) -> None:
         """Test sqrt(negative) returns null."""
-        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [-4.0]})
+        df = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [-4.0]})
         result = sqrt(df)
         assert result["A"][0] is None
 
     def test_sign_positive(self) -> None:
         """Test sign of positive number."""
-        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [5.0]})
+        df = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [5.0]})
         result = sign(df)
         assert result["A"][0] == 1
 
     def test_sign_negative(self) -> None:
         """Test sign of negative number."""
-        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [-5.0]})
+        df = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [-5.0]})
         result = sign(df)
         assert result["A"][0] == -1
 
     def test_sign_zero(self) -> None:
         """Test sign of zero."""
-        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [0.0]})
+        df = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [0.0]})
         result = sign(df)
         assert result["A"][0] == 0
 
     def test_sign_null(self) -> None:
         """Test sign of null returns null."""
-        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": pl.Series([None], dtype=pl.Float64)})
+        df = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": pl.Series([None], dtype=pl.Float64)})
         result = sign(df)
         assert result["A"][0] is None
 
@@ -866,14 +866,14 @@ class TestArithmeticOperators:
 
     def test_reverse_zero(self) -> None:
         """Test -0 = 0."""
-        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [0.0]})
+        df = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [0.0]})
         result = reverse(df)
         assert result["A"][0] == 0.0
 
     def test_densify_basic(self) -> None:
         """Test basic densify remapping."""
         df = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1)],
+            "Date": [date(2024, 1, 1)],
             "A": [10.0],
             "B": [30.0],
             "C": [10.0],  # Same as A
@@ -890,7 +890,7 @@ class TestArithmeticOperators:
     def test_densify_all_same(self) -> None:
         """Test densify with all same values."""
         df = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1)],
+            "Date": [date(2024, 1, 1)],
             "A": [5.0],
             "B": [5.0],
             "C": [5.0],
@@ -904,7 +904,7 @@ class TestArithmeticOperators:
     def test_densify_per_row(self) -> None:
         """Test that densify works per row independently."""
         df = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1), date(2024, 1, 2)],
+            "Date": [date(2024, 1, 1), date(2024, 1, 2)],
             "A": [10.0, 100.0],
             "B": [20.0, 50.0],
         })
@@ -918,25 +918,25 @@ class TestArithmeticOperators:
 
     def test_abs_with_null(self) -> None:
         """Test abs_ preserves nulls."""
-        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": pl.Series([None], dtype=pl.Float64)})
+        df = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": pl.Series([None], dtype=pl.Float64)})
         result = op_abs(df)
         assert result["A"][0] is None
 
     def test_sqrt_with_null(self) -> None:
         """Test sqrt preserves nulls."""
-        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": pl.Series([None], dtype=pl.Float64)})
+        df = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": pl.Series([None], dtype=pl.Float64)})
         result = sqrt(df)
         assert result["A"][0] is None
 
     def test_log_with_null(self) -> None:
         """Test log preserves nulls."""
-        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": pl.Series([None], dtype=pl.Float64)})
+        df = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": pl.Series([None], dtype=pl.Float64)})
         result = log(df)
         assert result["A"][0] is None
 
     def test_reverse_with_null(self) -> None:
         """Test reverse preserves nulls."""
-        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": pl.Series([None], dtype=pl.Float64)})
+        df = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": pl.Series([None], dtype=pl.Float64)})
         result = reverse(df)
         assert result["A"][0] is None
 
@@ -953,7 +953,7 @@ class TestLogicalOperators:
     def bool_df_a(self) -> pl.DataFrame:
         """Create boolean DataFrame A."""
         return pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "AAPL": [True, False, True, False, True],
             "MSFT": [True, True, False, False, True],
         })
@@ -962,7 +962,7 @@ class TestLogicalOperators:
     def bool_df_b(self) -> pl.DataFrame:
         """Create boolean DataFrame B."""
         return pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "AAPL": [True, True, True, False, False],
             "MSFT": [False, True, False, True, True],
         })
@@ -971,7 +971,7 @@ class TestLogicalOperators:
     def numeric_df(self) -> pl.DataFrame:
         """Create numeric DataFrame for comparisons."""
         return pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "AAPL": [1.0, 2.0, 3.0, 4.0, 5.0],
             "MSFT": [5.0, 4.0, 3.0, 2.0, 1.0],
         })
@@ -1010,12 +1010,12 @@ class TestLogicalOperators:
     def test_if_else_df_df(self, bool_df_a: pl.DataFrame) -> None:
         """Test if_else with DataFrame then/else."""
         then_df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "AAPL": [100.0, 100.0, 100.0, 100.0, 100.0],
             "MSFT": [200.0, 200.0, 200.0, 200.0, 200.0],
         })
         else_df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "AAPL": [0.0, 0.0, 0.0, 0.0, 0.0],
             "MSFT": [0.0, 0.0, 0.0, 0.0, 0.0],
         })
@@ -1038,7 +1038,7 @@ class TestLogicalOperators:
     def test_is_nan_null(self) -> None:
         """Test is_nan with null values."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "AAPL": [1.0, None, 3.0, None, 5.0],
         })
         result = is_nan(df)
@@ -1051,7 +1051,7 @@ class TestLogicalOperators:
     def test_is_nan_float_nan(self) -> None:
         """Test is_nan with float NaN values."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "AAPL": [1.0, float("nan"), 3.0],
         })
         result = is_nan(df)
@@ -1122,7 +1122,7 @@ class TestLogicalOperators:
     def test_comparison_df_vs_df(self, numeric_df: pl.DataFrame) -> None:
         """Test comparison between two DataFrames."""
         other_df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "AAPL": [2.0, 2.0, 2.0, 2.0, 2.0],
             "MSFT": [3.0, 3.0, 3.0, 3.0, 3.0],
         })
@@ -1137,7 +1137,7 @@ class TestLogicalOperators:
     def test_null_propagation(self) -> None:
         """Test that null propagates in comparisons."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "AAPL": [1.0, None, 3.0],
         })
         result = lt(df, 2.0)
@@ -1158,7 +1158,7 @@ class TestVectorOperators:
     @pytest.fixture
     def vector_df(self) -> pl.DataFrame:
         return pl.DataFrame({
-            "timestamp": [date(2024, 1, 1), date(2024, 1, 2)],
+            "Date": [date(2024, 1, 1), date(2024, 1, 2)],
             "AAPL": [[2.0, 3.0, 5.0, 6.0, 3.0, 8.0, 10.0], [1.0, 2.0, 3.0]],
             "MSFT": [[10.0, 20.0], [5.0, None, 10.0]],
         })
@@ -1195,14 +1195,14 @@ class TestGroupOperators:
     def group_df(self) -> tuple[pl.DataFrame, pl.DataFrame]:
         """Create sample data with group assignments."""
         x = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [10.0, 20.0, 30.0],
             "B": [15.0, 25.0, 35.0],
             "C": [100.0, 200.0, 300.0],
             "D": [150.0, 250.0, 350.0],
         })
         group = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": ["tech", "tech", "tech"],
             "B": ["tech", "tech", "tech"],
             "C": ["fin", "fin", "fin"],
@@ -1266,12 +1266,12 @@ class TestGroupOperators:
     def test_group_rank_single_member(self) -> None:
         """Test single-member group returns 0.5."""
         x = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1)],
+            "Date": [date(2024, 1, 1)],
             "A": [10.0],
             "B": [20.0],
         })
         group = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1)],
+            "Date": [date(2024, 1, 1)],
             "A": ["grp1"],
             "B": ["grp2"],
         })
@@ -1282,19 +1282,19 @@ class TestGroupOperators:
     def test_group_mean(self) -> None:
         """Test weighted mean within groups."""
         x = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1)],
+            "Date": [date(2024, 1, 1)],
             "A": [10.0],
             "B": [20.0],
             "C": [100.0],
         })
         weight = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1)],
+            "Date": [date(2024, 1, 1)],
             "A": [1.0],
             "B": [3.0],
             "C": [1.0],
         })
         group = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1)],
+            "Date": [date(2024, 1, 1)],
             "A": ["tech"],
             "B": ["tech"],
             "C": ["fin"],
@@ -1310,13 +1310,13 @@ class TestGroupOperators:
     def test_group_backfill(self) -> None:
         """Test filling NaN with winsorized group mean."""
         x = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [10.0, None, 30.0],
             "B": [20.0, 25.0, 35.0],
             "C": [100.0, 200.0, None],
         })
         group = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": ["tech", "tech", "tech"],
             "B": ["tech", "tech", "tech"],
             "C": ["fin", "fin", "fin"],
@@ -1331,12 +1331,12 @@ class TestGroupOperators:
     def test_group_backfill_all_nan(self) -> None:
         """Test all-NaN window keeps NaN."""
         x = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [None, None, None],
             "B": [None, None, None],
         })
         group = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": ["grp1", "grp1", "grp1"],
             "B": ["grp1", "grp1", "grp1"],
         })
@@ -1349,12 +1349,12 @@ class TestGroupOperators:
     def test_group_scale_all_same(self) -> None:
         """Test all same values returns NaN for scale."""
         x = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1)],
+            "Date": [date(2024, 1, 1)],
             "A": [5.0],
             "B": [5.0],
         })
         group = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1)],
+            "Date": [date(2024, 1, 1)],
             "A": ["grp1"],
             "B": ["grp1"],
         })
@@ -1365,12 +1365,12 @@ class TestGroupOperators:
     def test_group_zscore_all_same(self) -> None:
         """Test all same values returns NaN for zscore."""
         x = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1)],
+            "Date": [date(2024, 1, 1)],
             "A": [5.0],
             "B": [5.0],
         })
         group = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1)],
+            "Date": [date(2024, 1, 1)],
             "A": ["grp1"],
             "B": ["grp1"],
         })
@@ -1381,12 +1381,12 @@ class TestGroupOperators:
     def test_group_rank_all_same(self) -> None:
         """Test all same values returns values in [0,1]."""
         x = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1)],
+            "Date": [date(2024, 1, 1)],
             "A": [5.0],
             "B": [5.0],
         })
         group = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1)],
+            "Date": [date(2024, 1, 1)],
             "A": ["grp1"],
             "B": ["grp1"],
         })
@@ -1441,11 +1441,11 @@ class TestTsRegressionRetTypes:
         x_vals = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
         y_vals = [3.1, 5.0, 7.2, 8.9, 11.1, 13.0, 14.8, 17.1, 19.0, 21.0]
         y = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 10), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 10), eager=True),
             "A": y_vals,
         })
         x = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 10), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 10), eager=True),
             "A": x_vals,
         })
         return y, x
@@ -1512,11 +1512,11 @@ class TestTsRegressionRetTypes:
     def test_ts_regression_with_nulls(self) -> None:
         """Test regression filters out null pairs and computes with available data."""
         y = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "A": [1.0, None, 3.0, 4.0, 5.0],
         })
         x = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "A": [1.0, 2.0, 3.0, 4.0, 5.0],
         })
         result = ts_regression(y, x, 3, rettype=1)
@@ -1526,11 +1526,11 @@ class TestTsRegressionRetTypes:
     def test_ts_regression_zero_variance(self) -> None:
         """Test regression with zero variance in x (ss_xx=0)."""
         y = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "A": [1.0, 2.0, 3.0, 4.0, 5.0],
         })
         x = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "A": [5.0, 5.0, 5.0, 5.0, 5.0],  # Constant x
         })
         result = ts_regression(y, x, 3, rettype=1)
@@ -1544,7 +1544,7 @@ class TestTsQuantileEdgeCases:
     def test_ts_quantile_uniform(self) -> None:
         """Test ts_quantile with uniform driver."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "A": [1.0, 2.0, 3.0, 4.0, 5.0],
         })
         result = ts_quantile(df, 3, driver="uniform")
@@ -1557,7 +1557,7 @@ class TestTsQuantileEdgeCases:
     def test_ts_quantile_single_unique_value(self) -> None:
         """Test ts_quantile with single unique value in window."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "A": [5.0, 5.0, 5.0, 5.0, 5.0],
         })
         result = ts_quantile(df, 3, driver="gaussian")
@@ -1568,7 +1568,7 @@ class TestTsQuantileEdgeCases:
     def test_ts_quantile_with_nulls(self) -> None:
         """Test ts_quantile with null values."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "A": [1.0, None, 3.0, 4.0, 5.0],
         })
         result = ts_quantile(df, 3, driver="gaussian")
@@ -1582,11 +1582,11 @@ class TestTsCorrCovarianceEdgeCases:
     def test_ts_corr_with_nulls(self) -> None:
         """Test ts_corr with null values."""
         x = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "A": [1.0, None, 3.0, 4.0, 5.0],
         })
         y = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "A": [2.0, 4.0, 6.0, 8.0, 10.0],
         })
         result = ts_corr(x, y, 3)
@@ -1596,11 +1596,11 @@ class TestTsCorrCovarianceEdgeCases:
     def test_ts_corr_zero_std(self) -> None:
         """Test ts_corr with zero standard deviation."""
         x = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "A": [5.0, 5.0, 5.0, 5.0, 5.0],  # Constant
         })
         y = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "A": [1.0, 2.0, 3.0, 4.0, 5.0],
         })
         result = ts_corr(x, y, 3)
@@ -1610,11 +1610,11 @@ class TestTsCorrCovarianceEdgeCases:
     def test_ts_covariance_with_nulls(self) -> None:
         """Test ts_covariance with null values."""
         x = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "A": [1.0, 2.0, None, 4.0, 5.0],
         })
         y = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "A": [2.0, 4.0, 6.0, 8.0, 10.0],
         })
         result = ts_covariance(x, y, 3)
@@ -1628,7 +1628,7 @@ class TestTsRankEdgeCases:
     def test_ts_rank_with_nulls(self) -> None:
         """Test ts_rank with null current value."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "A": [1.0, 2.0, None, 4.0, 5.0],
         })
         result = ts_rank(df, 3)
@@ -1638,7 +1638,7 @@ class TestTsRankEdgeCases:
     def test_ts_rank_single_unique(self) -> None:
         """Test ts_rank with single unique non-null value."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "A": [5.0, 5.0, 5.0, 5.0, 5.0],
         })
         result = ts_rank(df, 3)
@@ -1652,7 +1652,7 @@ class TestTsDecayLinearEdgeCases:
     def test_ts_decay_linear_dense_true(self) -> None:
         """Test ts_decay_linear with dense=True (skip nulls)."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "A": [1.0, None, 3.0, 4.0, 5.0],
         })
         result = ts_decay_linear(df, 3, dense=True)
@@ -1662,7 +1662,7 @@ class TestTsDecayLinearEdgeCases:
     def test_ts_decay_linear_with_nulls_dense_false(self) -> None:
         """Test ts_decay_linear with nulls and dense=False."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "A": [1.0, None, 3.0, 4.0, 5.0],
         })
         result = ts_decay_linear(df, 3, dense=False)
@@ -1676,7 +1676,7 @@ class TestOtherOperatorEdgeCases:
     def test_hump_with_none(self) -> None:
         """Test hump when previous value is None."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [None, 100.0, 150.0],
         })
         result = hump(df, hump=0.1)
@@ -1686,7 +1686,7 @@ class TestOtherOperatorEdgeCases:
     def test_last_diff_value_all_same(self) -> None:
         """Test last_diff_value when all values are same."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "A": [5.0, 5.0, 5.0, 5.0, 5.0],
         })
         result = last_diff_value(df, 3)
@@ -1696,7 +1696,7 @@ class TestOtherOperatorEdgeCases:
     def test_ts_arg_max_short_window(self) -> None:
         """Test ts_arg_max when window not filled."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [1.0, 2.0, 3.0],
         })
         result = ts_arg_max(df, 5)
@@ -1706,7 +1706,7 @@ class TestOtherOperatorEdgeCases:
     def test_ts_arg_min_short_window(self) -> None:
         """Test ts_arg_min when window not filled."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [3.0, 2.0, 1.0],
         })
         result = ts_arg_min(df, 5)
@@ -1720,7 +1720,7 @@ class TestEdgeCases:
     def test_single_column(self) -> None:
         """Test operators with single symbol column."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "AAPL": [100.0, 102.0, 101.0, 103.0, 105.0],
         })
 
@@ -1730,7 +1730,7 @@ class TestEdgeCases:
     def test_with_nulls(self) -> None:
         """Test operators handle nulls correctly."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "AAPL": [100.0, None, 101.0, 103.0, 105.0],
             "MSFT": [200.0, 202.0, None, 203.0, 205.0],
         })
@@ -1751,7 +1751,7 @@ class TestBucketOperator:
     def test_bucket_basic(self) -> None:
         """Test basic bucketing."""
         df = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1)],
+            "Date": [date(2024, 1, 1)],
             "A": [0.1],
             "B": [0.3],
             "C": [0.6],
@@ -1766,7 +1766,7 @@ class TestBucketOperator:
     def test_bucket_clipping(self) -> None:
         """Test bucket clips values outside range."""
         df = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1)],
+            "Date": [date(2024, 1, 1)],
             "A": [-0.5],  # Below start
             "B": [1.5],   # Above end
         })
@@ -1776,20 +1776,20 @@ class TestBucketOperator:
 
     def test_bucket_invalid_spec(self) -> None:
         """Test bucket raises on invalid range spec."""
-        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [0.5]})
+        df = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [0.5]})
         with pytest.raises(ValueError, match="range_spec"):
             bucket(df, "0,1")
 
     def test_bucket_invalid_step(self) -> None:
         """Test bucket raises on non-positive step."""
-        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [0.5]})
+        df = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [0.5]})
         with pytest.raises(ValueError, match="step must be positive"):
             bucket(df, "0,1,-0.25")
 
     def test_bucket_multiple_rows(self) -> None:
         """Test bucket works across multiple rows."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [0.1, 0.5, 0.9],
         })
         result = bucket(df, "0,1,0.5")
@@ -1804,7 +1804,7 @@ class TestQuantileCauchy:
     def test_quantile_cauchy(self) -> None:
         """Test quantile transformation with cauchy driver."""
         df = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1)],
+            "Date": [date(2024, 1, 1)],
             "A": [1.0],
             "B": [2.0],
             "C": [3.0],
@@ -1819,7 +1819,7 @@ class TestQuantileCauchy:
     def test_quantile_unknown_driver_raises(self) -> None:
         """Test quantile raises on unknown driver."""
         df = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1)],
+            "Date": [date(2024, 1, 1)],
             "A": [1.0],
             "B": [2.0],
             "C": [3.0],
@@ -1862,13 +1862,13 @@ class TestArithmeticBuiltinFallbacks:
 
     def test_multiply_scalar_first(self) -> None:
         """Test multiply when first arg is scalar, second is DataFrame."""
-        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [5.0]})
+        df = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [5.0]})
         result = multiply(3, df)
         assert result["A"][0] == 15.0
 
     def test_multiply_scalar_in_loop(self) -> None:
         """Test multiply with DataFrame then scalar."""
-        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [5.0]})
+        df = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [5.0]})
         result = multiply(df, 3)
         assert result["A"][0] == 15.0
 
@@ -1879,7 +1879,7 @@ class TestArithmeticBuiltinFallbacks:
 
     def test_power_scalar_base_df_exp(self) -> None:
         """Test power with scalar base and DataFrame exponent."""
-        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [3.0]})
+        df = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [3.0]})
         result = power(2, df)
         assert result["A"][0] == 8.0  # 2^3
 
@@ -1890,7 +1890,7 @@ class TestArithmeticBuiltinFallbacks:
 
     def test_signed_power_scalar_df(self) -> None:
         """Test signed_power with scalar base and DataFrame exponent."""
-        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [2.0]})
+        df = pl.DataFrame({"Date": [date(2024, 1, 1)], "A": [2.0]})
         result = signed_power(3, df)
         assert result["A"][0] == 9.0  # sign(3) * |3|^2
 
@@ -1901,11 +1901,11 @@ class TestLookbackOperators:
     def test_ts_delta_with_lookback(self) -> None:
         """Test ts_delta with lookback DataFrame."""
         lookback = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1), date(2024, 1, 2)],
+            "Date": [date(2024, 1, 1), date(2024, 1, 2)],
             "A": [100.0, 102.0],
         })
         x = pl.DataFrame({
-            "timestamp": [date(2024, 1, 3), date(2024, 1, 4)],
+            "Date": [date(2024, 1, 3), date(2024, 1, 4)],
             "A": [105.0, 108.0],
         })
         result = ts_delta(x, 1, lookback=lookback)
@@ -1917,11 +1917,11 @@ class TestLookbackOperators:
     def test_ts_delay_with_lookback(self) -> None:
         """Test ts_delay with lookback DataFrame."""
         lookback = pl.DataFrame({
-            "timestamp": [date(2024, 1, 1), date(2024, 1, 2)],
+            "Date": [date(2024, 1, 1), date(2024, 1, 2)],
             "A": [100.0, 102.0],
         })
         x = pl.DataFrame({
-            "timestamp": [date(2024, 1, 3), date(2024, 1, 4)],
+            "Date": [date(2024, 1, 3), date(2024, 1, 4)],
             "A": [105.0, 108.0],
         })
         result = ts_delay(x, 1, lookback=lookback)
@@ -1937,7 +1937,7 @@ class TestTsQuantileUniform:
     def test_ts_quantile_uniform_path(self) -> None:
         """Test ts_quantile with uniform driver exercises else branch."""
         df = pl.DataFrame({
-            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
             "A": [1.0, 2.0, 3.0, 4.0, 5.0],
         })
         result = ts_quantile(df, 3, driver="uniform")
@@ -1954,7 +1954,7 @@ class TestRankLargeUniverse:
     def test_rank_bucket_based(self) -> None:
         """Test rank with 33+ symbols to trigger bucket-based path."""
         n_symbols = 40
-        data = {"timestamp": [date(2024, 1, 1), date(2024, 1, 2)]}
+        data = {"Date": [date(2024, 1, 1), date(2024, 1, 2)]}
         for i in range(n_symbols):
             data[f"S{i:03d}"] = [float(i), float(n_symbols - i)]
         df = pl.DataFrame(data)

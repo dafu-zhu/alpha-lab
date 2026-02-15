@@ -22,7 +22,7 @@ class TestDailyAPI:
         """Test fetching daily data for single symbol."""
         df = client.ticks("AAPL", "close", "2024-01-01", "2024-01-10")
 
-        assert "timestamp" in df.columns
+        assert "Date" in df.columns
         assert "AAPL" in df.columns
         assert len(df) > 0
 
@@ -31,7 +31,7 @@ class TestDailyAPI:
         # Note: Only AAPL has test data in conftest
         df = client.ticks(["AAPL"], "close", "2024-01-01", "2024-01-10")
 
-        assert "timestamp" in df.columns
+        assert "Date" in df.columns
         assert "AAPL" in df.columns
 
     def test_daily_wide_format(self, client: QuantDLClient) -> None:
@@ -39,7 +39,7 @@ class TestDailyAPI:
         df = client.ticks("AAPL", "close", "2024-01-01", "2024-01-10")
 
         # First column is timestamp
-        assert df.columns[0] == "timestamp"
+        assert df.columns[0] == "Date"
         # Other columns are symbols
         assert "AAPL" in df.columns[1:]
 
@@ -47,7 +47,7 @@ class TestDailyAPI:
         """Test that daily data is sorted by date."""
         df = client.ticks("AAPL", "close", "2024-01-01", "2024-01-10")
 
-        dates = df["timestamp"].to_list()
+        dates = df["Date"].to_list()
         assert dates == sorted(dates)
 
     def test_daily_field_options(self, client: QuantDLClient) -> None:
@@ -65,7 +65,7 @@ class TestDailyAPI:
         """Test date range filtering."""
         df = client.ticks("AAPL", "close", "2024-01-03", "2024-01-05")
 
-        dates = df["timestamp"].to_list()
+        dates = df["Date"].to_list()
         for d in dates:
             assert d >= date(2024, 1, 3)
             assert d <= date(2024, 1, 5)

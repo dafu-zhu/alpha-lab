@@ -19,7 +19,7 @@ class GroupFeatureBuilder:
         self, trading_days: list[date], security_ids: list[str]
     ) -> pl.DataFrame:
         """Return a wide table of nulls (timestamp + one null Utf8 column per sid)."""
-        calendar = pl.DataFrame({"timestamp": trading_days})
+        calendar = pl.DataFrame({"Date": trading_days})
         return calendar.with_columns(
             [pl.lit(None).cast(pl.Utf8).alias(sid) for sid in security_ids]
         )
@@ -51,7 +51,7 @@ class GroupFeatureBuilder:
         )
         sid_to_value = dict(lookup.iter_rows())
 
-        calendar = pl.DataFrame({"timestamp": trading_days})
+        calendar = pl.DataFrame({"Date": trading_days})
         return calendar.with_columns(
             [pl.lit(sid_to_value.get(sid)).cast(pl.Utf8).alias(sid) for sid in security_ids]
         )

@@ -40,7 +40,7 @@ class FundamentalFeatureBuilder:
                 .agg(pl.col("value").last())
             )
             result = deduped.select(
-                pl.col("as_of_date").alias("timestamp"),
+                pl.col("as_of_date").alias("Date"),
                 pl.col("value").cast(pl.Float64).alias(security_id),
             )
             return security_id, result
@@ -56,7 +56,7 @@ class FundamentalFeatureBuilder:
         security_ids: list[str],
     ) -> pl.DataFrame:
         """Build wide table for a raw fundamental concept with forward-fill."""
-        calendar = pl.DataFrame({"timestamp": trading_days})
+        calendar = pl.DataFrame({"Date": trading_days})
         results: dict[str, pl.DataFrame] = {}
 
         with ThreadPoolExecutor(max_workers=20) as pool:
@@ -71,14 +71,14 @@ class FundamentalFeatureBuilder:
 
         wide = calendar.clone()
         for sid, df in results.items():
-            wide = wide.join(df, on="timestamp", how="left")
+            wide = wide.join(df, on="Date", how="left")
 
         # Forward-fill all value columns
-        value_cols = [c for c in wide.columns if c != "timestamp"]
+        value_cols = [c for c in wide.columns if c != "Date"]
         if value_cols:
             wide = wide.with_columns([pl.col(c).forward_fill() for c in value_cols])
 
-        return wide.sort("timestamp")
+        return wide.sort("Date")
 
     # ── Arithmetic helpers ──
 
@@ -88,7 +88,7 @@ class FundamentalFeatureBuilder:
         common = set(security_ids)
         for df in dfs:
             common &= set(df.columns)
-        common.discard("timestamp")
+        common.discard("Date")
         return sorted(common)
 
     @staticmethod
@@ -99,9 +99,9 @@ class FundamentalFeatureBuilder:
         op: str,
     ) -> pl.DataFrame:
         """Apply a binary operation (+, -, *) across matching security columns."""
-        merged = a.select("timestamp", *sids).join(
-            b.select("timestamp", *[pl.col(c).alias(f"{c}_b") for c in sids]),
-            on="timestamp",
+        merged = a.select("Date", *sids).join(
+            b.select("Date", *[pl.col(c).alias(f"{c}_b") for c in sids]),
+            on="Date",
             how="left",
         )
         ops = {
@@ -109,7 +109,7 @@ class FundamentalFeatureBuilder:
             "-": lambda c: (pl.col(c) - pl.col(f"{c}_b")).alias(c),
             "*": lambda c: (pl.col(c) * pl.col(f"{c}_b")).alias(c),
         }
-        return merged.select("timestamp", *[ops[op](c) for c in sids])
+        return merged.select("Date", *[ops[op](c) for c in sids])
 
     @staticmethod
     def _safe_div(
@@ -117,14 +117,14 @@ class FundamentalFeatureBuilder:
     ) -> pl.DataFrame:
         """Divide num_df by den_df, returning null where denominator is zero."""
         merged = num_df.select(
-            "timestamp", *[pl.col(c).alias(f"{c}_num") for c in sids]
+            "Date", *[pl.col(c).alias(f"{c}_num") for c in sids]
         ).join(
-            den_df.select("timestamp", *[pl.col(c).alias(f"{c}_den") for c in sids]),
-            on="timestamp",
+            den_df.select("Date", *[pl.col(c).alias(f"{c}_den") for c in sids]),
+            on="Date",
             how="left",
         )
         return merged.select(
-            "timestamp",
+            "Date",
             *[
                 pl.when(pl.col(f"{c}_den") != 0)
                 .then(pl.col(f"{c}_num") / pl.col(f"{c}_den"))
@@ -136,7 +136,7 @@ class FundamentalFeatureBuilder:
 
     def _empty_wide(self, trading_days: list[date]) -> pl.DataFrame:
         """Return a timestamp-only DataFrame (used when no common sids exist)."""
-        return pl.DataFrame({"timestamp": trading_days})
+        return pl.DataFrame({"Date": trading_days})
 
     # ── Derived field builder ──
 
@@ -206,11 +206,11 @@ class FundamentalFeatureBuilder:
         # QoQ growth approximation
         if field_name == "sales_growth":
             sales = built["sales"]
-            cols = [c for c in sales.columns if c != "timestamp" and c in set(security_ids)]
+            cols = [c for c in sales.columns if c != "Date" and c in set(security_ids)]
             if not cols:
                 return self._empty_wide(trading_days)
             return sales.select(
-                "timestamp",
+                "Date",
                 *[(pl.col(c) / pl.col(c).shift(63) - 1).alias(c) for c in cols],
             )
 

@@ -26,7 +26,7 @@ class TestGroupFeatureBuilder:
         builder = GroupFeatureBuilder(mock_security_master)
         result = builder.build("sector", trading_days, ["1", "2"])
 
-        assert "timestamp" in result.columns
+        assert "Date" in result.columns
         assert len(result) == len(trading_days)
         assert result["1"][0] == "Information Technology"
         assert result["2"][0] == "Information Technology"

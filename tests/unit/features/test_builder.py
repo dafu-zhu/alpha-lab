@@ -38,7 +38,7 @@ class TestFeatureBuilder:
 
         assert "close" in written
         df = pl.read_ipc(written["close"])
-        assert "timestamp" in df.columns
+        assert "Date" in df.columns
         assert len(df) == len(trading_days)
 
     def test_skip_existing(self, raw_data_dir, trading_days, security_ids, mock_security_master):

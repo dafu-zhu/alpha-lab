@@ -115,11 +115,11 @@ class QuantDLClient:
     ) -> pl.DataFrame:
         """Align wide table rows to trading calendar."""
         trading_days = self._calendar_master.get_trading_days(start, end)
-        calendar_df = pl.DataFrame({"timestamp": trading_days})
-        aligned = calendar_df.join(wide, on="timestamp", how="left").sort("timestamp")
+        calendar_df = pl.DataFrame({"Date": trading_days})
+        aligned = calendar_df.join(wide, on="Date", how="left").sort("Date")
         if forward_fill:
             # Forward fill all columns except timestamp
-            value_cols = [c for c in aligned.columns if c != "timestamp"]
+            value_cols = [c for c in aligned.columns if c != "Date"]
             aligned = aligned.with_columns([pl.col(c).forward_fill() for c in value_cols])
         return aligned
 
@@ -133,10 +133,10 @@ class QuantDLClient:
         path = f"data/raw/ticks/daily/{security_id}/ticks.parquet"
         try:
             df = self._storage.read_parquet(path)
-            if df.schema["timestamp"] == pl.String:
-                df = df.with_columns(pl.col("timestamp").str.to_date())
+            if df.schema["Date"] == pl.String:
+                df = df.with_columns(pl.col("Date").str.to_date())
             return df.filter(
-                (pl.col("timestamp") >= start) & (pl.col("timestamp") <= end)
+                (pl.col("Date") >= start) & (pl.col("Date") <= end)
             )
         except Exception:
             return None
@@ -217,7 +217,7 @@ class QuantDLClient:
                 continue
             dfs.append(
                 df.select(
-                    pl.col("timestamp"),
+                    pl.col("Date"),
                     pl.lit(symbol).alias("symbol"),
                     pl.col(field).alias("value"),
                 )
@@ -228,7 +228,7 @@ class QuantDLClient:
 
         # Concat and pivot
         combined = pl.concat(dfs)
-        wide = combined.pivot(values="value", index="timestamp", on="symbol")
+        wide = combined.pivot(values="value", index="Date", on="symbol")
 
         # Align to trading calendar
         return self._align_to_calendar(wide, start, end)
@@ -280,12 +280,12 @@ class QuantDLClient:
             return None
 
         result = filtered.select(
-            pl.col("as_of_date").alias("timestamp"),
+            pl.col("as_of_date").alias("Date"),
             pl.lit(symbol).alias("symbol"),
             pl.col("value").cast(pl.Float64),
         )
         # Deduplicate: take first value per timestamp
-        return result.group_by(["timestamp", "symbol"]).agg(pl.col("value").first())
+        return result.group_by(["Date", "symbol"]).agg(pl.col("value").first())
 
     def fundamentals(
         self,
@@ -338,15 +338,15 @@ class QuantDLClient:
             raise DataNotFoundError("fundamentals", f"concept={concept}")
 
         combined = pl.concat(dfs)
-        wide = combined.pivot(values="value", index="timestamp", on="symbol")
+        wide = combined.pivot(values="value", index="Date", on="symbol")
 
         # Align from earliest data to allow forward-fill into requested range
-        earliest_val = wide["timestamp"].min()
+        earliest_val = wide["Date"].min()
         earliest = earliest_val if isinstance(earliest_val, date) else None
         align_start = min(earliest, start) if earliest else start
         aligned = self._align_to_calendar(wide, align_start, end, forward_fill=True)
 
-        return aligned.filter(pl.col("timestamp") >= start)
+        return aligned.filter(pl.col("Date") >= start)
 
     def metrics(
         self,
@@ -392,15 +392,15 @@ class QuantDLClient:
             raise DataNotFoundError("metrics", f"metric={metric}")
 
         combined = pl.concat(dfs)
-        wide = combined.pivot(values="value", index="timestamp", on="symbol")
+        wide = combined.pivot(values="value", index="Date", on="symbol")
 
         # Align from earliest data to allow forward-fill into requested range
-        earliest_val = wide["timestamp"].min()
+        earliest_val = wide["Date"].min()
         earliest = earliest_val if isinstance(earliest_val, date) else None
         align_start = min(earliest, start) if earliest else start
         aligned = self._align_to_calendar(wide, align_start, end, forward_fill=True)
 
-        return aligned.filter(pl.col("timestamp") >= start)
+        return aligned.filter(pl.col("Date") >= start)
 
     def _extract_metric_values(
         self, df: pl.DataFrame, metric: str, symbol: str
@@ -413,14 +413,14 @@ class QuantDLClient:
             if len(filtered) == 0:
                 return None
             return filtered.select(
-                pl.col("as_of_date").alias("timestamp"),
+                pl.col("as_of_date").alias("Date"),
                 pl.lit(symbol).alias("symbol"),
                 pl.col("value"),
             )
 
         if metric in df.columns:
             return df.select(
-                pl.col("as_of_date").alias("timestamp"),
+                pl.col("as_of_date").alias("Date"),
                 pl.lit(symbol).alias("symbol"),
                 pl.col(metric).alias("value"),
             )
@@ -476,13 +476,13 @@ class QuantDLClient:
         df = self._storage.read_ipc(path)
 
         # Cast timestamp if needed
-        if "timestamp" in df.columns and df.schema["timestamp"] == pl.String:
-            df = df.with_columns(pl.col("timestamp").str.to_date())
+        if "Date" in df.columns and df.schema["Date"] == pl.String:
+            df = df.with_columns(pl.col("Date").str.to_date())
 
         # Filter date range
-        if "timestamp" in df.columns:
+        if "Date" in df.columns:
             df = df.filter(
-                (pl.col("timestamp") >= start) & (pl.col("timestamp") <= end)
+                (pl.col("Date") >= start) & (pl.col("Date") <= end)
             )
 
         # Map security_id columns to symbols
@@ -497,11 +497,11 @@ class QuantDLClient:
             sid_cols = [sid for sid in sid_to_symbol if sid in df.columns]
             if not sid_cols:
                 raise DataNotFoundError("features", f"field={field}")
-            df = df.select("timestamp", *sid_cols)
+            df = df.select("Date", *sid_cols)
             rename_map = {sid: sid_to_symbol[sid] for sid in sid_cols}
             df = df.rename(rename_map)
 
-        return df.sort("timestamp")
+        return df.sort("Date")
 
     def universe(self, name: str = "top3000") -> list[str]:
         """Load universe of symbols.
