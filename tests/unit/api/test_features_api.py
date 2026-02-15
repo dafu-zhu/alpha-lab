@@ -59,25 +59,22 @@ class TestFeaturesAPI:
         client._calendar_master = Mock()
         client._max_concurrency = 10
 
-        from concurrent.futures import ThreadPoolExecutor
-        client._executor = ThreadPoolExecutor(max_workers=2)
-
         return client
 
     def test_features_returns_dataframe(self, client):
-        result = client.features("close", symbols=["AAPL"])
+        result = client.get("close", symbols=["AAPL"])
         assert isinstance(result, pl.DataFrame)
         assert "Date" in result.columns
         assert "AAPL" in result.columns
 
     def test_features_multiple_symbols(self, client):
-        result = client.features("close", symbols=["AAPL", "MSFT"])
+        result = client.get("close", symbols=["AAPL", "MSFT"])
         assert "AAPL" in result.columns
         assert "MSFT" in result.columns
         assert len(result) == 3
 
     def test_features_date_filter(self, client):
-        result = client.features(
+        result = client.get(
             "close",
             symbols=["AAPL"],
             start="2024-01-03",
@@ -89,15 +86,15 @@ class TestFeaturesAPI:
     def test_features_invalid_field_raises(self, client):
         from quantdl.api.exceptions import ValidationError
         with pytest.raises(ValidationError, match="Unknown feature field"):
-            client.features("totally_fake_field_xyz")
+            client.get("totally_fake_field_xyz")
 
     def test_features_no_matching_symbols_raises(self, client):
         from quantdl.api.exceptions import DataNotFoundError
         with pytest.raises(DataNotFoundError):
-            client.features("close", symbols=["ZZZZ"])
+            client.get("close", symbols=["ZZZZ"])
 
     def test_features_renames_sid_to_symbol(self, client):
-        result = client.features("close", symbols=["AAPL"])
+        result = client.get("close", symbols=["AAPL"])
         # Column should be "AAPL", not "100"
         assert "AAPL" in result.columns
         assert "100" not in result.columns
