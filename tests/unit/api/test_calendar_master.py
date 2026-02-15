@@ -6,8 +6,7 @@ from pathlib import Path
 import pytest
 
 from quantdl.api.data.calendar_master import CalendarMaster
-from quantdl.api.storage.backend import StorageBackend
-from quantdl.api.storage.cache import DiskCache
+from quantdl.api.backend import StorageBackend
 
 
 @pytest.fixture
@@ -17,10 +16,9 @@ def storage(test_data_dir: Path) -> StorageBackend:
 
 
 @pytest.fixture
-def calendar_master(storage: StorageBackend, temp_cache_dir: str) -> CalendarMaster:
-    """Create CalendarMaster with cache."""
-    cache = DiskCache(cache_dir=temp_cache_dir)
-    return CalendarMaster(storage, cache)
+def calendar_master(storage: StorageBackend) -> CalendarMaster:
+    """Create CalendarMaster."""
+    return CalendarMaster(storage)
 
 
 class TestIsTradingDay:
@@ -73,12 +71,11 @@ class TestGetTradingDays:
 
 
 class TestCaching:
-    """Tests for caching behavior."""
+    """Tests for in-memory caching behavior."""
 
-    def test_calendar_caching(self, storage: StorageBackend, temp_cache_dir: str) -> None:
-        """Test that calendar data is cached."""
-        cache = DiskCache(cache_dir=temp_cache_dir)
-        cm = CalendarMaster(storage, cache)
+    def test_calendar_caching(self, storage: StorageBackend) -> None:
+        """Test that calendar data is cached in memory."""
+        cm = CalendarMaster(storage)
 
         # First call loads data
         cm.is_trading_day(date(2024, 1, 2))
@@ -89,10 +86,4 @@ class TestCaching:
 
         # Subsequent calls should use cached data
         result = cm.is_trading_day(date(2024, 1, 3))
-        assert result is True
-
-    def test_calendar_without_cache(self, storage: StorageBackend) -> None:
-        """Test CalendarMaster works without disk cache."""
-        cm = CalendarMaster(storage, cache=None)
-        result = cm.is_trading_day(date(2024, 1, 2))
         assert result is True

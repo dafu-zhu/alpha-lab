@@ -8,6 +8,7 @@ import pytest
 
 from quantdl.api.operators import (
     abs as op_abs,
+    bucket,
 )
 from quantdl.api.operators import (
     add,
@@ -1737,3 +1738,230 @@ class TestEdgeCases:
         result = ts_mean(df, 3)
         # Should not raise, nulls propagate
         assert result is not None
+
+
+# =============================================================================
+# COVERAGE BOOST TESTS
+# =============================================================================
+
+
+class TestBucketOperator:
+    """Tests for bucket operator."""
+
+    def test_bucket_basic(self) -> None:
+        """Test basic bucketing."""
+        df = pl.DataFrame({
+            "timestamp": [date(2024, 1, 1)],
+            "A": [0.1],
+            "B": [0.3],
+            "C": [0.6],
+            "D": [0.9],
+        })
+        result = bucket(df, "0,1,0.25")
+        assert result["A"][0] == 0.0   # 0.1 -> bucket [0, 0.25)
+        assert result["B"][0] == 0.25  # 0.3 -> bucket [0.25, 0.5)
+        assert result["C"][0] == 0.5   # 0.6 -> bucket [0.5, 0.75)
+        assert result["D"][0] == 0.75  # 0.9 -> bucket [0.75, 1.0]
+
+    def test_bucket_clipping(self) -> None:
+        """Test bucket clips values outside range."""
+        df = pl.DataFrame({
+            "timestamp": [date(2024, 1, 1)],
+            "A": [-0.5],  # Below start
+            "B": [1.5],   # Above end
+        })
+        result = bucket(df, "0,1,0.25")
+        assert result["A"][0] == 0.0   # Clipped to start
+        assert result["B"][0] == 0.75  # Clipped to end - step
+
+    def test_bucket_invalid_spec(self) -> None:
+        """Test bucket raises on invalid range spec."""
+        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [0.5]})
+        with pytest.raises(ValueError, match="range_spec"):
+            bucket(df, "0,1")
+
+    def test_bucket_invalid_step(self) -> None:
+        """Test bucket raises on non-positive step."""
+        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [0.5]})
+        with pytest.raises(ValueError, match="step must be positive"):
+            bucket(df, "0,1,-0.25")
+
+    def test_bucket_multiple_rows(self) -> None:
+        """Test bucket works across multiple rows."""
+        df = pl.DataFrame({
+            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "A": [0.1, 0.5, 0.9],
+        })
+        result = bucket(df, "0,1,0.5")
+        assert result["A"][0] == 0.0
+        assert result["A"][1] == 0.5
+        assert result["A"][2] == 0.5
+
+
+class TestQuantileCauchy:
+    """Test quantile with cauchy driver."""
+
+    def test_quantile_cauchy(self) -> None:
+        """Test quantile transformation with cauchy driver."""
+        df = pl.DataFrame({
+            "timestamp": [date(2024, 1, 1)],
+            "A": [1.0],
+            "B": [2.0],
+            "C": [3.0],
+        })
+        result = quantile(df, driver="cauchy")
+        assert result.columns == df.columns
+        for col in ["A", "B", "C"]:
+            val = result[col][0]
+            if val is not None:
+                assert not math.isnan(val)
+
+    def test_quantile_unknown_driver_raises(self) -> None:
+        """Test quantile raises on unknown driver."""
+        df = pl.DataFrame({
+            "timestamp": [date(2024, 1, 1)],
+            "A": [1.0],
+            "B": [2.0],
+            "C": [3.0],
+        })
+        with pytest.raises(ValueError, match="Unknown driver"):
+            quantile(df, driver="invalid_driver")
+
+
+class TestArithmeticBuiltinFallbacks:
+    """Tests for arithmetic operator built-in fallbacks."""
+
+    def test_abs_scalar(self) -> None:
+        """Test abs() with scalar falls back to built-in."""
+        assert op_abs(-5) == 5
+        assert op_abs(3) == 3
+        assert op_abs(0) == 0
+
+    def test_max_builtin_scalar(self) -> None:
+        """Test max() with scalars falls back to built-in."""
+        assert op_max(1, 2, 3) == 3
+        assert op_max([5, 2, 8]) == 8
+
+    def test_max_builtin_kwargs(self) -> None:
+        """Test max() with kwargs falls back to built-in."""
+        assert op_max([1, 2, 3], key=lambda x: -x) == 1
+
+    def test_min_builtin_scalar(self) -> None:
+        """Test min() with scalars falls back to built-in."""
+        assert op_min(1, 2, 3) == 1
+        assert op_min([5, 2, 8]) == 2
+
+    def test_min_builtin_kwargs(self) -> None:
+        """Test min() with kwargs falls back to built-in."""
+        assert op_min([1, 2, 3], key=lambda x: -x) == 3
+
+    def test_multiply_all_scalars(self) -> None:
+        """Test multiply with all scalar inputs."""
+        assert multiply(2, 3) == 6
+        assert multiply(2, 3, 4) == 24
+
+    def test_multiply_scalar_first(self) -> None:
+        """Test multiply when first arg is scalar, second is DataFrame."""
+        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [5.0]})
+        result = multiply(3, df)
+        assert result["A"][0] == 15.0
+
+    def test_multiply_scalar_in_loop(self) -> None:
+        """Test multiply with DataFrame then scalar."""
+        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [5.0]})
+        result = multiply(df, 3)
+        assert result["A"][0] == 15.0
+
+    def test_power_both_scalars(self) -> None:
+        """Test power with both scalars."""
+        assert power(2, 3) == 8
+        assert power(3, 0) == 1
+
+    def test_power_scalar_base_df_exp(self) -> None:
+        """Test power with scalar base and DataFrame exponent."""
+        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [3.0]})
+        result = power(2, df)
+        assert result["A"][0] == 8.0  # 2^3
+
+    def test_signed_power_both_scalars(self) -> None:
+        """Test signed_power with both scalars."""
+        assert signed_power(4, 2) == 16
+        assert signed_power(-4, 2) == -16
+
+    def test_signed_power_scalar_df(self) -> None:
+        """Test signed_power with scalar base and DataFrame exponent."""
+        df = pl.DataFrame({"timestamp": [date(2024, 1, 1)], "A": [2.0]})
+        result = signed_power(3, df)
+        assert result["A"][0] == 9.0  # sign(3) * |3|^2
+
+
+class TestLookbackOperators:
+    """Tests for time-series operators with lookback parameter."""
+
+    def test_ts_delta_with_lookback(self) -> None:
+        """Test ts_delta with lookback DataFrame."""
+        lookback = pl.DataFrame({
+            "timestamp": [date(2024, 1, 1), date(2024, 1, 2)],
+            "A": [100.0, 102.0],
+        })
+        x = pl.DataFrame({
+            "timestamp": [date(2024, 1, 3), date(2024, 1, 4)],
+            "A": [105.0, 108.0],
+        })
+        result = ts_delta(x, 1, lookback=lookback)
+        assert len(result) == 2
+        # First value should be 105 - 102 = 3 (using lookback)
+        assert result["A"][0] == 3.0
+        assert result["A"][1] == 3.0  # 108 - 105
+
+    def test_ts_delay_with_lookback(self) -> None:
+        """Test ts_delay with lookback DataFrame."""
+        lookback = pl.DataFrame({
+            "timestamp": [date(2024, 1, 1), date(2024, 1, 2)],
+            "A": [100.0, 102.0],
+        })
+        x = pl.DataFrame({
+            "timestamp": [date(2024, 1, 3), date(2024, 1, 4)],
+            "A": [105.0, 108.0],
+        })
+        result = ts_delay(x, 1, lookback=lookback)
+        assert len(result) == 2
+        # First value should be 102 (from lookback)
+        assert result["A"][0] == 102.0
+        assert result["A"][1] == 105.0
+
+
+class TestTsQuantileUniform:
+    """Test ts_quantile uniform path."""
+
+    def test_ts_quantile_uniform_path(self) -> None:
+        """Test ts_quantile with uniform driver exercises else branch."""
+        df = pl.DataFrame({
+            "timestamp": pl.date_range(date(2024, 1, 1), date(2024, 1, 5), eager=True),
+            "A": [1.0, 2.0, 3.0, 4.0, 5.0],
+        })
+        result = ts_quantile(df, 3, driver="uniform")
+        # Uniform output in [-1, 1]
+        for i in range(2, len(result)):
+            val = result["A"][i]
+            if val is not None:
+                assert -1.0 <= val <= 1.0
+
+
+class TestRankLargeUniverse:
+    """Test rank with large universe to trigger bucket-based ranking."""
+
+    def test_rank_bucket_based(self) -> None:
+        """Test rank with 33+ symbols to trigger bucket-based path."""
+        n_symbols = 40
+        data = {"timestamp": [date(2024, 1, 1), date(2024, 1, 2)]}
+        for i in range(n_symbols):
+            data[f"S{i:03d}"] = [float(i), float(n_symbols - i)]
+        df = pl.DataFrame(data)
+        result = rank(df, rate=2)  # rate>0 with n_symbols>=32 triggers bucket path
+        assert result.columns == df.columns
+        # Values should be in [0, 1]
+        for col in df.columns[1:]:
+            for val in result[col]:
+                if val is not None:
+                    assert 0.0 <= val <= 1.0

@@ -3,7 +3,6 @@
 import pytest
 
 from quantdl.api.exceptions import (
-    CacheError,
     ConfigurationError,
     DataNotFoundError,
     QuantDLError,
@@ -75,20 +74,6 @@ class TestDataNotFoundError:
     def test_data_not_found_is_quantdl_error(self) -> None:
         """Test DataNotFoundError inherits from QuantDLError."""
         exc = DataNotFoundError("fundamentals", "MSFT")
-        assert isinstance(exc, QuantDLError)
-
-
-class TestCacheError:
-    """Tests for CacheError."""
-
-    def test_cache_error(self) -> None:
-        """Test CacheError message."""
-        exc = CacheError("Cache corrupted")
-        assert str(exc) == "Cache corrupted"
-
-    def test_cache_error_is_quantdl_error(self) -> None:
-        """Test CacheError inherits from QuantDLError."""
-        exc = CacheError("error")
         assert isinstance(exc, QuantDLError)
 
 

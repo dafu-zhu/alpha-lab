@@ -2,7 +2,6 @@
 
 from quantdl.api.client import QuantDLClient
 from quantdl.api.exceptions import (
-    CacheError,
     ConfigurationError,
     DataNotFoundError,
     QuantDLError,
@@ -18,6 +17,5 @@ __all__ = [
     "SecurityNotFoundError",
     "DataNotFoundError",
     "StorageError",
-    "CacheError",
     "ConfigurationError",
 ]

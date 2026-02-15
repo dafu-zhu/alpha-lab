@@ -4,8 +4,7 @@ from datetime import date, timedelta
 
 import polars as pl
 
-from quantdl.api.storage.backend import StorageBackend
-from quantdl.api.storage.cache import DiskCache
+from quantdl.api.backend import StorageBackend
 from quantdl.api.types import SecurityInfo
 
 
@@ -18,30 +17,15 @@ class SecurityMaster:
 
     SECURITY_MASTER_PATH = "data/meta/master/security_master.parquet"
 
-    def __init__(self, storage: StorageBackend, cache: DiskCache | None = None) -> None:
+    def __init__(self, storage: StorageBackend) -> None:
         self._storage = storage
-        self._cache = cache
         self._df: pl.DataFrame | None = None
 
     def _load(self) -> pl.DataFrame:
-        """Load security master with caching."""
+        """Load security master with in-memory caching."""
         if self._df is not None:
             return self._df
-
-        # Try cache first
-        if self._cache:
-            cached = self._cache.get(self.SECURITY_MASTER_PATH)
-            if cached is not None:
-                self._df = cached
-                return self._df
-
-        # Fetch from storage
         self._df = self._storage.read_parquet(self.SECURITY_MASTER_PATH)
-
-        # Cache for next time
-        if self._cache:
-            self._cache.put(self.SECURITY_MASTER_PATH, self._df)
-
         return self._df
 
     def _to_security_info(self, row: dict[str, object]) -> SecurityInfo:

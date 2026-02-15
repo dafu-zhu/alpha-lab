@@ -70,30 +70,8 @@ class TestDailyAPI:
             assert d >= date(2024, 1, 3)
             assert d <= date(2024, 1, 5)
 
-
-class TestDailyCaching:
-    """Tests for ticks data caching."""
-
-    def test_daily_uses_cache(self, client: QuantDLClient) -> None:
-        """Test that second request uses cache (when caching enabled)."""
-        # First request
+    def test_daily_repeated_request_returns_same_data(self, client: QuantDLClient) -> None:
+        """Test that repeated requests return identical data."""
         df1 = client.ticks("AAPL", "close", "2024-01-01", "2024-01-10")
-
-        # Check cache stats (empty dict if no cache in local mode)
-        stats = client.cache_stats()
-        if "entries" in stats:
-            assert stats["entries"] >= 1
-
-        # Second request should return same data
         df2 = client.ticks("AAPL", "close", "2024-01-01", "2024-01-10")
-
         assert df1.equals(df2)
-
-    def test_clear_cache(self, client: QuantDLClient) -> None:
-        """Test cache clearing."""
-        client.ticks("AAPL", "close", "2024-01-01", "2024-01-10")
-
-        client.clear_cache()
-        stats = client.cache_stats()
-        # In local mode without cache_dir, cache_stats returns empty dict
-        assert stats.get("entries", 0) == 0

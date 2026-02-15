@@ -7,8 +7,7 @@ import polars as pl
 import pytest
 
 from quantdl.api.data.security_master import SecurityMaster
-from quantdl.api.storage.backend import StorageBackend
-from quantdl.api.storage.cache import DiskCache
+from quantdl.api.backend import StorageBackend
 
 
 @pytest.fixture
@@ -18,10 +17,9 @@ def storage(test_data_dir: Path) -> StorageBackend:
 
 
 @pytest.fixture
-def security_master(storage: StorageBackend, temp_cache_dir: str) -> SecurityMaster:
-    """Create SecurityMaster with cache."""
-    cache = DiskCache(cache_dir=temp_cache_dir)
-    return SecurityMaster(storage, cache)
+def security_master(storage: StorageBackend) -> SecurityMaster:
+    """Create SecurityMaster."""
+    return SecurityMaster(storage)
 
 
 class TestResolve:
@@ -119,9 +117,7 @@ class TestSearch:
 class TestSymbolChanges:
     """Tests for symbol changes over time."""
 
-    def test_symbol_change_history(
-        self, test_data_dir: Path, temp_cache_dir: str
-    ) -> None:
+    def test_symbol_change_history(self, test_data_dir: Path) -> None:
         """Test security with symbol change."""
         # Create security master with symbol change
         security_master_df = pl.DataFrame({
@@ -140,7 +136,7 @@ class TestSymbolChanges:
 
         # Create fresh security master
         storage = StorageBackend(data_path=test_data_dir)
-        sm = SecurityMaster(storage, DiskCache(cache_dir=temp_cache_dir + "/new"))
+        sm = SecurityMaster(storage)
 
         # Resolve at different points in time
         old_info = sm.resolve("OLD_SYM", as_of=date(2021, 6, 1))

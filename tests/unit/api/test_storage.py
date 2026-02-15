@@ -6,7 +6,7 @@ import polars as pl
 import pytest
 
 from quantdl.api.exceptions import StorageError
-from quantdl.api.storage.backend import StorageBackend
+from quantdl.api.backend import StorageBackend
 
 
 @pytest.fixture
@@ -96,3 +96,34 @@ class TestColumnSelection:
         )
         assert len(df) == 1
         assert df["symbol"][0] == "AAPL"
+
+
+class TestIPCMethods:
+    """Tests for Arrow IPC read/scan methods."""
+
+    def test_read_ipc_nonexistent_raises(self, local_storage: StorageBackend) -> None:
+        """Test read_ipc wraps errors in StorageError."""
+        with pytest.raises(StorageError) as exc_info:
+            local_storage.read_ipc("nonexistent.arrow")
+        assert "nonexistent.arrow" in str(exc_info.value)
+
+    def test_read_ipc_with_valid_file(self, test_data_dir: Path) -> None:
+        """Test read_ipc works with a valid IPC file."""
+        # Write a test IPC file
+        ipc_path = test_data_dir / "test.arrow"
+        df = pl.DataFrame({"a": [1, 2, 3]})
+        df.write_ipc(str(ipc_path))
+
+        storage = StorageBackend(data_path=test_data_dir)
+        result = storage.read_ipc("test.arrow")
+        assert result.equals(df)
+
+    def test_read_ipc_with_columns(self, test_data_dir: Path) -> None:
+        """Test read_ipc column selection."""
+        ipc_path = test_data_dir / "test2.arrow"
+        df = pl.DataFrame({"a": [1, 2], "b": [3, 4]})
+        df.write_ipc(str(ipc_path))
+
+        storage = StorageBackend(data_path=test_data_dir)
+        result = storage.read_ipc("test2.arrow", columns=["a"])
+        assert result.columns == ["a"]

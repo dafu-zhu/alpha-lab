@@ -39,10 +39,6 @@ class StorageError(QuantDLError):
         super().__init__(msg)
 
 
-class CacheError(QuantDLError):
-    """Raised when cache operations fail."""
-
-
 class ConfigurationError(QuantDLError):
     """Raised when configuration is invalid or missing."""
 

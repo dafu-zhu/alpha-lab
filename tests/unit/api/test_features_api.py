@@ -34,9 +34,8 @@ class TestFeaturesAPI:
             client = QuantDLClient.__new__(QuantDLClient)
 
         # Manually set up internals
-        from quantdl.api.storage.backend import StorageBackend
+        from quantdl.api.backend import StorageBackend
         client._storage = StorageBackend(str(features_dir))
-        client._cache = None
 
         mock_sm = Mock()
 
@@ -106,7 +105,7 @@ class TestFeaturesAPI:
 
 class TestStorageBackendIPC:
     def test_read_ipc(self, tmp_path):
-        from quantdl.api.storage.backend import StorageBackend
+        from quantdl.api.backend import StorageBackend
 
         df = pl.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
         path = tmp_path / "test.arrow"
@@ -117,7 +116,7 @@ class TestStorageBackendIPC:
         assert result.shape == (3, 2)
 
     def test_read_ipc_with_columns(self, tmp_path):
-        from quantdl.api.storage.backend import StorageBackend
+        from quantdl.api.backend import StorageBackend
 
         df = pl.DataFrame({"a": [1, 2], "b": [3, 4], "c": [5, 6]})
         path = tmp_path / "test.arrow"
@@ -128,7 +127,7 @@ class TestStorageBackendIPC:
         assert result.columns == ["a", "c"]
 
     def test_read_ipc_missing_file_raises(self, tmp_path):
-        from quantdl.api.storage.backend import StorageBackend
+        from quantdl.api.backend import StorageBackend
         from quantdl.api.exceptions import StorageError
 
         backend = StorageBackend(str(tmp_path))
@@ -136,7 +135,7 @@ class TestStorageBackendIPC:
             backend.read_ipc("nonexistent.arrow")
 
     def test_scan_ipc(self, tmp_path):
-        from quantdl.api.storage.backend import StorageBackend
+        from quantdl.api.backend import StorageBackend
 
         df = pl.DataFrame({"x": [10, 20]})
         path = tmp_path / "scan.arrow"

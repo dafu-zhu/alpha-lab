@@ -96,14 +96,6 @@ def test_data_dir(tmp_path: Path) -> Generator[Path, None, None]:
 
 
 @pytest.fixture
-def temp_cache_dir(tmp_path: Any) -> str:
-    """Create temporary cache directory."""
-    cache_dir = tmp_path / ".quantdl" / "cache"
-    cache_dir.mkdir(parents=True)
-    return str(cache_dir)
-
-
-@pytest.fixture
 def client(test_data_dir: Path) -> Any:
     """Create client with local test data."""
     from quantdl.api import QuantDLClient

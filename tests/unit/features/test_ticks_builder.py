@@ -100,3 +100,43 @@ class TestTicksFeatureBuilderComputed:
         builder = TicksFeatureBuilder(str(raw_data_dir))
         with pytest.raises(ValueError, match="Unknown computed"):
             builder.build_computed("nonexistent", {}, trading_days, security_ids)
+
+    def test_cap_empty_when_no_common_sids(self, raw_data_dir, trading_days):
+        """Cap returns timestamp-only when no common sids."""
+        from quantdl.features.builders.ticks import TicksFeatureBuilder
+        builder = TicksFeatureBuilder(str(raw_data_dir))
+        close = pl.DataFrame({"timestamp": trading_days, "A": [1.0] * len(trading_days)})
+        sharesout = pl.DataFrame({"timestamp": trading_days, "B": [1.0] * len(trading_days)})
+        built = {"close": close, "sharesout": sharesout}
+        result = builder.build_computed("cap", built, trading_days, ["A", "B"])
+        assert result.columns == ["timestamp"]
+
+
+class TestTicksEdgeCases:
+    def test_string_timestamp_is_cast(self, tmp_path, trading_days):
+        """Ticks with string timestamp column should be auto-cast."""
+        from quantdl.features.builders.ticks import TicksFeatureBuilder
+        ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily" / "SCAST"
+        ticks_dir.mkdir(parents=True)
+        df = pl.DataFrame({
+            "timestamp": [str(d) for d in trading_days],
+            "close": [100.0 + i for i in range(len(trading_days))],
+        })
+        df.write_parquet(str(ticks_dir / "ticks.parquet"))
+
+        builder = TicksFeatureBuilder(str(tmp_path))
+        result = builder.build_direct("close", "close", trading_days, ["SCAST"])
+        assert "SCAST" in result.columns
+        assert result["SCAST"].null_count() == 0
+
+    def test_read_column_corrupted_file(self, tmp_path, trading_days):
+        """Corrupted parquet returns None gracefully."""
+        from quantdl.features.builders.ticks import TicksFeatureBuilder
+        ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily" / "BAD"
+        ticks_dir.mkdir(parents=True)
+        (ticks_dir / "ticks.parquet").write_text("corrupted")
+
+        builder = TicksFeatureBuilder(str(tmp_path))
+        result = builder.build_direct("close", "close", trading_days, ["BAD"])
+        # BAD should not be in columns since read failed
+        assert "BAD" not in result.columns

@@ -12,8 +12,7 @@ import polars as pl
 from quantdl.api.data.calendar_master import CalendarMaster
 from quantdl.api.data.security_master import SecurityMaster
 from quantdl.api.exceptions import ConfigurationError, DataNotFoundError, ValidationError
-from quantdl.api.storage.backend import StorageBackend
-from quantdl.api.storage.cache import DiskCache
+from quantdl.api.backend import StorageBackend
 from quantdl.api.types import SecurityInfo
 
 if TYPE_CHECKING:
@@ -59,32 +58,20 @@ class QuantDLClient:
     def __init__(
         self,
         data_path: str,
-        cache_dir: str | None = None,
-        cache_ttl_seconds: int | None = None,
-        cache_max_size_bytes: int | None = None,
         max_concurrency: int = 10,
     ) -> None:
         """Initialize QuantDL client.
 
         Args:
             data_path: Path to local data directory (required)
-            cache_dir: Local cache directory (default: ~/.quantdl/cache)
-            cache_ttl_seconds: Cache TTL in seconds (default: 24 hours)
-            cache_max_size_bytes: Max cache size in bytes (default: 10GB)
             max_concurrency: Max concurrent requests (default: 10)
         """
         if not data_path:
             raise ConfigurationError("data_path is required")
 
         self._storage = StorageBackend(data_path=data_path)
-        self._cache = DiskCache(
-            cache_dir=cache_dir,
-            ttl_seconds=cache_ttl_seconds,
-            max_size_bytes=cache_max_size_bytes,
-        ) if cache_dir else None
-
-        self._security_master = SecurityMaster(self._storage, self._cache)
-        self._calendar_master = CalendarMaster(self._storage, self._cache)
+        self._security_master = SecurityMaster(self._storage)
+        self._calendar_master = CalendarMaster(self._storage)
         self._max_concurrency = max_concurrency
         self._executor = ThreadPoolExecutor(max_workers=max_concurrency)
 
@@ -144,29 +131,13 @@ class QuantDLClient:
     ) -> pl.DataFrame | None:
         """Fetch daily ticks for single security."""
         path = f"data/raw/ticks/daily/{security_id}/ticks.parquet"
-
-        # Try cache first
-        if self._cache:
-            cached = self._cache.get(path)
-            if cached is not None:
-                return cached.filter(
-                    (pl.col("timestamp") >= start) & (pl.col("timestamp") <= end)
-                )
-
-        # Fetch from storage
         try:
             df = self._storage.read_parquet(path)
-            # Cast timestamp to date if it's a string
             if df.schema["timestamp"] == pl.String:
                 df = df.with_columns(pl.col("timestamp").str.to_date())
-            # Filter by date range
-            df = df.filter(
+            return df.filter(
                 (pl.col("timestamp") >= start) & (pl.col("timestamp") <= end)
             )
-            # Cache full file for future use
-            if self._cache:
-                self._cache.put(path, df)
-            return df
         except Exception:
             return None
 
@@ -267,20 +238,11 @@ class QuantDLClient:
     ) -> pl.DataFrame | None:
         """Fetch fundamentals for single security by security_id."""
         path = f"data/raw/fundamental/{security_id}/fundamental.parquet"
-
         date_filter = pl.col("as_of_date") <= end
-
-        if self._cache:
-            cached = self._cache.get(path)
-            if cached is not None:
-                return cached.filter(date_filter)
-
         try:
             df = self._storage.read_parquet(path)
             if df.schema["as_of_date"] == pl.String:
                 df = df.with_columns(pl.col("as_of_date").str.to_date())
-            if self._cache:
-                self._cache.put(path, df)
             return df.filter(date_filter)
         except Exception:
             return None
@@ -551,28 +513,11 @@ class QuantDLClient:
             List of symbols in the universe
         """
         path = f"data/meta/universe/{name}.parquet"
-
-        if self._cache:
-            cached = self._cache.get(path)
-            if cached is not None:
-                return cached["symbol"].to_list()
-
         try:
             df = self._storage.read_parquet(path)
-            if self._cache:
-                self._cache.put(path, df)
             return df["symbol"].to_list()
         except Exception as e:
             raise DataNotFoundError("universe", name) from e
-
-    def clear_cache(self) -> None:
-        """Clear all cached data."""
-        if self._cache:
-            self._cache.clear()
-
-    def cache_stats(self) -> dict[str, object]:
-        """Get cache statistics."""
-        return self._cache.stats() if self._cache else {}
 
     def close(self) -> None:
         """Clean up resources."""

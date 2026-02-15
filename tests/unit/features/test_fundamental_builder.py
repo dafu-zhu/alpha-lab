@@ -116,3 +116,89 @@ class TestFundamentalBuilderDerived:
         result = builder.build_derived("sales_growth", deps, trading_days, security_ids)
         # With only 10 trading days, shift(63) should produce all nulls
         assert result["SEC001"].null_count() == len(trading_days)
+
+    def test_invested_capital(self, built_deps, trading_days, security_ids):
+        deps, builder = built_deps
+        result = builder.build_derived("invested_capital", deps, trading_days, security_ids)
+        # invested_capital = equity + debt_lt - cash = 1e9 + 1e9 - 1e9 = 1e9
+        vals = result["SEC001"].to_list()
+        assert vals[3] == 1e9
+
+    def test_enterprise_value_requires_cap(self, built_deps, trading_days, security_ids):
+        deps, builder = built_deps
+        # enterprise_value needs "cap" which is not in built_deps
+        # Add a mock cap
+        calendar = pl.DataFrame({"timestamp": trading_days})
+        cap = calendar.clone()
+        for sid in security_ids:
+            cap = cap.with_columns(pl.lit(5e9).alias(sid))
+        deps["cap"] = cap
+        result = builder.build_derived("enterprise_value", deps, trading_days, security_ids)
+        # ev = cap + debt_lt - cash = 5e9 + 1e9 - 1e9 = 5e9
+        vals = result["SEC001"].to_list()
+        assert vals[3] == 5e9
+
+    def test_operating_expense(self, built_deps, trading_days, security_ids):
+        deps, builder = built_deps
+        result = builder.build_derived("operating_expense", deps, trading_days, security_ids)
+        # op_exp = cogs + sga_expense + depre_amort = 3e9
+        vals = result["SEC001"].to_list()
+        assert vals[3] == 3e9
+
+    def test_derived_empty_wide_no_common_sids(self, trading_days):
+        """Derived field returns empty wide table when no common sids."""
+        from quantdl.features.builders.fundamental import FundamentalFeatureBuilder
+        builder = FundamentalFeatureBuilder(".")
+        calendar = pl.DataFrame({"timestamp": trading_days})
+        deps = {
+            "income": calendar.with_columns(pl.lit(1.0).alias("A")),
+            "equity": calendar.with_columns(pl.lit(1.0).alias("B")),
+        }
+        result = builder.build_derived("return_equity", deps, trading_days, ["C"])
+        assert result.columns == ["timestamp"]
+
+    def test_sales_growth_empty_cols(self, trading_days):
+        """sales_growth returns empty wide when no matching sids in sales."""
+        from quantdl.features.builders.fundamental import FundamentalFeatureBuilder
+        builder = FundamentalFeatureBuilder(".")
+        calendar = pl.DataFrame({"timestamp": trading_days})
+        deps = {"sales": calendar.with_columns(pl.lit(1.0).alias("X"))}
+        result = builder.build_derived("sales_growth", deps, trading_days, ["Y"])
+        assert result.columns == ["timestamp"]
+
+
+class TestFundamentalEdgeCases:
+    def test_missing_file_returns_none(self, tmp_path, trading_days):
+        """Security without parquet file returns no data."""
+        from quantdl.features.builders.fundamental import FundamentalFeatureBuilder
+        builder = FundamentalFeatureBuilder(str(tmp_path))
+        result = builder.build_raw("assets", "assets", trading_days, ["NOSID"])
+        assert "timestamp" in result.columns
+        assert "NOSID" not in result.columns
+
+    def test_string_as_of_date_cast(self, tmp_path, trading_days):
+        """String as_of_date column is auto-cast to Date."""
+        from quantdl.features.builders.fundamental import FundamentalFeatureBuilder
+        fnd_dir = tmp_path / "data" / "raw" / "fundamental" / "STRDATE"
+        fnd_dir.mkdir(parents=True)
+        df = pl.DataFrame({
+            "as_of_date": ["2024-01-05"],
+            "concept": ["assets"],
+            "value": [42.0],
+        })
+        df.write_parquet(str(fnd_dir / "fundamental.parquet"))
+
+        builder = FundamentalFeatureBuilder(str(tmp_path))
+        result = builder.build_raw("assets", "assets", trading_days, ["STRDATE"])
+        assert "STRDATE" in result.columns
+
+    def test_corrupted_file_returns_none(self, tmp_path, trading_days):
+        """Corrupted parquet is handled gracefully."""
+        from quantdl.features.builders.fundamental import FundamentalFeatureBuilder
+        fnd_dir = tmp_path / "data" / "raw" / "fundamental" / "BAD"
+        fnd_dir.mkdir(parents=True)
+        (fnd_dir / "fundamental.parquet").write_text("corrupted")
+
+        builder = FundamentalFeatureBuilder(str(tmp_path))
+        result = builder.build_raw("assets", "assets", trading_days, ["BAD"])
+        assert "BAD" not in result.columns
