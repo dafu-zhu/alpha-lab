@@ -197,7 +197,8 @@ class SecurityMaster:
         self.logger = setup_logger(
             name="master.SecurityMaster",
             log_dir=Path("data/logs/master"),
-            level=logging.INFO
+            level=logging.INFO,
+            console_output=True
         )
 
         # Cache for GICS mapping (loaded on-demand)

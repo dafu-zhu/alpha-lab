@@ -43,14 +43,17 @@ def _build_master(logger) -> None:
     source = Path("data/meta/master/security_master.parquet")
     working = master_dir / "security_master.parquet"
 
-    if source.exists() and source != working:
-        shutil.copy2(str(source), str(working))
-        logger.info(f"Copied source parquet -> {working}")
-    elif not working.exists():
-        raise FileNotFoundError(
-            f"No source parquet at {source}. "
-            "Run: python scripts/build_security_master.py"
-        )
+    if not working.exists():
+        if source.exists():
+            shutil.copy2(str(source), str(working))
+            logger.info(f"Initialized working copy from source parquet")
+        else:
+            raise FileNotFoundError(
+                f"No source parquet at {source}. "
+                "Run: python scripts/build_security_master.py"
+            )
+    else:
+        logger.info(f"Using existing working copy at {working}")
 
     master = SecurityMaster(local_path=working)
     result = master.update()
@@ -161,10 +164,12 @@ def main():
 
     args = parser.parse_args()
 
+    import logging
     from quantdl.utils.logger import setup_logger
     logger = setup_logger(
         name="qdl",
         log_dir=Path("data/logs"),
+        level=logging.INFO,
         console_output=True,
     )
 
