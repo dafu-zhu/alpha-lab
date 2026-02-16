@@ -18,7 +18,12 @@ from quantdl.storage.utils import RateLimiter
 load_dotenv()
 
 # Default local path for security master parquet
-LOCAL_MASTER_PATH = Path("data/meta/master/security_master.parquet")
+# Prefer working copy under LOCAL_STORAGE_PATH, fall back to project root
+_storage_base = os.getenv("LOCAL_STORAGE_PATH", "")
+if _storage_base:
+    LOCAL_MASTER_PATH = Path(_storage_base) / "data" / "meta" / "master" / "security_master.parquet"
+else:
+    LOCAL_MASTER_PATH = Path("data/meta/master/security_master.parquet")
 
 # Morningstar→GICS mapping file
 GICS_MAPPING_PATH = Path("configs/morningstar_to_gics.yaml")
