@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from quantdl.api.data.calendar_master import CalendarMaster
-from quantdl.api.backend import StorageBackend
+from alphalab.api.data.calendar_master import CalendarMaster
+from alphalab.api.backend import StorageBackend
 
 
 @pytest.fixture

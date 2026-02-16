@@ -6,7 +6,7 @@ import polars as pl
 import datetime as dt
 from io import BytesIO
 
-from quantdl.storage.utils import NoSuchKeyError
+from alphalab.storage.utils import NoSuchKeyError
 
 
 class TestTicksClient:
@@ -27,7 +27,7 @@ class TestTicksClient:
     @pytest.fixture
     def ticks_client(self, mock_storage_client, mock_security_master):
         """Create TicksClient with mocked dependencies."""
-        from quantdl.storage.clients.ticks import TicksClient
+        from alphalab.storage.clients.ticks import TicksClient
         return TicksClient(
             storage_client=mock_storage_client,
             security_master=mock_security_master
@@ -35,7 +35,7 @@ class TestTicksClient:
 
     def test_init_sets_attributes(self, mock_storage_client, mock_security_master):
         """Test that __init__ sets all attributes correctly."""
-        from quantdl.storage.clients.ticks import TicksClient
+        from alphalab.storage.clients.ticks import TicksClient
 
         client = TicksClient(
             storage_client=mock_storage_client,
@@ -203,7 +203,7 @@ class TestTicksClientErrors:
     @pytest.fixture
     def ticks_client(self, mock_storage_client, mock_security_master):
         """Create TicksClient with mocked dependencies."""
-        from quantdl.storage.clients.ticks import TicksClient
+        from alphalab.storage.clients.ticks import TicksClient
         return TicksClient(
             storage_client=mock_storage_client,
             security_master=mock_security_master

@@ -7,7 +7,7 @@ from datetime import date
 
 class TestTicksFeatureBuilderDirect:
     def test_build_direct_close(self, raw_data_dir, trading_days, security_ids):
-        from quantdl.features.builders.ticks import TicksFeatureBuilder
+        from alphalab.features.builders.ticks import TicksFeatureBuilder
         builder = TicksFeatureBuilder(str(raw_data_dir))
         result = builder.build_direct("close", "close", trading_days, security_ids)
 
@@ -17,13 +17,13 @@ class TestTicksFeatureBuilderDirect:
             assert sid in result.columns
 
     def test_build_direct_volume(self, raw_data_dir, trading_days, security_ids):
-        from quantdl.features.builders.ticks import TicksFeatureBuilder
+        from alphalab.features.builders.ticks import TicksFeatureBuilder
         builder = TicksFeatureBuilder(str(raw_data_dir))
         result = builder.build_direct("volume", "volume", trading_days, security_ids)
         assert result["SEC001"][0] == 1_000_000
 
     def test_build_direct_missing_sid_gets_null(self, raw_data_dir, trading_days):
-        from quantdl.features.builders.ticks import TicksFeatureBuilder
+        from alphalab.features.builders.ticks import TicksFeatureBuilder
         builder = TicksFeatureBuilder(str(raw_data_dir))
         result = builder.build_direct("close", "close", trading_days, ["SEC001", "MISSING"])
 
@@ -31,7 +31,7 @@ class TestTicksFeatureBuilderDirect:
         assert "MISSING" not in result.columns  # missing sid not joined
 
     def test_wide_table_shape(self, raw_data_dir, trading_days, security_ids):
-        from quantdl.features.builders.ticks import TicksFeatureBuilder
+        from alphalab.features.builders.ticks import TicksFeatureBuilder
         builder = TicksFeatureBuilder(str(raw_data_dir))
         result = builder.build_direct("open", "open", trading_days, security_ids)
         assert result.shape == (10, 3)  # timestamp + 2 sids
@@ -39,7 +39,7 @@ class TestTicksFeatureBuilderDirect:
 
 class TestTicksFeatureBuilderComputed:
     def test_returns_first_row_null(self, raw_data_dir, trading_days, security_ids):
-        from quantdl.features.builders.ticks import TicksFeatureBuilder
+        from alphalab.features.builders.ticks import TicksFeatureBuilder
         builder = TicksFeatureBuilder(str(raw_data_dir))
         close = builder.build_direct("close", "close", trading_days, security_ids)
 
@@ -49,7 +49,7 @@ class TestTicksFeatureBuilderComputed:
         assert returns["SEC001"][0] is None  # first row null
 
     def test_returns_computed_correctly(self, raw_data_dir, trading_days, security_ids):
-        from quantdl.features.builders.ticks import TicksFeatureBuilder
+        from alphalab.features.builders.ticks import TicksFeatureBuilder
         builder = TicksFeatureBuilder(str(raw_data_dir))
         close = builder.build_direct("close", "close", trading_days, security_ids)
 
@@ -61,7 +61,7 @@ class TestTicksFeatureBuilderComputed:
         assert abs(returns["SEC001"][1] - expected) < 1e-10
 
     def test_adv20_first_19_null(self, raw_data_dir, trading_days, security_ids):
-        from quantdl.features.builders.ticks import TicksFeatureBuilder
+        from alphalab.features.builders.ticks import TicksFeatureBuilder
         builder = TicksFeatureBuilder(str(raw_data_dir))
         volume = builder.build_direct("volume", "volume", trading_days, security_ids)
 
@@ -72,15 +72,15 @@ class TestTicksFeatureBuilderComputed:
         assert adv20["SEC001"].null_count() == 10
 
     def test_split_stub_all_ones(self, raw_data_dir, trading_days, security_ids):
-        from quantdl.features.builders.ticks import TicksFeatureBuilder
+        from alphalab.features.builders.ticks import TicksFeatureBuilder
         builder = TicksFeatureBuilder(str(raw_data_dir))
         result = builder.build_computed("split", {}, trading_days, security_ids)
 
         assert all(v == 1.0 for v in result["SEC001"].to_list())
 
     def test_cap_close_times_sharesout(self, raw_data_dir, trading_days, security_ids):
-        from quantdl.features.builders.ticks import TicksFeatureBuilder
-        from quantdl.features.builders.fundamental import FundamentalFeatureBuilder
+        from alphalab.features.builders.ticks import TicksFeatureBuilder
+        from alphalab.features.builders.fundamental import FundamentalFeatureBuilder
         ticks_builder = TicksFeatureBuilder(str(raw_data_dir))
         fnd_builder = FundamentalFeatureBuilder(str(raw_data_dir))
 
@@ -96,14 +96,14 @@ class TestTicksFeatureBuilderComputed:
         assert "SEC001" in cap.columns
 
     def test_unknown_computed_raises(self, raw_data_dir, trading_days, security_ids):
-        from quantdl.features.builders.ticks import TicksFeatureBuilder
+        from alphalab.features.builders.ticks import TicksFeatureBuilder
         builder = TicksFeatureBuilder(str(raw_data_dir))
         with pytest.raises(ValueError, match="Unknown computed"):
             builder.build_computed("nonexistent", {}, trading_days, security_ids)
 
     def test_cap_empty_when_no_common_sids(self, raw_data_dir, trading_days):
         """Cap returns timestamp-only when no common sids."""
-        from quantdl.features.builders.ticks import TicksFeatureBuilder
+        from alphalab.features.builders.ticks import TicksFeatureBuilder
         builder = TicksFeatureBuilder(str(raw_data_dir))
         close = pl.DataFrame({"Date": trading_days, "A": [1.0] * len(trading_days)})
         sharesout = pl.DataFrame({"Date": trading_days, "B": [1.0] * len(trading_days)})
@@ -115,7 +115,7 @@ class TestTicksFeatureBuilderComputed:
 class TestTicksEdgeCases:
     def test_string_timestamp_is_cast(self, tmp_path, trading_days):
         """Ticks with string timestamp column should be auto-cast."""
-        from quantdl.features.builders.ticks import TicksFeatureBuilder
+        from alphalab.features.builders.ticks import TicksFeatureBuilder
         ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily" / "SCAST"
         ticks_dir.mkdir(parents=True)
         df = pl.DataFrame({
@@ -131,7 +131,7 @@ class TestTicksEdgeCases:
 
     def test_read_column_corrupted_file(self, tmp_path, trading_days):
         """Corrupted parquet returns None gracefully."""
-        from quantdl.features.builders.ticks import TicksFeatureBuilder
+        from alphalab.features.builders.ticks import TicksFeatureBuilder
         ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily" / "BAD"
         ticks_dir.mkdir(parents=True)
         (ticks_dir / "ticks.parquet").write_text("corrupted")

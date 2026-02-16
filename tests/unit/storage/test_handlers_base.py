@@ -10,7 +10,7 @@ class TestBaseHandler:
 
     def test_init_creates_logger_and_stats(self):
         """Test that __init__ sets up logger and stats."""
-        from quantdl.storage.handlers.base import BaseHandler
+        from alphalab.storage.handlers.base import BaseHandler
 
         mock_logger = Mock(spec=logging.Logger)
         handler = BaseHandler(logger=mock_logger)
@@ -20,7 +20,7 @@ class TestBaseHandler:
 
     def test_reset_stats_clears_all_counters(self):
         """Test that reset_stats() resets all counters to zero."""
-        from quantdl.storage.handlers.base import BaseHandler
+        from alphalab.storage.handlers.base import BaseHandler
 
         mock_logger = Mock(spec=logging.Logger)
         handler = BaseHandler(logger=mock_logger)
@@ -38,7 +38,7 @@ class TestBaseHandler:
 
     def test_log_summary_calculates_rate(self):
         """Test that log_summary() calculates rate correctly."""
-        from quantdl.storage.handlers.base import BaseHandler
+        from alphalab.storage.handlers.base import BaseHandler
 
         mock_logger = Mock(spec=logging.Logger)
         handler = BaseHandler(logger=mock_logger)
@@ -68,7 +68,7 @@ class TestBaseHandler:
 
     def test_log_summary_handles_zero_elapsed(self):
         """Test that log_summary() handles zero elapsed time."""
-        from quantdl.storage.handlers.base import BaseHandler
+        from alphalab.storage.handlers.base import BaseHandler
 
         mock_logger = Mock(spec=logging.Logger)
         handler = BaseHandler(logger=mock_logger)
@@ -80,7 +80,7 @@ class TestBaseHandler:
 
     def test_log_summary_handles_negative_elapsed(self):
         """Test that log_summary() handles negative elapsed time gracefully."""
-        from quantdl.storage.handlers.base import BaseHandler
+        from alphalab.storage.handlers.base import BaseHandler
 
         mock_logger = Mock(spec=logging.Logger)
         handler = BaseHandler(logger=mock_logger)
@@ -93,7 +93,7 @@ class TestBaseHandler:
 
     def test_stats_can_be_incremented(self):
         """Test that stats dictionary can be modified."""
-        from quantdl.storage.handlers.base import BaseHandler
+        from alphalab.storage.handlers.base import BaseHandler
 
         mock_logger = Mock(spec=logging.Logger)
         handler = BaseHandler(logger=mock_logger)

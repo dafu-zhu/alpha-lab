@@ -6,7 +6,7 @@ import pytest
 import json
 from unittest.mock import Mock, patch
 
-from quantdl.storage.utils import UploadProgressTracker, NoSuchKeyError
+from alphalab.storage.utils import UploadProgressTracker, NoSuchKeyError
 
 
 class TestUploadProgressTracker:

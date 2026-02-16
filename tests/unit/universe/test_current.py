@@ -7,7 +7,7 @@ import pandas as pd
 from unittest.mock import Mock, patch, MagicMock
 from ftplib import FTP
 import io
-from quantdl.universe.current import is_common_stock, fetch_all_stocks
+from alphalab.universe.current import is_common_stock, fetch_all_stocks
 
 
 class TestIsCommonStock:
@@ -162,7 +162,7 @@ TEST|Test Security|Q|Y|N|100|N|N
 File Creation Time: 0101202400:00"""
         return data
 
-    @patch('quantdl.universe.current.FTP')
+    @patch('alphalab.universe.current.FTP')
     def test_fetch_all_stocks_with_filter(self, mock_ftp_class, mock_ftp_data):
         """Test fetching stocks with filtering enabled"""
         # Setup mock FTP
@@ -195,7 +195,7 @@ File Creation Time: 0101202400:00"""
         assert 'ETFX' not in result['Ticker'].values
         assert 'TEST' not in result['Ticker'].values
 
-    @patch('quantdl.universe.current.FTP')
+    @patch('alphalab.universe.current.FTP')
     def test_fetch_all_stocks_without_filter(self, mock_ftp_class, mock_ftp_data):
         """Test fetching stocks without filtering"""
         mock_ftp = MagicMock()
@@ -211,7 +211,7 @@ File Creation Time: 0101202400:00"""
         # Should include all securities (except footer and duplicates)
         assert len(result) >= 3
 
-    @patch('quantdl.universe.current.pd.read_csv')
+    @patch('alphalab.universe.current.pd.read_csv')
     def test_fetch_from_cache(self, mock_read_csv):
         """Test loading from cache when refresh=False"""
         # Mock cached data
@@ -240,7 +240,7 @@ File Creation Time: 0101202400:00"""
         # The filter excludes tickers containing $
         assert '$' in ticker_with_dollar
 
-    @patch('quantdl.universe.current.FTP')
+    @patch('alphalab.universe.current.FTP')
     def test_handle_ftp_error(self, mock_ftp_class):
         """Test handling of FTP connection errors"""
         mock_ftp = MagicMock()
@@ -252,7 +252,7 @@ File Creation Time: 0101202400:00"""
         # Should return empty DataFrame on error
         assert result.empty
 
-    @patch('quantdl.universe.current.FTP')
+    @patch('alphalab.universe.current.FTP')
     def test_remove_duplicates(self, mock_ftp_class):
         """Test that duplicate tickers are removed"""
         mock_ftp = MagicMock()
@@ -276,7 +276,7 @@ File Creation Time: 0101202400:00"""
         aapl_count = (result['Ticker'] == 'AAPL').sum()
         assert aapl_count == 1
 
-    @patch('quantdl.universe.current.FTP')
+    @patch('alphalab.universe.current.FTP')
     def test_sorted_output(self, mock_ftp_class):
         """Test that output is sorted by ticker"""
         mock_ftp = MagicMock()
@@ -298,7 +298,7 @@ File Creation Time: 0101202400:00"""
         # Should be sorted
         assert result['Ticker'].tolist() == ['AAAA', 'MMMM', 'ZZZZ']
 
-    @patch('quantdl.universe.current.FTP')
+    @patch('alphalab.universe.current.FTP')
     @patch('pathlib.Path.exists', return_value=False)
     def test_fallback_to_refresh_when_cache_missing(self, mock_exists, mock_ftp_class, mock_ftp_data):
         """Test that refresh is performed when cache doesn't exist"""

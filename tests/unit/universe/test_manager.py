@@ -7,15 +7,15 @@ from unittest.mock import Mock, patch, MagicMock
 import polars as pl
 import pandas as pd
 from pathlib import Path
-from quantdl.universe.manager import UniverseManager
+from alphalab.universe.manager import UniverseManager
 
 
 class TestUniverseManager:
     """Test UniverseManager class"""
 
-    @patch('quantdl.universe.manager.Ticks')
-    @patch('quantdl.universe.manager.SecurityMaster')
-    @patch('quantdl.universe.manager.setup_logger')
+    @patch('alphalab.universe.manager.Ticks')
+    @patch('alphalab.universe.manager.SecurityMaster')
+    @patch('alphalab.universe.manager.setup_logger')
     def test_initialization_default(self, mock_logger, mock_sm_class, mock_ticks_class):
         """Test UniverseManager initialization with defaults"""
         mock_sm = Mock()
@@ -30,8 +30,8 @@ class TestUniverseManager:
         # Verify Alpaca fetcher was created
         mock_ticks_class.assert_called_once()
 
-    @patch('quantdl.universe.manager.Ticks')
-    @patch('quantdl.universe.manager.setup_logger')
+    @patch('alphalab.universe.manager.Ticks')
+    @patch('alphalab.universe.manager.setup_logger')
     def test_initialization_with_security_master(self, mock_logger, mock_ticks_class):
         """Test initialization with provided SecurityMaster"""
         mock_sm = Mock()
@@ -44,10 +44,10 @@ class TestUniverseManager:
         # Verify Alpaca fetcher was created
         mock_ticks_class.assert_called_once()
 
-    @patch('quantdl.universe.manager.Ticks')
-    @patch('quantdl.universe.manager.SecurityMaster')
-    @patch('quantdl.universe.manager.setup_logger')
-    @patch('quantdl.universe.manager.fetch_all_stocks')
+    @patch('alphalab.universe.manager.Ticks')
+    @patch('alphalab.universe.manager.SecurityMaster')
+    @patch('alphalab.universe.manager.setup_logger')
+    @patch('alphalab.universe.manager.fetch_all_stocks')
     def test_get_current_symbols_no_cache(self, mock_fetch, mock_logger, mock_sm_class, mock_ticks_class):
         """Test get_current_symbols without cache"""
         # Mock fetch_all_stocks
@@ -66,10 +66,10 @@ class TestUniverseManager:
         # Verify cache was set
         assert manager._current_symbols_cache == ['AAPL', 'MSFT', 'GOOGL']
 
-    @patch('quantdl.universe.manager.Ticks')
-    @patch('quantdl.universe.manager.SecurityMaster')
-    @patch('quantdl.universe.manager.setup_logger')
-    @patch('quantdl.universe.manager.fetch_all_stocks')
+    @patch('alphalab.universe.manager.Ticks')
+    @patch('alphalab.universe.manager.SecurityMaster')
+    @patch('alphalab.universe.manager.setup_logger')
+    @patch('alphalab.universe.manager.fetch_all_stocks')
     def test_get_current_symbols_with_cache(self, mock_fetch, mock_logger, mock_sm_class, mock_ticks_class):
         """Test get_current_symbols with cache"""
         manager = UniverseManager()
@@ -85,10 +85,10 @@ class TestUniverseManager:
         # Verify cached result was returned
         assert symbols == ['CACHED1', 'CACHED2']
 
-    @patch('quantdl.universe.manager.Ticks')
-    @patch('quantdl.universe.manager.SecurityMaster')
-    @patch('quantdl.universe.manager.setup_logger')
-    @patch('quantdl.universe.manager.fetch_all_stocks')
+    @patch('alphalab.universe.manager.Ticks')
+    @patch('alphalab.universe.manager.SecurityMaster')
+    @patch('alphalab.universe.manager.setup_logger')
+    @patch('alphalab.universe.manager.fetch_all_stocks')
     def test_get_current_symbols_refresh(self, mock_fetch, mock_logger, mock_sm_class, mock_ticks_class):
         """Test get_current_symbols with refresh=True"""
         # Mock fetch_all_stocks
@@ -109,10 +109,10 @@ class TestUniverseManager:
         assert symbols == ['NEW1', 'NEW2']
         assert manager._current_symbols_cache == ['NEW1', 'NEW2']
 
-    @patch('quantdl.universe.manager.Ticks')
-    @patch('quantdl.universe.manager.SecurityMaster')
-    @patch('quantdl.universe.manager.setup_logger')
-    @patch('quantdl.universe.manager.fetch_all_stocks')
+    @patch('alphalab.universe.manager.Ticks')
+    @patch('alphalab.universe.manager.SecurityMaster')
+    @patch('alphalab.universe.manager.setup_logger')
+    @patch('alphalab.universe.manager.fetch_all_stocks')
     def test_get_current_symbols_empty_result(self, mock_fetch, mock_logger, mock_sm_class, mock_ticks_class):
         """Test get_current_symbols with empty result"""
         # Mock empty DataFrame
@@ -123,10 +123,10 @@ class TestUniverseManager:
         with pytest.raises(ValueError, match="Failed to fetch symbols"):
             manager.get_current_symbols()
 
-    @patch('quantdl.universe.manager.Ticks')
-    @patch('quantdl.universe.manager.SecurityMaster')
-    @patch('quantdl.universe.manager.setup_logger')
-    @patch('quantdl.universe.manager.fetch_all_stocks')
+    @patch('alphalab.universe.manager.Ticks')
+    @patch('alphalab.universe.manager.SecurityMaster')
+    @patch('alphalab.universe.manager.setup_logger')
+    @patch('alphalab.universe.manager.fetch_all_stocks')
     def test_get_current_symbols_none_result(self, mock_fetch, mock_logger, mock_sm_class, mock_ticks_class):
         """Test get_current_symbols with None result"""
         mock_fetch.return_value = None
@@ -136,10 +136,10 @@ class TestUniverseManager:
         with pytest.raises(ValueError, match="Failed to fetch symbols"):
             manager.get_current_symbols()
 
-    @patch('quantdl.universe.manager.Ticks')
-    @patch('quantdl.universe.manager.SecurityMaster')
-    @patch('quantdl.universe.manager.setup_logger')
-    @patch('quantdl.universe.manager.fetch_all_stocks')
+    @patch('alphalab.universe.manager.Ticks')
+    @patch('alphalab.universe.manager.SecurityMaster')
+    @patch('alphalab.universe.manager.setup_logger')
+    @patch('alphalab.universe.manager.fetch_all_stocks')
     def test_load_symbols_for_year_2025_alpaca(self, mock_fetch, mock_logger, mock_sm_class, mock_ticks_class):
         """Test load_symbols_for_year with year >= 2025 (Alpaca format)"""
         # Mock fetch_all_stocks
@@ -155,10 +155,10 @@ class TestUniverseManager:
         # Verify Alpaca format (same as Nasdaq)
         assert symbols == ['AAPL', 'BRK.B', 'GOOGL']
 
-    @patch('quantdl.universe.manager.Ticks')
-    @patch('quantdl.universe.manager.SecurityMaster')
-    @patch('quantdl.universe.manager.setup_logger')
-    @patch('quantdl.universe.manager.fetch_all_stocks')
+    @patch('alphalab.universe.manager.Ticks')
+    @patch('alphalab.universe.manager.SecurityMaster')
+    @patch('alphalab.universe.manager.setup_logger')
+    @patch('alphalab.universe.manager.fetch_all_stocks')
     def test_load_symbols_for_year_2025_sec(self, mock_fetch, mock_logger, mock_sm_class, mock_ticks_class):
         """Test load_symbols_for_year with year >= 2025 (SEC format)"""
         # Mock fetch_all_stocks
@@ -171,10 +171,10 @@ class TestUniverseManager:
         # Verify SEC format (dots replaced with hyphens)
         assert symbols == ['AAPL', 'BRK-B', 'GOOGL']
 
-    @patch('quantdl.universe.manager.Ticks')
-    @patch('quantdl.universe.manager.SecurityMaster')
-    @patch('quantdl.universe.manager.setup_logger')
-    @patch('quantdl.universe.manager.get_hist_universe_local')
+    @patch('alphalab.universe.manager.Ticks')
+    @patch('alphalab.universe.manager.SecurityMaster')
+    @patch('alphalab.universe.manager.setup_logger')
+    @patch('alphalab.universe.manager.get_hist_universe_local')
     def test_load_symbols_for_year_historical_alpaca(self, mock_get_hist, mock_logger, mock_sm_class, mock_ticks_class):
         """Test load_symbols_for_year with historical year (Alpaca format)"""
         # Mock historical universe
@@ -193,10 +193,10 @@ class TestUniverseManager:
         # Verify Alpaca format
         assert symbols == ['AAPL', 'BRK.B', 'MSFT']
 
-    @patch('quantdl.universe.manager.Ticks')
-    @patch('quantdl.universe.manager.SecurityMaster')
-    @patch('quantdl.universe.manager.setup_logger')
-    @patch('quantdl.universe.manager.get_hist_universe_local')
+    @patch('alphalab.universe.manager.Ticks')
+    @patch('alphalab.universe.manager.SecurityMaster')
+    @patch('alphalab.universe.manager.setup_logger')
+    @patch('alphalab.universe.manager.get_hist_universe_local')
     def test_load_symbols_for_year_historical_sec(self, mock_get_hist, mock_logger, mock_sm_class, mock_ticks_class):
         """Test load_symbols_for_year with historical year (SEC format)"""
         # Mock historical universe
@@ -209,9 +209,9 @@ class TestUniverseManager:
         # Verify SEC format (dots replaced with hyphens)
         assert symbols == ['AAPL', 'BRK-B', 'MSFT']
 
-    @patch('quantdl.universe.manager.Ticks')
-    @patch('quantdl.universe.manager.SecurityMaster')
-    @patch('quantdl.universe.manager.setup_logger')
+    @patch('alphalab.universe.manager.Ticks')
+    @patch('alphalab.universe.manager.SecurityMaster')
+    @patch('alphalab.universe.manager.setup_logger')
     def test_load_symbols_for_year_invalid_type(self, mock_logger, mock_sm_class, mock_ticks_class):
         """Test load_symbols_for_year with invalid sym_type"""
         mock_logger.return_value = Mock()
@@ -221,9 +221,9 @@ class TestUniverseManager:
         assert symbols == []
         manager.logger.error.assert_called_once()
 
-    @patch('quantdl.universe.manager.Ticks')
-    @patch('quantdl.universe.manager.SecurityMaster')
-    @patch('quantdl.universe.manager.setup_logger')
+    @patch('alphalab.universe.manager.Ticks')
+    @patch('alphalab.universe.manager.SecurityMaster')
+    @patch('alphalab.universe.manager.setup_logger')
     def test_store_dir_creation(self, mock_logger, mock_sm_class, mock_ticks_class):
         """Test that store directory is created"""
         manager = UniverseManager()
@@ -283,10 +283,10 @@ class TestUniverseManager:
 class TestUniverseManagerEdgeCases:
     """Test edge cases for UniverseManager"""
 
-    @patch('quantdl.universe.manager.Ticks')
-    @patch('quantdl.universe.manager.SecurityMaster')
-    @patch('quantdl.universe.manager.setup_logger')
-    @patch('quantdl.universe.manager.fetch_all_stocks')
+    @patch('alphalab.universe.manager.Ticks')
+    @patch('alphalab.universe.manager.SecurityMaster')
+    @patch('alphalab.universe.manager.setup_logger')
+    @patch('alphalab.universe.manager.fetch_all_stocks')
     def test_cache_invalidation_on_refresh(self, mock_fetch, mock_logger, mock_sm_class, mock_ticks_class):
         """Test that cache is updated when refresh=True"""
         manager = UniverseManager()
@@ -306,10 +306,10 @@ class TestUniverseManagerEdgeCases:
         assert symbols2 == ['NEW1', 'NEW2', 'NEW3']
         assert manager._current_symbols_cache == ['NEW1', 'NEW2', 'NEW3']
 
-    @patch('quantdl.universe.manager.Ticks')
-    @patch('quantdl.universe.manager.SecurityMaster')
-    @patch('quantdl.universe.manager.setup_logger')
-    @patch('quantdl.universe.manager.fetch_all_stocks')
+    @patch('alphalab.universe.manager.Ticks')
+    @patch('alphalab.universe.manager.SecurityMaster')
+    @patch('alphalab.universe.manager.setup_logger')
+    @patch('alphalab.universe.manager.fetch_all_stocks')
     def test_load_symbols_for_year_2025_empty(self, mock_fetch, mock_logger, mock_sm_class, mock_ticks_class):
         """Empty current universe returns empty list."""
         mock_fetch.return_value = pl.DataFrame({'Ticker': []})
@@ -320,10 +320,10 @@ class TestUniverseManagerEdgeCases:
 
         assert symbols == []
 
-    @patch('quantdl.universe.manager.Ticks')
-    @patch('quantdl.universe.manager.SecurityMaster')
-    @patch('quantdl.universe.manager.setup_logger')
-    @patch('quantdl.universe.manager.get_hist_universe_local')
+    @patch('alphalab.universe.manager.Ticks')
+    @patch('alphalab.universe.manager.SecurityMaster')
+    @patch('alphalab.universe.manager.setup_logger')
+    @patch('alphalab.universe.manager.get_hist_universe_local')
     def test_load_symbols_for_year_historical_empty(self, mock_get_hist, mock_logger, mock_sm_class, mock_ticks_class):
         """Empty historical universe returns empty list."""
         mock_get_hist.return_value = pl.DataFrame({'Ticker': []})
@@ -334,10 +334,10 @@ class TestUniverseManagerEdgeCases:
 
         assert symbols == []
 
-    @patch('quantdl.universe.manager.Ticks')
-    @patch('quantdl.universe.manager.SecurityMaster')
-    @patch('quantdl.universe.manager.setup_logger')
-    @patch('quantdl.universe.manager.get_hist_universe_local')
+    @patch('alphalab.universe.manager.Ticks')
+    @patch('alphalab.universe.manager.SecurityMaster')
+    @patch('alphalab.universe.manager.setup_logger')
+    @patch('alphalab.universe.manager.get_hist_universe_local')
     def test_load_symbols_for_year_exception(self, mock_get_hist, mock_logger, mock_sm_class, mock_ticks_class):
         """Exceptions while loading symbols return empty list."""
         mock_get_hist.side_effect = Exception("boom")
@@ -455,8 +455,8 @@ class TestUniverseManagerEdgeCases:
         # Only GOOD should be in the result
         assert result == ["GOOD"]
 
-    @patch('quantdl.universe.manager.Ticks')
-    @patch('quantdl.universe.manager.setup_logger')
+    @patch('alphalab.universe.manager.Ticks')
+    @patch('alphalab.universe.manager.setup_logger')
     def test_initialization_s3_only_security_master(self, mock_logger, mock_ticks_class):
         """Test initialization with S3-only SecurityMaster"""
         mock_sm = Mock()
@@ -466,10 +466,10 @@ class TestUniverseManagerEdgeCases:
         # Verify provided security master was used
         assert manager.security_master == mock_sm
 
-    @patch('quantdl.universe.manager.Ticks')
-    @patch('quantdl.universe.manager.SecurityMaster')
-    @patch('quantdl.universe.manager.setup_logger')
-    @patch('quantdl.universe.manager.get_hist_universe_local')
+    @patch('alphalab.universe.manager.Ticks')
+    @patch('alphalab.universe.manager.SecurityMaster')
+    @patch('alphalab.universe.manager.setup_logger')
+    @patch('alphalab.universe.manager.get_hist_universe_local')
     def test_load_symbols_historical_cache_hit(self, mock_get_hist, mock_logger, mock_sm_class, mock_ticks_class):
         """Test load_symbols_for_year returns cached result for historical years"""
         manager = UniverseManager()
@@ -487,10 +487,10 @@ class TestUniverseManagerEdgeCases:
             "Loaded 3 symbols for 2023 from cache (format=alpaca)"
         )
 
-    @patch('quantdl.universe.manager.Ticks')
-    @patch('quantdl.universe.manager.SecurityMaster')
-    @patch('quantdl.universe.manager.setup_logger')
-    @patch('quantdl.universe.manager.get_hist_universe_local')
+    @patch('alphalab.universe.manager.Ticks')
+    @patch('alphalab.universe.manager.SecurityMaster')
+    @patch('alphalab.universe.manager.setup_logger')
+    @patch('alphalab.universe.manager.get_hist_universe_local')
     def test_load_symbols_historical_uses_security_master(self, mock_get_hist, mock_logger, mock_sm_class, mock_ticks_class):
         """Test load_symbols_for_year passes security_master to get_hist_universe_local"""
         mock_df = pl.DataFrame({'Ticker': ['AAPL']})

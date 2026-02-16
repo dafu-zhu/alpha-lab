@@ -22,7 +22,7 @@ class TestFeatureBuilder:
         return mock
 
     def test_build_all_writes_arrow_files(self, raw_data_dir, trading_days, security_ids, mock_security_master):
-        from quantdl.features.builder import FeatureBuilder
+        from alphalab.features.builder import FeatureBuilder
         builder = FeatureBuilder(str(raw_data_dir), mock_security_master)
         written = builder.build_all(trading_days, security_ids)
 
@@ -32,7 +32,7 @@ class TestFeatureBuilder:
             assert path.endswith(".arrow")
 
     def test_build_all_creates_close(self, raw_data_dir, trading_days, security_ids, mock_security_master):
-        from quantdl.features.builder import FeatureBuilder
+        from alphalab.features.builder import FeatureBuilder
         builder = FeatureBuilder(str(raw_data_dir), mock_security_master)
         written = builder.build_all(trading_days, security_ids)
 
@@ -42,7 +42,7 @@ class TestFeatureBuilder:
         assert len(df) == len(trading_days)
 
     def test_skip_existing(self, raw_data_dir, trading_days, security_ids, mock_security_master):
-        from quantdl.features.builder import FeatureBuilder
+        from alphalab.features.builder import FeatureBuilder
 
         # Build once
         builder = FeatureBuilder(str(raw_data_dir), mock_security_master)
@@ -55,7 +55,7 @@ class TestFeatureBuilder:
         assert set(written1.keys()) == set(written2.keys())
 
     def test_overwrite_rebuilds(self, raw_data_dir, trading_days, security_ids, mock_security_master):
-        from quantdl.features.builder import FeatureBuilder
+        from alphalab.features.builder import FeatureBuilder
 
         builder = FeatureBuilder(str(raw_data_dir), mock_security_master)
         builder.build_all(trading_days, security_ids, overwrite=False)
@@ -66,7 +66,7 @@ class TestFeatureBuilder:
         assert len(written2) > 0
 
     def test_dependencies_built_first(self, raw_data_dir, trading_days, security_ids, mock_security_master):
-        from quantdl.features.builder import FeatureBuilder
+        from alphalab.features.builder import FeatureBuilder
         builder = FeatureBuilder(str(raw_data_dir), mock_security_master)
         written = builder.build_all(trading_days, security_ids)
 
@@ -75,7 +75,7 @@ class TestFeatureBuilder:
         assert "returns" in written
 
     def test_derived_fields_built(self, raw_data_dir, trading_days, security_ids, mock_security_master):
-        from quantdl.features.builder import FeatureBuilder
+        from alphalab.features.builder import FeatureBuilder
         builder = FeatureBuilder(str(raw_data_dir), mock_security_master)
         written = builder.build_all(trading_days, security_ids)
 
@@ -84,7 +84,7 @@ class TestFeatureBuilder:
             assert field in written
 
     def test_group_fields_built(self, raw_data_dir, trading_days, security_ids, mock_security_master):
-        from quantdl.features.builder import FeatureBuilder
+        from alphalab.features.builder import FeatureBuilder
         builder = FeatureBuilder(str(raw_data_dir), mock_security_master)
         written = builder.build_all(trading_days, security_ids)
 

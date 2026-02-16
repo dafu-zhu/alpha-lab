@@ -7,7 +7,7 @@ from unittest.mock import Mock, MagicMock, patch
 import logging
 import polars as pl
 
-from quantdl.storage.handlers.ticks import DailyTicksHandler
+from alphalab.storage.handlers.ticks import DailyTicksHandler
 
 
 # -- Shared fixtures ----------------------------------------------------------
@@ -40,7 +40,7 @@ class TestDailyTicksHandler:
         assert handler.security_master is daily_deps['security_master']
         assert handler.validator is daily_deps['validator']
 
-    @patch('quantdl.storage.handlers.ticks.tqdm')
+    @patch('alphalab.storage.handlers.ticks.tqdm')
     def test_upload_range_with_data(self, mock_tqdm, handler, daily_deps):
         """Test upload_range processes securities and publishes."""
         mock_pbar = MagicMock()
@@ -62,7 +62,7 @@ class TestDailyTicksHandler:
             2017, 2025
         )
 
-    @patch('quantdl.storage.handlers.ticks.tqdm')
+    @patch('alphalab.storage.handlers.ticks.tqdm')
     def test_upload_range_no_securities(self, mock_tqdm, handler, daily_deps):
         """Test upload_range with empty security list."""
         mock_pbar = MagicMock()
@@ -75,7 +75,7 @@ class TestDailyTicksHandler:
         assert result['success'] == 0
         daily_deps['data_publishers'].publish_daily_ticks.assert_not_called()
 
-    @patch('quantdl.storage.handlers.ticks.tqdm')
+    @patch('alphalab.storage.handlers.ticks.tqdm')
     def test_upload_range_overwrite_skips_filter(self, mock_tqdm, handler, daily_deps):
         """Test upload_range with overwrite=True skips filtering."""
         mock_pbar = MagicMock()
@@ -92,7 +92,7 @@ class TestDailyTicksHandler:
 
         mock_filter.assert_not_called()
 
-    @patch('quantdl.storage.handlers.ticks.tqdm')
+    @patch('alphalab.storage.handlers.ticks.tqdm')
     def test_upload_range_calls_range_bulk(self, mock_tqdm, handler, daily_deps):
         """Test upload_range uses collect_daily_ticks_range_bulk with correct dates."""
         mock_pbar = MagicMock()

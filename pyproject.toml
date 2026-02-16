@@ -1,7 +1,7 @@
 [project]
-name = "quantdl"
+name = "alphalab"
 version = "0.1.0"
-description = "Add your description here"
+description = "Local-first alpha research platform inspired by WorldQuant BRAIN"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.scripts]
-qdl = "quantdl.cli:main"
+al = "alphalab.cli:main"
 
 [tool.uv]
 package = true

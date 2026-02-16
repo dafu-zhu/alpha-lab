@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from quantdl.utils.logger import setup_logger, LoggerFactory
+from alphalab.utils.logger import setup_logger, LoggerFactory
 
 
 class TestSetupLogger:

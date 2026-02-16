@@ -6,7 +6,7 @@ This document describes the derived fundamental metrics computed from raw fundam
 
 Derived fundamental data is computed from raw fundamental data collected from SEC EDGAR. These derived metrics provide additional insights into company performance, profitability, efficiency, and growth.
 
-**Note:** The derived metrics module (`src/quantdl/derived/`) has been removed. The formulas documented below are retained for reference and potential future reimplementation.
+**Note:** The derived metrics module (`src/alphalab/derived/`) has been removed. The formulas documented below are retained for reference and potential future reimplementation.
 
 **Storage Structure (historical):**
 - **Input:** `data/fundamental/{security_id}/fundamental.parquet`

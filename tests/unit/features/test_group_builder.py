@@ -22,7 +22,7 @@ class TestGroupFeatureBuilder:
         return mock
 
     def test_build_sector(self, mock_security_master, trading_days):
-        from quantdl.features.builders.groups import GroupFeatureBuilder
+        from alphalab.features.builders.groups import GroupFeatureBuilder
         builder = GroupFeatureBuilder(mock_security_master)
         result = builder.build("sector", trading_days, ["1", "2"])
 
@@ -32,13 +32,13 @@ class TestGroupFeatureBuilder:
         assert result["2"][0] == "Information Technology"
 
     def test_build_exchange(self, mock_security_master, trading_days):
-        from quantdl.features.builders.groups import GroupFeatureBuilder
+        from alphalab.features.builders.groups import GroupFeatureBuilder
         builder = GroupFeatureBuilder(mock_security_master)
         result = builder.build("exchange", trading_days, ["1", "2"])
         assert result["1"][0] == "NASDAQ"
 
     def test_constant_broadcast(self, mock_security_master, trading_days):
-        from quantdl.features.builders.groups import GroupFeatureBuilder
+        from alphalab.features.builders.groups import GroupFeatureBuilder
         builder = GroupFeatureBuilder(mock_security_master)
         result = builder.build("sector", trading_days, ["1"])
         # All rows should have the same value
@@ -46,19 +46,19 @@ class TestGroupFeatureBuilder:
         assert all(v == "Information Technology" for v in vals)
 
     def test_missing_column_returns_nulls(self, mock_security_master, trading_days):
-        from quantdl.features.builders.groups import GroupFeatureBuilder
+        from alphalab.features.builders.groups import GroupFeatureBuilder
         builder = GroupFeatureBuilder(mock_security_master)
         result = builder.build("nonexistent_col", trading_days, ["1"])
         assert result["1"].null_count() == len(trading_days)
 
     def test_missing_sid_returns_null(self, mock_security_master, trading_days):
-        from quantdl.features.builders.groups import GroupFeatureBuilder
+        from alphalab.features.builders.groups import GroupFeatureBuilder
         builder = GroupFeatureBuilder(mock_security_master)
         result = builder.build("sector", trading_days, ["1", "999"])
         assert result["999"].null_count() == len(trading_days)
 
     def test_no_master_tb_returns_nulls(self, trading_days):
-        from quantdl.features.builders.groups import GroupFeatureBuilder
+        from alphalab.features.builders.groups import GroupFeatureBuilder
         mock = Mock()
         mock.master_tb = None
         builder = GroupFeatureBuilder(mock)

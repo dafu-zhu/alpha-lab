@@ -5,9 +5,9 @@ Write alpha factors as string expressions, just like on [WorldQuant BRAIN](https
 ## Basic Usage
 
 ```python
-from quantdl.api.client import QuantDLClient
+from alphalab.api.client import AlphaLabClient
 
-client = QuantDLClient(data_path="/path/to/your/data")
+client = AlphaLabClient(data_path="/path/to/your/data")
 
 # Single expression — fields are auto-loaded
 alpha = client.query("rank(-ts_delta(close, 5))")

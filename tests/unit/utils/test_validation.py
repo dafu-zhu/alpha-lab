@@ -3,7 +3,7 @@ Unit tests for utils.validation module
 Tests input validation for SQL injection prevention and data integrity
 """
 import pytest
-from quantdl.utils.validation import (
+from alphalab.utils.validation import (
     validate_date_string,
     validate_year,
     validate_month

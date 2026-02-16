@@ -4,7 +4,7 @@ Tests dataclasses and enums used across the collection layer
 """
 import pytest
 import datetime
-from quantdl.collection.models import (
+from alphalab.collection.models import (
     FndDataPoint,
     TickDataPoint,
     TickField,

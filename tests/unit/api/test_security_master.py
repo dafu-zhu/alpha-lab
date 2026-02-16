@@ -6,8 +6,8 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from quantdl.api.data.security_master import SecurityMaster
-from quantdl.api.backend import StorageBackend
+from alphalab.api.data.security_master import SecurityMaster
+from alphalab.api.backend import StorageBackend
 
 
 @pytest.fixture

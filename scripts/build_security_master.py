@@ -2,7 +2,7 @@
 Standalone one-time WRDS build script for SecurityMaster.
 
 Builds the security master parquet from WRDS CRSP data with Compustat
-exchange + GICS classification. No imports from quantdl.master.
+exchange + GICS classification. No imports from alphalab.master.
 
 Usage:
     uv run python scripts/build_security_master.py
@@ -545,7 +545,7 @@ def main():
         print("ERROR: wrds package required. Install with: uv add wrds")
         sys.exit(1)
 
-    output_path = Path(__file__).resolve().parent.parent / "src" / "quantdl" / "data" / "security_master.parquet"
+    output_path = Path(__file__).resolve().parent.parent / "src" / "alphalab" / "data" / "security_master.parquet"
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Connect to WRDS

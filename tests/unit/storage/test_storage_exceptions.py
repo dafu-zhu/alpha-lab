@@ -1,6 +1,6 @@
 """Tests for storage.utils.exceptions module."""
 
-from quantdl.storage.utils.exceptions import NoSuchBucketError, NoSuchKeyError
+from alphalab.storage.utils.exceptions import NoSuchBucketError, NoSuchKeyError
 
 
 class TestNoSuchKeyError:

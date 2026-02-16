@@ -6,8 +6,8 @@ import io
 import json
 import pytest
 
-from quantdl.storage.clients import LocalStorageClient, StreamingBody
-from quantdl.storage.utils import NoSuchKeyError
+from alphalab.storage.clients import LocalStorageClient, StreamingBody
+from alphalab.storage.utils import NoSuchKeyError
 
 
 class TestStreamingBody:

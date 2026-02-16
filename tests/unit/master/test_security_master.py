@@ -7,7 +7,7 @@ import polars as pl
 import pytest
 import requests
 
-from quantdl.master.security_master import SecurityMaster, SymbolNormalizer
+from alphalab.master.security_master import SecurityMaster, SymbolNormalizer
 
 
 def _make_security_master(master_tb: pl.DataFrame, **overrides) -> SecurityMaster:
@@ -23,8 +23,8 @@ def _make_security_master(master_tb: pl.DataFrame, **overrides) -> SecurityMaste
 class TestSymbolNormalizer:
     """Test SymbolNormalizer class."""
 
-    @patch('quantdl.master.security_master.fetch_all_stocks')
-    @patch('quantdl.master.security_master.setup_logger')
+    @patch('alphalab.master.security_master.fetch_all_stocks')
+    @patch('alphalab.master.security_master.setup_logger')
     def test_initialization(self, mock_logger, mock_fetch):
         mock_stocks = pl.DataFrame({
             'Ticker': ['AAPL', 'BRK.B', 'GOOGL', 'ABC.D']
@@ -41,8 +41,8 @@ class TestSymbolNormalizer:
         assert 'GOOGL' in normalizer.sym_map
         assert 'ABCD' in normalizer.sym_map
 
-    @patch('quantdl.master.security_master.fetch_all_stocks')
-    @patch('quantdl.master.security_master.setup_logger')
+    @patch('alphalab.master.security_master.fetch_all_stocks')
+    @patch('alphalab.master.security_master.setup_logger')
     def test_initialization_with_security_master(self, mock_logger, mock_fetch):
         mock_stocks = pl.DataFrame({'Ticker': ['AAPL']})
         mock_fetch.return_value = mock_stocks
@@ -52,8 +52,8 @@ class TestSymbolNormalizer:
 
         assert normalizer.security_master == mock_sm
 
-    @patch('quantdl.master.security_master.fetch_all_stocks')
-    @patch('quantdl.master.security_master.setup_logger')
+    @patch('alphalab.master.security_master.fetch_all_stocks')
+    @patch('alphalab.master.security_master.setup_logger')
     def test_to_nasdaq_format_simple_match(self, mock_logger, mock_fetch):
         mock_stocks = pl.DataFrame({'Ticker': ['AAPL', 'MSFT', 'GOOGL']})
         mock_fetch.return_value = mock_stocks
@@ -63,8 +63,8 @@ class TestSymbolNormalizer:
         assert normalizer.to_nasdaq_format('aapl') == 'AAPL'
         assert normalizer.to_nasdaq_format('MSFT') == 'MSFT'
 
-    @patch('quantdl.master.security_master.fetch_all_stocks')
-    @patch('quantdl.master.security_master.setup_logger')
+    @patch('alphalab.master.security_master.fetch_all_stocks')
+    @patch('alphalab.master.security_master.setup_logger')
     def test_to_nasdaq_format_with_separator(self, mock_logger, mock_fetch):
         mock_stocks = pl.DataFrame({'Ticker': ['BRK.B', 'ABC-D']})
         mock_fetch.return_value = mock_stocks
@@ -76,8 +76,8 @@ class TestSymbolNormalizer:
         assert normalizer.to_nasdaq_format('BRK-B') == 'BRK.B'
         assert normalizer.to_nasdaq_format('ABCD') == 'ABC-D'
 
-    @patch('quantdl.master.security_master.fetch_all_stocks')
-    @patch('quantdl.master.security_master.setup_logger')
+    @patch('alphalab.master.security_master.fetch_all_stocks')
+    @patch('alphalab.master.security_master.setup_logger')
     def test_to_nasdaq_format_not_in_current_list(self, mock_logger, mock_fetch):
         mock_stocks = pl.DataFrame({'Ticker': ['AAPL', 'MSFT']})
         mock_fetch.return_value = mock_stocks
@@ -87,8 +87,8 @@ class TestSymbolNormalizer:
         assert normalizer.to_nasdaq_format('DELISTD') == 'DELISTD'
         assert normalizer.to_nasdaq_format('oldstock') == 'OLDSTOCK'
 
-    @patch('quantdl.master.security_master.fetch_all_stocks')
-    @patch('quantdl.master.security_master.setup_logger')
+    @patch('alphalab.master.security_master.fetch_all_stocks')
+    @patch('alphalab.master.security_master.setup_logger')
     def test_to_nasdaq_format_with_validation_same_security(self, mock_logger, mock_fetch):
         mock_stocks = pl.DataFrame({'Ticker': ['BRK.B']})
         mock_fetch.return_value = mock_stocks
@@ -101,8 +101,8 @@ class TestSymbolNormalizer:
         assert normalizer.to_nasdaq_format('BRKB', day='2024-01-01') == 'BRK.B'
         assert mock_sm.get_security_id.call_count == 2
 
-    @patch('quantdl.master.security_master.fetch_all_stocks')
-    @patch('quantdl.master.security_master.setup_logger')
+    @patch('alphalab.master.security_master.fetch_all_stocks')
+    @patch('alphalab.master.security_master.setup_logger')
     def test_to_nasdaq_format_with_validation_different_security(self, mock_logger, mock_fetch):
         mock_stocks = pl.DataFrame({'Ticker': ['ABC.D']})
         mock_fetch.return_value = mock_stocks
@@ -114,8 +114,8 @@ class TestSymbolNormalizer:
 
         assert normalizer.to_nasdaq_format('ABCD', day='2022-01-01') == 'ABCD'
 
-    @patch('quantdl.master.security_master.fetch_all_stocks')
-    @patch('quantdl.master.security_master.setup_logger')
+    @patch('alphalab.master.security_master.fetch_all_stocks')
+    @patch('alphalab.master.security_master.setup_logger')
     def test_to_nasdaq_format_validation_error(self, mock_logger, mock_fetch):
         mock_stocks = pl.DataFrame({'Ticker': ['AAPL']})
         mock_fetch.return_value = mock_stocks
@@ -127,8 +127,8 @@ class TestSymbolNormalizer:
 
         assert normalizer.to_nasdaq_format('AAPL', day='2024-01-01') == 'AAPL'
 
-    @patch('quantdl.master.security_master.fetch_all_stocks')
-    @patch('quantdl.master.security_master.setup_logger')
+    @patch('alphalab.master.security_master.fetch_all_stocks')
+    @patch('alphalab.master.security_master.setup_logger')
     def test_to_nasdaq_format_empty_symbol(self, mock_logger, mock_fetch):
         mock_stocks = pl.DataFrame({'Ticker': ['AAPL']})
         mock_fetch.return_value = mock_stocks
@@ -138,8 +138,8 @@ class TestSymbolNormalizer:
         assert normalizer.to_nasdaq_format('') == ''
         assert normalizer.to_nasdaq_format(None) is None
 
-    @patch('quantdl.master.security_master.fetch_all_stocks')
-    @patch('quantdl.master.security_master.setup_logger')
+    @patch('alphalab.master.security_master.fetch_all_stocks')
+    @patch('alphalab.master.security_master.setup_logger')
     def test_to_nasdaq_format_no_date_context(self, mock_logger, mock_fetch):
         mock_stocks = pl.DataFrame({'Ticker': ['BRK.B']})
         mock_fetch.return_value = mock_stocks
@@ -150,8 +150,8 @@ class TestSymbolNormalizer:
         assert normalizer.to_nasdaq_format('BRKB') == 'BRK.B'
         mock_sm.get_security_id.assert_not_called()
 
-    @patch('quantdl.master.security_master.fetch_all_stocks')
-    @patch('quantdl.master.security_master.setup_logger')
+    @patch('alphalab.master.security_master.fetch_all_stocks')
+    @patch('alphalab.master.security_master.setup_logger')
     def test_batch_normalize(self, mock_logger, mock_fetch):
         mock_stocks = pl.DataFrame({'Ticker': ['AAPL', 'BRK.B', 'GOOGL']})
         mock_fetch.return_value = mock_stocks
@@ -163,8 +163,8 @@ class TestSymbolNormalizer:
 
         assert result == ['AAPL', 'BRK.B', 'GOOGL']
 
-    @patch('quantdl.master.security_master.fetch_all_stocks')
-    @patch('quantdl.master.security_master.setup_logger')
+    @patch('alphalab.master.security_master.fetch_all_stocks')
+    @patch('alphalab.master.security_master.setup_logger')
     def test_batch_normalize_with_date(self, mock_logger, mock_fetch):
         mock_stocks = pl.DataFrame({'Ticker': ['AAPL', 'BRK.B']})
         mock_fetch.return_value = mock_stocks
@@ -179,8 +179,8 @@ class TestSymbolNormalizer:
 
         assert result == ['AAPL', 'BRK.B']
 
-    @patch('quantdl.master.security_master.fetch_all_stocks')
-    @patch('quantdl.master.security_master.setup_logger')
+    @patch('alphalab.master.security_master.fetch_all_stocks')
+    @patch('alphalab.master.security_master.setup_logger')
     def test_to_nasdaq_format_with_day_no_security_master(self, mock_logger, mock_fetch):
         """Date context without SecurityMaster uses Nasdaq format."""
         mock_stocks = pl.DataFrame({'Ticker': ['BRK.B']})
@@ -201,8 +201,8 @@ class TestSymbolNormalizer:
         assert SymbolNormalizer.to_sec_format('BRK.B') == 'BRK-B'
         assert SymbolNormalizer.to_sec_format('aapl') == 'AAPL'
 
-    @patch('quantdl.master.security_master.fetch_all_stocks')
-    @patch('quantdl.master.security_master.setup_logger')
+    @patch('alphalab.master.security_master.fetch_all_stocks')
+    @patch('alphalab.master.security_master.setup_logger')
     def test_handles_non_string_tickers(self, mock_logger, mock_fetch):
         mock_stocks = pl.DataFrame({
             'Ticker': ['AAPL', None, 'MSFT', 'GOOGL']
@@ -219,8 +219,8 @@ class TestSymbolNormalizer:
 class TestSymbolNormalizerEdgeCases:
     """Test edge cases for SymbolNormalizer."""
 
-    @patch('quantdl.master.security_master.fetch_all_stocks')
-    @patch('quantdl.master.security_master.setup_logger')
+    @patch('alphalab.master.security_master.fetch_all_stocks')
+    @patch('alphalab.master.security_master.setup_logger')
     def test_case_insensitivity(self, mock_logger, mock_fetch):
         mock_stocks = pl.DataFrame({'Ticker': ['AAPL', 'BRK.B']})
         mock_fetch.return_value = mock_stocks
@@ -232,8 +232,8 @@ class TestSymbolNormalizerEdgeCases:
         assert normalizer.to_nasdaq_format('brkb') == 'BRK.B'
         assert normalizer.to_nasdaq_format('BrK.b') == 'BRK.B'
 
-    @patch('quantdl.master.security_master.fetch_all_stocks')
-    @patch('quantdl.master.security_master.setup_logger')
+    @patch('alphalab.master.security_master.fetch_all_stocks')
+    @patch('alphalab.master.security_master.setup_logger')
     def test_multiple_separators(self, mock_logger, mock_fetch):
         mock_stocks = pl.DataFrame({'Ticker': ['A.B.C', 'X-Y-Z']})
         mock_fetch.return_value = mock_stocks
@@ -500,8 +500,8 @@ class TestSecurityMasterInitialization:
         'end_date': [dt.date(2020, 12, 31)]
     })
 
-    @patch('quantdl.master.security_master.SecurityMaster._load_from_local')
-    @patch('quantdl.master.security_master.setup_logger')
+    @patch('alphalab.master.security_master.SecurityMaster._load_from_local')
+    @patch('alphalab.master.security_master.setup_logger')
     def test_init_loads_from_local(self, mock_logger, mock_load_local):
         """Test initialization loads from local parquet."""
         mock_load_local.return_value = self._MOCK_MASTER
@@ -512,8 +512,8 @@ class TestSecurityMasterInitialization:
         assert len(sm.master_tb) == 1
         mock_load_local.assert_called_once()
 
-    @patch('quantdl.master.security_master.SecurityMaster._load_from_local')
-    @patch('quantdl.master.security_master.setup_logger')
+    @patch('alphalab.master.security_master.SecurityMaster._load_from_local')
+    @patch('alphalab.master.security_master.setup_logger')
     def test_init_creates_logger(self, mock_logger, mock_load_local):
         """Test that initialization creates a logger"""
         mock_load_local.return_value = self._MOCK_MASTER
@@ -524,8 +524,8 @@ class TestSecurityMasterInitialization:
         mock_logger.assert_called_once()
         assert sm.logger is not None
 
-    @patch('quantdl.master.security_master.SecurityMaster._load_from_local')
-    @patch('quantdl.master.security_master.setup_logger')
+    @patch('alphalab.master.security_master.SecurityMaster._load_from_local')
+    @patch('alphalab.master.security_master.setup_logger')
     def test_init_sets_gics_mapping_cache_to_none(self, mock_logger, mock_load_local):
         """Test that _gics_mapping is initialized to None"""
         mock_load_local.return_value = self._MOCK_MASTER
@@ -628,7 +628,7 @@ class TestSecurityMasterSecOperations:
             ]
         }
 
-        with patch('quantdl.master.security_master.requests.get', return_value=mock_response):
+        with patch('alphalab.master.security_master.requests.get', return_value=mock_response):
             result = sm._fetch_sec_exchange_mapping()
 
         assert len(result) == 2
@@ -803,7 +803,7 @@ class TestGICSMapping:
         sm.logger = Mock()
         sm._gics_mapping = None
 
-        with patch('quantdl.master.security_master.GICS_MAPPING_PATH') as mock_path:
+        with patch('alphalab.master.security_master.GICS_MAPPING_PATH') as mock_path:
             mock_path.exists.return_value = False
             result = sm._load_gics_mapping()
 
@@ -825,7 +825,7 @@ class TestYfinanceMetadata:
             yf_mock = sys.modules['yfinance']
             yf_mock.Ticker.return_value = mock_ticker
 
-            with patch('quantdl.master.security_master.time.sleep'):
+            with patch('alphalab.master.security_master.time.sleep'):
                 result = sm._fetch_yfinance_metadata(['AAPL'])
 
         assert 'AAPL' in result
@@ -859,8 +859,8 @@ class TestOpenFIGIIntegration:
             {"error": "No identifier found."}
         ]
 
-        with patch('quantdl.master.security_master.requests.post', return_value=mock_response):
-            with patch('quantdl.master.security_master.RateLimiter') as mock_rl:
+        with patch('alphalab.master.security_master.requests.post', return_value=mock_response):
+            with patch('alphalab.master.security_master.RateLimiter') as mock_rl:
                 mock_rl.return_value.acquire = Mock()
                 result = sm._fetch_openfigi_mapping(['AAPL', 'MSFT', 'UNKNOWN'])
 
@@ -872,9 +872,9 @@ class TestOpenFIGIIntegration:
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
 
-        with patch('quantdl.master.security_master.requests.post') as mock_post:
+        with patch('alphalab.master.security_master.requests.post') as mock_post:
             mock_post.side_effect = Exception("API error")
-            with patch('quantdl.master.security_master.RateLimiter') as mock_rl:
+            with patch('alphalab.master.security_master.RateLimiter') as mock_rl:
                 mock_rl.return_value.acquire = Mock()
                 result = sm._fetch_openfigi_mapping(['AAPL'])
 
@@ -903,8 +903,8 @@ class TestOpenFIGIIntegration:
             return mock_resp
 
         with patch.dict(os.environ, {'OPENFIGI_API_KEY': 'test-key'}):
-            with patch('quantdl.master.security_master.requests.post', side_effect=mock_post):
-                with patch('quantdl.master.security_master.RateLimiter') as mock_rl:
+            with patch('alphalab.master.security_master.requests.post', side_effect=mock_post):
+                with patch('alphalab.master.security_master.RateLimiter') as mock_rl:
                     mock_rl.return_value.acquire = Mock()
                     result = sm._fetch_openfigi_mapping(tickers)
 
@@ -919,8 +919,8 @@ class TestOpenFIGIIntegration:
         mock_response.json.return_value = [{"data": [{"shareClassFIGI": "FIGI123"}]}]
 
         with patch.dict(os.environ, {'OPENFIGI_API_KEY': 'test-key'}):
-            with patch('quantdl.master.security_master.requests.post', return_value=mock_response) as mock_post:
-                with patch('quantdl.master.security_master.RateLimiter') as mock_rl:
+            with patch('alphalab.master.security_master.requests.post', return_value=mock_response) as mock_post:
+                with patch('alphalab.master.security_master.RateLimiter') as mock_rl:
                     mock_rl.return_value.acquire = Mock()
                     sm._fetch_openfigi_mapping(['AAPL'])
 
@@ -932,7 +932,7 @@ class TestOpenFIGIIntegration:
 class TestNasdaqUniverse:
     """Test Nasdaq universe fetching."""
 
-    @patch('quantdl.master.security_master.fetch_all_stocks')
+    @patch('alphalab.master.security_master.fetch_all_stocks')
     def test_fetch_nasdaq_universe_success(self, mock_fetch):
         import pandas as pd
         sm = SecurityMaster.__new__(SecurityMaster)
@@ -945,7 +945,7 @@ class TestNasdaqUniverse:
         assert result == {'AAPL', 'MSFT', 'GOOGL'}
         mock_fetch.assert_called_once_with(with_filter=True, refresh=True, logger=sm.logger)
 
-    @patch('quantdl.master.security_master.fetch_all_stocks')
+    @patch('alphalab.master.security_master.fetch_all_stocks')
     def test_fetch_nasdaq_universe_error(self, mock_fetch):
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
@@ -1031,10 +1031,10 @@ class TestOpenFIGIRetryBehavior:
             mock_resp.json.return_value = [{"data": [{"shareClassFIGI": "FIGI1"}]}]
             return mock_resp
 
-        with patch('quantdl.master.security_master.requests.post', side_effect=mock_post):
-            with patch('quantdl.master.security_master.RateLimiter') as mock_rl:
+        with patch('alphalab.master.security_master.requests.post', side_effect=mock_post):
+            with patch('alphalab.master.security_master.RateLimiter') as mock_rl:
                 mock_rl.return_value.acquire = Mock()
-                with patch('quantdl.master.security_master.time.sleep') as mock_sleep:
+                with patch('alphalab.master.security_master.time.sleep') as mock_sleep:
                     result = sm._fetch_openfigi_mapping(['AAPL'])
 
         assert call_count == 3
@@ -1059,10 +1059,10 @@ class TestOpenFIGIRetryBehavior:
             mock_resp.json.return_value = [{"data": [{"shareClassFIGI": "FIGI1"}]}]
             return mock_resp
 
-        with patch('quantdl.master.security_master.requests.post', side_effect=mock_post):
-            with patch('quantdl.master.security_master.RateLimiter') as mock_rl:
+        with patch('alphalab.master.security_master.requests.post', side_effect=mock_post):
+            with patch('alphalab.master.security_master.RateLimiter') as mock_rl:
                 mock_rl.return_value.acquire = Mock()
-                with patch('quantdl.master.security_master.time.sleep'):
+                with patch('alphalab.master.security_master.time.sleep'):
                     result = sm._fetch_openfigi_mapping(['AAPL'])
 
         assert call_count == 2
@@ -1077,10 +1077,10 @@ class TestOpenFIGIRetryBehavior:
             mock_resp.status_code = 500
             return mock_resp
 
-        with patch('quantdl.master.security_master.requests.post', side_effect=mock_post):
-            with patch('quantdl.master.security_master.RateLimiter') as mock_rl:
+        with patch('alphalab.master.security_master.requests.post', side_effect=mock_post):
+            with patch('alphalab.master.security_master.RateLimiter') as mock_rl:
                 mock_rl.return_value.acquire = Mock()
-                with patch('quantdl.master.security_master.time.sleep'):
+                with patch('alphalab.master.security_master.time.sleep'):
                     result = sm._fetch_openfigi_mapping(['AAPL'])
 
         assert result['AAPL'] is None
@@ -1106,8 +1106,8 @@ class TestOpenFIGIRetryBehavior:
             return mock_resp
 
         with patch.dict(os.environ, {'OPENFIGI_API_KEY': 'test-key'}):
-            with patch('quantdl.master.security_master.requests.post', side_effect=mock_post):
-                with patch('quantdl.master.security_master.RateLimiter') as mock_rl:
+            with patch('alphalab.master.security_master.requests.post', side_effect=mock_post):
+                with patch('alphalab.master.security_master.RateLimiter') as mock_rl:
                     mock_rl.return_value.acquire = Mock()
                     result = sm._fetch_openfigi_mapping(tickers)
 
@@ -1132,10 +1132,10 @@ class TestOpenFIGIRetryBehavior:
             mock_resp.json.return_value = [{"data": [{"shareClassFIGI": "FIGI1"}]}]
             return mock_resp
 
-        with patch('quantdl.master.security_master.requests.post', side_effect=mock_post):
-            with patch('quantdl.master.security_master.RateLimiter') as mock_rl:
+        with patch('alphalab.master.security_master.requests.post', side_effect=mock_post):
+            with patch('alphalab.master.security_master.RateLimiter') as mock_rl:
                 mock_rl.return_value.acquire = Mock()
-                with patch('quantdl.master.security_master.time.sleep'):
+                with patch('alphalab.master.security_master.time.sleep'):
                     result = sm._fetch_openfigi_mapping(['AAPL'])
 
         assert call_count == 2

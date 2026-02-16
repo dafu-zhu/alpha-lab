@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-US Equity Data Lake: Self-hosted, automated market data infrastructure for US equities using official/authoritative sources. Data stored in flat-file structure on local filesystem.
+AlphaLab: Local-first alpha research platform inspired by WorldQuant BRAIN. Self-hosted market data infrastructure for US equities using official/authoritative sources. Data stored in flat-file structure on local filesystem.
 
 **Data Coverage:**
 - Daily ticks (OHLCV): Alpaca API (2017+)
@@ -28,7 +28,7 @@ Code quality tools: `uv`, `pytest`. Avoid: `pip`, `black`, `flake8`.
 
 ### Testing
 ```bash
-uv run pytest --cov=src/quantdl     # All tests with coverage
+uv run pytest --cov=src/alphalab     # All tests with coverage
 uv run pytest -m unit               # Unit tests only (fast)
 uv run pytest -m integration        # Integration tests only
 uv run pytest tests/unit/collection/test_fundamental.py  # Single file
@@ -38,31 +38,31 @@ uv run pytest -n auto               # Parallel execution
 ### Data Operations
 ```bash
 # Full backfill upload
-uv run quantdl-storage --run-all --start-year 2009 --end-year 2025
+uv run al-storage --run-all --start-year 2009 --end-year 2025
 
 # Upload specific data types
-uv run quantdl-storage --run-fundamental
-uv run quantdl-storage --run-daily-ticks
-uv run quantdl-storage --run-top-3000
+uv run al-storage --run-fundamental
+uv run al-storage --run-daily-ticks
+uv run al-storage --run-top-3000
 
 # With options
-uv run quantdl-storage --run-daily-ticks --overwrite --daily-chunk-size 100 --daily-sleep-time 0.5
-uv run quantdl-storage --run-fundamental --max-workers 25
+uv run al-storage --run-daily-ticks --overwrite --daily-chunk-size 100 --daily-sleep-time 0.5
+uv run al-storage --run-fundamental --max-workers 25
 
 # Security master operations
-uv run qdl-master --build    # Copy source parquet → working + update from SEC/Nasdaq/OpenFIGI/yfinance
+uv run al-master --build    # Copy source parquet → working + update from SEC/Nasdaq/OpenFIGI/yfinance
 ```
 
 ## Architecture
 
 ### Core Components
 
-**1. Collection Layer** (`src/quantdl/collection/`)
+**1. Collection Layer** (`src/alphalab/collection/`)
 - `alpaca_ticks.py`: Fetches daily OHLCV data from Alpaca API
 - `fundamental.py`: Fetches SEC EDGAR XBRL data (JSON API)
 - `models.py`: Data models (TickField, FndDataPoint, DataSource)
 
-**2. Storage Layer** (`src/quantdl/storage/`)
+**2. Storage Layer** (`src/alphalab/storage/`)
 - `pipeline/collectors.py`: Collects data from sources, handles rate limiting
 - `pipeline/publishers.py`: Publishes collected data to local storage in Parquet format
 - `pipeline/validation.py`: Validates uploaded data completeness
@@ -74,12 +74,12 @@ uv run qdl-master --build    # Copy source parquet → working + update from SEC
 - `utils/cik_resolver.py`: Maps tickers to SEC CIK codes
 - `utils/rate_limiter.py`: Rate limiting for API calls
 
-**3. Universe Management** (`src/quantdl/universe/`)
+**3. Universe Management** (`src/alphalab/universe/`)
 - `current.py`: Fetches current stock universe from Nasdaq Trader
 - `historical.py`: Historical universe from local security master parquet
 - `manager.py`: Manages universe state, handles symbol changes
 
-**4. Security Master** (`src/quantdl/master/`)
+**4. Security Master** (`src/alphalab/master/`)
 - `security_master.py`: Tracks stocks across symbol changes, mergers, delistings
   - Loads from local parquet only (no WRDS dependency at runtime)
   - Source parquet at `data/meta/master/security_master.parquet` (git-tracked)
@@ -91,7 +91,7 @@ uv run qdl-master --build    # Copy source parquet → working + update from SEC
 - `configs/morningstar_to_gics.yaml`: Maps yfinance (Morningstar) sector/industry → GICS classification
 - `scripts/build_security_master.py` (gitignored): Standalone WRDS build with Compustat GICS
 
-**5. Feature Pipeline** (`src/quantdl/features/`)
+**5. Feature Pipeline** (`src/alphalab/features/`)
 - `registry.py`: Central field registry (FieldSpec, ALL_FIELDS, VALID_FIELD_NAMES, get_build_order)
 - `builder.py`: `FeatureBuilder` orchestrator — builds all features in dependency order
 - `builders/ticks.py`: `TicksFeatureBuilder` — wide tables from raw ticks
@@ -99,9 +99,9 @@ uv run qdl-master --build    # Copy source parquet → working + update from SEC
 - `builders/groups.py`: `GroupFeatureBuilder` — GICS/exchange group masks
 - Output: `data/features/{field}.arrow` (Arrow IPC, cols: timestamp + security_ids)
 
-**6. Upload App** (`src/quantdl/storage/`)
+**6. Upload App** (`src/alphalab/storage/`)
 - `app.py`: `UploadApp` orchestrates full backfill uploads
-- `cli.py`: CLI entry point (`quantdl-storage`)
+- `cli.py`: CLI entry point (`al-storage`)
 - `handlers/features.py`: `FeaturesHandler` — builds feature wide tables
 
 ### Data Flow

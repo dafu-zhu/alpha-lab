@@ -9,12 +9,12 @@ import datetime as dt
 import logging
 import os
 import polars as pl
-from quantdl.storage.utils import NoSuchKeyError
+from alphalab.storage.utils import NoSuchKeyError
 
 
 def _make_app():
     """Create a minimal mock UploadApp for testing."""
-    from quantdl.storage.app import UploadApp
+    from alphalab.storage.app import UploadApp
 
     app = UploadApp.__new__(UploadApp)
     app.logger = Mock()
@@ -46,17 +46,17 @@ def _make_app():
 class TestUploadAppInitialization:
     """Test UploadApp constructor and initialization."""
 
-    @patch('quantdl.storage.app.DataPublishers')
-    @patch('quantdl.storage.app.DataCollectors')
-    @patch('quantdl.storage.app.CIKResolver')
-    @patch('quantdl.storage.app.RateLimiter')
-    @patch('quantdl.storage.app.TradingCalendar')
-    @patch('quantdl.storage.app.UniverseManager')
-    @patch('quantdl.storage.app.SecurityMaster')
-    @patch('quantdl.storage.app.Ticks')
-    @patch('quantdl.storage.app.Validator')
-    @patch('quantdl.storage.app.setup_logger')
-    @patch('quantdl.storage.app.StorageClient')
+    @patch('alphalab.storage.app.DataPublishers')
+    @patch('alphalab.storage.app.DataCollectors')
+    @patch('alphalab.storage.app.CIKResolver')
+    @patch('alphalab.storage.app.RateLimiter')
+    @patch('alphalab.storage.app.TradingCalendar')
+    @patch('alphalab.storage.app.UniverseManager')
+    @patch('alphalab.storage.app.SecurityMaster')
+    @patch('alphalab.storage.app.Ticks')
+    @patch('alphalab.storage.app.Validator')
+    @patch('alphalab.storage.app.setup_logger')
+    @patch('alphalab.storage.app.StorageClient')
     @patch.dict('os.environ', {
         'ALPACA_API_KEY': 'test_key',
         'ALPACA_API_SECRET': 'test_secret',
@@ -77,7 +77,7 @@ class TestUploadAppInitialization:
         mock_publishers
     ):
         """Test UploadApp constructor wiring and defaults."""
-        from quantdl.storage.app import UploadApp
+        from alphalab.storage.app import UploadApp
 
         mock_storage_instance = Mock()
         mock_storage_client.return_value = mock_storage_instance
@@ -296,7 +296,7 @@ class TestUploadAppHandlerFactories:
         """Test _get_daily_ticks_handler creates DailyTicksHandler."""
         app = _make_app()
 
-        with patch('quantdl.storage.handlers.ticks.DailyTicksHandler') as MockHandler:
+        with patch('alphalab.storage.handlers.ticks.DailyTicksHandler') as MockHandler:
             handler = app._get_daily_ticks_handler()
 
         MockHandler.assert_called_once()
@@ -310,7 +310,7 @@ class TestUploadAppHandlerFactories:
         """Test _get_fundamental_handler creates FundamentalHandler."""
         app = _make_app()
 
-        with patch('quantdl.storage.handlers.fundamental.FundamentalHandler') as MockHandler:
+        with patch('alphalab.storage.handlers.fundamental.FundamentalHandler') as MockHandler:
             handler = app._get_fundamental_handler()
 
         MockHandler.assert_called_once()
@@ -323,7 +323,7 @@ class TestUploadAppHandlerFactories:
         """Test _get_top3000_handler creates Top3000Handler."""
         app = _make_app()
 
-        with patch('quantdl.storage.handlers.top3000.Top3000Handler') as MockHandler:
+        with patch('alphalab.storage.handlers.top3000.Top3000Handler') as MockHandler:
             handler = app._get_top3000_handler()
 
         MockHandler.assert_called_once()

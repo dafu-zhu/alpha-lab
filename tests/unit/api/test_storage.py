@@ -5,8 +5,8 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from quantdl.api.exceptions import StorageError
-from quantdl.api.backend import StorageBackend
+from alphalab.api.exceptions import StorageError
+from alphalab.api.backend import StorageBackend
 
 
 @pytest.fixture

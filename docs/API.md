@@ -1,13 +1,13 @@
 # API Reference
 
-## QuantDLClient
+## AlphaLabClient
 
 Main entry point for data access and alpha evaluation.
 
 ```python
-from quantdl.api.client import QuantDLClient
+from alphalab.api.client import AlphaLabClient
 
-client = QuantDLClient(data_path="/path/to/your/data")
+client = AlphaLabClient(data_path="/path/to/your/data")
 ```
 
 ### `client.lookup(identifier, as_of=None)`

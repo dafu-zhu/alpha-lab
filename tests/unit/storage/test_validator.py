@@ -7,7 +7,7 @@ import pytest
 from unittest.mock import Mock, patch
 import polars as pl
 
-from quantdl.storage.clients import LocalStorageClient
+from alphalab.storage.clients import LocalStorageClient
 
 
 def _write_ticks_parquet(path, year=2024, rows=5):
@@ -29,7 +29,7 @@ class TestValidatorLocal:
 
     def test_data_exists_ticks_local(self, tmp_path):
         """Test data_exists for ticks in local mode."""
-        from quantdl.storage.pipeline import Validator
+        from alphalab.storage.pipeline import Validator
         ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily" / "12345"
         ticks_dir.mkdir(parents=True)
         _write_ticks_parquet(ticks_dir / "ticks.parquet", year=2024)
@@ -41,7 +41,7 @@ class TestValidatorLocal:
 
     def test_data_exists_fundamental_local(self, tmp_path):
         """Test data_exists for fundamental in local mode."""
-        from quantdl.storage.pipeline import Validator
+        from alphalab.storage.pipeline import Validator
         fnd_dir = tmp_path / "data" / "raw" / "fundamental" / "12345"
         fnd_dir.mkdir(parents=True)
         (fnd_dir / "fundamental.parquet").write_text("dummy")
@@ -52,7 +52,7 @@ class TestValidatorLocal:
 
     def test_top_3000_exists_local(self, tmp_path):
         """Test top_3000_exists in local mode."""
-        from quantdl.storage.pipeline import Validator
+        from alphalab.storage.pipeline import Validator
         uni_dir = tmp_path / "data" / "meta" / "universe" / "2024" / "06"
         uni_dir.mkdir(parents=True)
         (uni_dir / "top3000.txt").write_text("AAPL\nMSFT")
@@ -64,7 +64,7 @@ class TestValidatorLocal:
 
     def test_list_files_local(self, tmp_path):
         """Test list_files_under_prefix in local mode."""
-        from quantdl.storage.pipeline import Validator
+        from alphalab.storage.pipeline import Validator
         ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily" / "SEC001"
         ticks_dir.mkdir(parents=True)
         (ticks_dir / "ticks.parquet").write_text("dummy")
@@ -77,7 +77,7 @@ class TestValidatorLocal:
 
     def test_list_files_local_empty(self, tmp_path):
         """Test list_files_under_prefix for nonexistent prefix."""
-        from quantdl.storage.pipeline import Validator
+        from alphalab.storage.pipeline import Validator
 
         client = LocalStorageClient(str(tmp_path))
         validator = Validator(storage_client=client)
@@ -86,7 +86,7 @@ class TestValidatorLocal:
 
     def test_data_exists_ticks_with_security_id(self, tmp_path):
         """Test data_exists for ticks uses security_id-based single file path."""
-        from quantdl.storage.pipeline import Validator
+        from alphalab.storage.pipeline import Validator
 
         ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily" / "12345"
         ticks_dir.mkdir(parents=True)
@@ -99,7 +99,7 @@ class TestValidatorLocal:
 
     def test_data_exists_ticks_without_security_id(self, tmp_path):
         """Test data_exists for ticks uses symbol as fallback identifier."""
-        from quantdl.storage.pipeline import Validator
+        from alphalab.storage.pipeline import Validator
 
         ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily" / "AAPL"
         ticks_dir.mkdir(parents=True)
@@ -112,7 +112,7 @@ class TestValidatorLocal:
 
     def test_data_exists_ticks_year_check(self, tmp_path):
         """Test data_exists checks for specific year within ticks file."""
-        from quantdl.storage.pipeline import Validator
+        from alphalab.storage.pipeline import Validator
 
         ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily" / "12345"
         ticks_dir.mkdir(parents=True)
@@ -127,7 +127,7 @@ class TestValidatorLocal:
 
     def test_data_exists_fundamental_with_security_id(self, tmp_path):
         """Test data_exists for fundamental uses security_id-based path."""
-        from quantdl.storage.pipeline import Validator
+        from alphalab.storage.pipeline import Validator
 
         fnd_dir = tmp_path / "data" / "raw" / "fundamental" / "12345"
         fnd_dir.mkdir(parents=True)
@@ -140,7 +140,7 @@ class TestValidatorLocal:
 
     def test_data_exists_fundamental_with_cik(self, tmp_path):
         """Test data_exists for fundamental uses CIK as fallback."""
-        from quantdl.storage.pipeline import Validator
+        from alphalab.storage.pipeline import Validator
 
         fnd_dir = tmp_path / "data" / "raw" / "fundamental" / "0000320193"
         fnd_dir.mkdir(parents=True)
@@ -153,7 +153,7 @@ class TestValidatorLocal:
 
     def test_data_exists_not_found(self, tmp_path):
         """Test data_exists returns False when file not found."""
-        from quantdl.storage.pipeline import Validator
+        from alphalab.storage.pipeline import Validator
 
         client = LocalStorageClient(str(tmp_path))
         validator = Validator(storage_client=client)
@@ -162,7 +162,7 @@ class TestValidatorLocal:
 
     def test_data_exists_invalid_type_raises(self, tmp_path):
         """Test data_exists raises ValueError for invalid data_type."""
-        from quantdl.storage.pipeline import Validator
+        from alphalab.storage.pipeline import Validator
 
         client = LocalStorageClient(str(tmp_path))
         validator = Validator(storage_client=client)
@@ -172,7 +172,7 @@ class TestValidatorLocal:
 
     def test_top_3000_exists_true(self, tmp_path):
         """Test top_3000_exists returns True when file exists."""
-        from quantdl.storage.pipeline import Validator
+        from alphalab.storage.pipeline import Validator
 
         uni_dir = tmp_path / "data" / "meta" / "universe" / "2024" / "06"
         uni_dir.mkdir(parents=True)
@@ -185,7 +185,7 @@ class TestValidatorLocal:
 
     def test_top_3000_exists_false(self, tmp_path):
         """Test top_3000_exists returns False when file missing."""
-        from quantdl.storage.pipeline import Validator
+        from alphalab.storage.pipeline import Validator
 
         client = LocalStorageClient(str(tmp_path))
         validator = Validator(storage_client=client)
@@ -194,7 +194,7 @@ class TestValidatorLocal:
 
     def test_list_files_env_fallback(self, tmp_path):
         """Test list_files_under_prefix falls back to LOCAL_STORAGE_PATH env var."""
-        from quantdl.storage.pipeline import Validator
+        from alphalab.storage.pipeline import Validator
         ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily" / "SEC001"
         ticks_dir.mkdir(parents=True)
         (ticks_dir / "ticks.parquet").write_text("dummy")

@@ -7,7 +7,7 @@ import datetime as dt
 from pathlib import Path
 from unittest.mock import Mock, patch
 import polars as pl
-from quantdl.utils.calendar import TradingCalendar
+from alphalab.utils.calendar import TradingCalendar
 
 
 class TestTradingCalendar:
@@ -41,7 +41,7 @@ class TestTradingCalendar:
 
     def test_initialization_default_path(self):
         """Test TradingCalendar initialization with default path"""
-        from quantdl.utils.calendar import _default_calendar_path
+        from alphalab.utils.calendar import _default_calendar_path
 
         calendar_path = _default_calendar_path()
         calendar_path.parent.mkdir(parents=True, exist_ok=True)
@@ -150,8 +150,8 @@ class TestTradingCalendar:
             # Verify it's a valid date
             dt.datetime.strptime(day, '%Y-%m-%d')
 
-    @patch('quantdl.utils.calendar.requests.get')
-    @patch('quantdl.utils.calendar.os.getenv')
+    @patch('alphalab.utils.calendar.requests.get')
+    @patch('alphalab.utils.calendar.os.getenv')
     def test_auto_generate_calendar(self, mock_getenv, mock_requests_get, tmp_path):
         """Test calendar auto-generation when file missing"""
         # Mock Alpaca credentials
@@ -181,7 +181,7 @@ class TestTradingCalendar:
         assert call_args[1]['params']['start'] == "2009-01-01T00:00:00Z"
         assert call_args[1]['params']['end'] == "2029-12-31T00:00:00Z"
 
-    @patch('quantdl.utils.calendar.os.getenv')
+    @patch('alphalab.utils.calendar.os.getenv')
     def test_auto_generate_missing_credentials(self, mock_getenv, tmp_path):
         """Test auto-generation fails gracefully without credentials"""
         # Mock missing credentials

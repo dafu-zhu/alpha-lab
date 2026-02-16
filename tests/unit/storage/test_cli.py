@@ -9,11 +9,11 @@ import datetime as dt
 class TestStorageCLI:
     """Tests for storage/cli.py main function."""
 
-    @patch('quantdl.storage.cli.UploadApp')
-    @patch('quantdl.storage.cli.argparse.ArgumentParser.parse_args')
+    @patch('alphalab.storage.cli.UploadApp')
+    @patch('alphalab.storage.cli.argparse.ArgumentParser.parse_args')
     def test_main_with_fundamental_flag(self, mock_parse_args, mock_upload_app):
         """Test CLI with --run-fundamental flag."""
-        from quantdl.storage.cli import main
+        from alphalab.storage.cli import main
 
         mock_args = Mock()
         mock_args.start_year = 2020
@@ -38,11 +38,11 @@ class TestStorageCLI:
         mock_app.run.assert_called_once()
         mock_app.close.assert_called_once()
 
-    @patch('quantdl.storage.cli.UploadApp')
-    @patch('quantdl.storage.cli.argparse.ArgumentParser.parse_args')
+    @patch('alphalab.storage.cli.UploadApp')
+    @patch('alphalab.storage.cli.argparse.ArgumentParser.parse_args')
     def test_main_with_run_all_flag(self, mock_parse_args, mock_upload_app):
         """Test CLI with --run-all flag."""
-        from quantdl.storage.cli import main
+        from alphalab.storage.cli import main
 
         mock_args = Mock()
         mock_args.start_year = 2009
@@ -67,11 +67,11 @@ class TestStorageCLI:
         assert call_kwargs['run_all'] is True
         assert call_kwargs['overwrite'] is True
 
-    @patch('quantdl.storage.cli.UploadApp')
-    @patch('quantdl.storage.cli.argparse.ArgumentParser.parse_args')
+    @patch('alphalab.storage.cli.UploadApp')
+    @patch('alphalab.storage.cli.argparse.ArgumentParser.parse_args')
     def test_main_calls_close_on_exception(self, mock_parse_args, mock_upload_app):
         """Test that close() is called even when run() raises exception."""
-        from quantdl.storage.cli import main
+        from alphalab.storage.cli import main
 
         mock_args = Mock()
         mock_args.start_year = 2020
@@ -97,12 +97,12 @@ class TestStorageCLI:
         # close() should still be called
         mock_app.close.assert_called_once()
 
-    @patch('quantdl.storage.cli.dt')
-    @patch('quantdl.storage.cli.argparse.ArgumentParser.parse_args')
-    @patch('quantdl.storage.cli.argparse.ArgumentParser.error')
+    @patch('alphalab.storage.cli.dt')
+    @patch('alphalab.storage.cli.argparse.ArgumentParser.parse_args')
+    @patch('alphalab.storage.cli.argparse.ArgumentParser.error')
     def test_main_rejects_future_end_year(self, mock_error, mock_parse_args, mock_dt):
         """Test that end_year in the future raises error."""
-        from quantdl.storage.cli import main
+        from alphalab.storage.cli import main
 
         # Mock today as 2024-06-15
         mock_dt.date.today.return_value = dt.date(2024, 6, 15)

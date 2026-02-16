@@ -9,7 +9,7 @@ from unittest.mock import Mock
 class TestGetHistUniverseLocal:
     def test_with_security_master_instance(self):
         """Test using security_master kwarg."""
-        from quantdl.universe.historical import get_hist_universe_local
+        from alphalab.universe.historical import get_hist_universe_local
 
         mock_sm = Mock()
         mock_sm.master_tb = pl.DataFrame({
@@ -26,7 +26,7 @@ class TestGetHistUniverseLocal:
 
     def test_no_master_file_raises(self, tmp_path, monkeypatch):
         """Test error when no security master exists."""
-        from quantdl.universe import historical
+        from alphalab.universe import historical
         monkeypatch.setattr(historical, "LOCAL_MASTER_PATH", tmp_path / "nonexistent.parquet")
 
         with pytest.raises(FileNotFoundError, match="No security master found"):

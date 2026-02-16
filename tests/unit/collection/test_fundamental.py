@@ -5,13 +5,13 @@ Tests SEC EDGAR fundamental data collection functionality
 import pytest
 import requests
 from unittest.mock import Mock, patch, MagicMock
-from quantdl.collection.fundamental import extract_concept, MAPPINGS
+from alphalab.collection.fundamental import extract_concept, MAPPINGS
 
 
 class TestExtractConcept:
     """Test extract_concept function"""
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues', 'us-gaap:SalesRevenueNet']})
+    @patch.dict('alphalab.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues', 'us-gaap:SalesRevenueNet']})
     def test_extract_single_tag_found(self):
         """Test extraction when single tag is found"""
         facts = {
@@ -35,7 +35,7 @@ class TestExtractConcept:
         assert 'USD' in result['units']
         assert result['units']['USD'][0]['val'] == 1000000
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues', 'us-gaap:SalesRevenueNet']})
+    @patch.dict('alphalab.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues', 'us-gaap:SalesRevenueNet']})
     def test_extract_multiple_tags_merged(self):
         """Test extraction and merging when multiple tags are found"""
         facts = {
@@ -68,7 +68,7 @@ class TestExtractConcept:
         assert 'USD' in result['units']
         assert len(result['units']['USD']) == 2
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'assets': ['us-gaap:Assets']})
+    @patch.dict('alphalab.collection.fundamental.MAPPINGS', {'assets': ['us-gaap:Assets']})
     def test_extract_tag_not_found(self):
         """Test extraction when tag is not found"""
         facts = {
@@ -84,7 +84,7 @@ class TestExtractConcept:
 
         assert result is None
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {})
+    @patch.dict('alphalab.collection.fundamental.MAPPINGS', {})
     def test_extract_concept_not_in_mappings(self):
         """Test extraction with concept not in MAPPINGS"""
         facts = {}
@@ -92,7 +92,7 @@ class TestExtractConcept:
         with pytest.raises(KeyError, match="Concept 'unknown' not defined"):
             extract_concept(facts, 'unknown')
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': 'us-gaap:Revenues'})  # String instead of list
+    @patch.dict('alphalab.collection.fundamental.MAPPINGS', {'sales': 'us-gaap:Revenues'})  # String instead of list
     def test_extract_invalid_mapping_format(self):
         """Test extraction with invalid mapping format (not a list)"""
         facts = {}
@@ -100,7 +100,7 @@ class TestExtractConcept:
         with pytest.raises(ValueError, match="Invalid mapping format"):
             extract_concept(facts, 'sales')
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['InvalidTag']})
+    @patch.dict('alphalab.collection.fundamental.MAPPINGS', {'sales': ['InvalidTag']})
     def test_extract_tag_without_prefix(self):
         """Test extraction with tag missing prefix"""
         facts = {}
@@ -114,7 +114,7 @@ class TestSECClient:
 
     def test_fetch_company_facts_success(self):
         """Test successful company facts fetch"""
-        from quantdl.collection.fundamental import SECClient
+        from alphalab.collection.fundamental import SECClient
 
         mock_response = Mock()
         mock_response.status_code = 200
@@ -145,7 +145,7 @@ class TestSECClient:
 
     def test_fetch_company_facts_cik_padding(self):
         """Test that CIK is zero-padded correctly"""
-        from quantdl.collection.fundamental import SECClient
+        from alphalab.collection.fundamental import SECClient
 
         mock_response = Mock()
         mock_response.status_code = 200
@@ -161,7 +161,7 @@ class TestSECClient:
 
     def test_fetch_company_facts_http_error(self):
         """Test handling of HTTP error"""
-        from quantdl.collection.fundamental import SECClient
+        from alphalab.collection.fundamental import SECClient
 
         mock_response = Mock()
         mock_response.raise_for_status.side_effect = requests.RequestException("404 Not Found")
@@ -173,7 +173,7 @@ class TestSECClient:
 
     def test_fetch_company_facts_invalid_json(self):
         """Test handling of invalid JSON response"""
-        from quantdl.collection.fundamental import SECClient
+        from alphalab.collection.fundamental import SECClient
         import json
 
         mock_response = Mock()
@@ -187,7 +187,7 @@ class TestSECClient:
 
     def test_sec_client_custom_header(self):
         """Test SECClient with custom header"""
-        from quantdl.collection.fundamental import SECClient
+        from alphalab.collection.fundamental import SECClient
 
         custom_header = {'User-Agent': 'custom@example.com'}
         client = SECClient(header=custom_header)
@@ -196,7 +196,7 @@ class TestSECClient:
 
     def test_sec_client_rate_limiter(self):
         """Test SECClient with rate limiter"""
-        from quantdl.collection.fundamental import SECClient
+        from alphalab.collection.fundamental import SECClient
 
         mock_rate_limiter = Mock()
         client = SECClient(rate_limiter=mock_rate_limiter)
@@ -209,7 +209,7 @@ class TestFundamentalExtractor:
 
     def test_extract_field_success(self):
         """Test successful field extraction"""
-        from quantdl.collection.fundamental import FundamentalExtractor
+        from alphalab.collection.fundamental import FundamentalExtractor
 
         extractor = FundamentalExtractor()
 
@@ -235,7 +235,7 @@ class TestFundamentalExtractor:
 
     def test_extract_field_no_facts(self):
         """Test extraction when facts are missing"""
-        from quantdl.collection.fundamental import FundamentalExtractor
+        from alphalab.collection.fundamental import FundamentalExtractor
 
         extractor = FundamentalExtractor()
         facts_response = {}
@@ -245,7 +245,7 @@ class TestFundamentalExtractor:
 
     def test_extract_field_no_fact_type(self):
         """Test extraction when fact type is missing"""
-        from quantdl.collection.fundamental import FundamentalExtractor
+        from alphalab.collection.fundamental import FundamentalExtractor
 
         extractor = FundamentalExtractor()
         facts_response = {'facts': {}}
@@ -255,7 +255,7 @@ class TestFundamentalExtractor:
 
     def test_extract_field_field_not_available(self):
         """Test extraction when specific field is not available"""
-        from quantdl.collection.fundamental import FundamentalExtractor
+        from alphalab.collection.fundamental import FundamentalExtractor
 
         extractor = FundamentalExtractor()
         facts_response = {
@@ -271,7 +271,7 @@ class TestFundamentalExtractor:
 
     def test_extract_field_no_units(self):
         """Test extraction when units are missing"""
-        from quantdl.collection.fundamental import FundamentalExtractor
+        from alphalab.collection.fundamental import FundamentalExtractor
 
         extractor = FundamentalExtractor()
         facts_response = {
@@ -289,7 +289,7 @@ class TestFundamentalExtractor:
 
     def test_extract_field_fallback_to_shares(self):
         """Test that shares unit is used as fallback when USD not available"""
-        from quantdl.collection.fundamental import FundamentalExtractor
+        from alphalab.collection.fundamental import FundamentalExtractor
 
         extractor = FundamentalExtractor()
         facts_response = {
@@ -314,7 +314,7 @@ class TestFundamentalExtractor:
 
     def test_extract_field_no_usd_or_shares(self):
         """Test extraction when neither USD nor shares units are available"""
-        from quantdl.collection.fundamental import FundamentalExtractor
+        from alphalab.collection.fundamental import FundamentalExtractor
 
         extractor = FundamentalExtractor()
         facts_response = {
@@ -337,7 +337,7 @@ class TestFundamentalExtractor:
 
     def test_normalize_duration_raw_basic(self):
         """Test basic duration normalization"""
-        from quantdl.collection.fundamental import FundamentalExtractor
+        from alphalab.collection.fundamental import FundamentalExtractor
 
         extractor = FundamentalExtractor()
 
@@ -365,7 +365,7 @@ class TestFundamentalExtractor:
 
     def test_normalize_duration_raw_empty_data(self):
         """Test normalization with empty data"""
-        from quantdl.collection.fundamental import FundamentalExtractor
+        from alphalab.collection.fundamental import FundamentalExtractor
 
         extractor = FundamentalExtractor()
         result = extractor._normalize_duration_raw([])
@@ -374,7 +374,7 @@ class TestFundamentalExtractor:
 
     def test_normalize_duration_raw_missing_fields(self):
         """Test normalization with missing required fields"""
-        from quantdl.collection.fundamental import FundamentalExtractor
+        from alphalab.collection.fundamental import FundamentalExtractor
 
         extractor = FundamentalExtractor()
 
@@ -396,7 +396,7 @@ class TestFundamentalExtractor:
 
     def test_normalize_duration_raw_pick_frame_exact(self):
         """Annual frame uses exact Q1/Q2/Q3 to derive Q4."""
-        from quantdl.collection.fundamental import FundamentalExtractor
+        from alphalab.collection.fundamental import FundamentalExtractor
 
         extractor = FundamentalExtractor()
 
@@ -439,7 +439,7 @@ class TestFundamentalExtractor:
 
     def test_normalize_duration_raw_pick_frame_fallbacks(self):
         """Annual frame uses Q1I and prefix-matched frames when exact missing."""
-        from quantdl.collection.fundamental import FundamentalExtractor
+        from alphalab.collection.fundamental import FundamentalExtractor
 
         extractor = FundamentalExtractor()
 
@@ -482,7 +482,7 @@ class TestFundamentalExtractor:
 
     def test_normalize_duration_raw_pick_frame_prefix(self):
         """Annual frame falls back to prefix match when only CY...Q1A exists."""
-        from quantdl.collection.fundamental import FundamentalExtractor
+        from alphalab.collection.fundamental import FundamentalExtractor
 
         extractor = FundamentalExtractor()
 
@@ -523,7 +523,7 @@ class TestFundamentalExtractor:
         assert q4["val"] == 340.0
         assert q4["start"] == "2024-10-01"
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues']})
+    @patch.dict('alphalab.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues']})
     def test_extract_prefix_not_in_facts(self):
         """Test extraction when prefix doesn't exist in facts"""
         facts = {
@@ -536,7 +536,7 @@ class TestFundamentalExtractor:
 
         assert result is None
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues', 'us-gaap:SalesRevenueNet']})
+    @patch.dict('alphalab.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues', 'us-gaap:SalesRevenueNet']})
     def test_extract_multiple_units(self):
         """Test extraction with multiple unit types"""
         facts = {
@@ -564,7 +564,7 @@ class TestFundamentalExtractor:
         assert result['units']['USD'][0]['val'] == 1000000
         assert result['units']['shares'][0]['val'] == 5000
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues', 'custom:CompanyRevenue']})
+    @patch.dict('alphalab.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues', 'custom:CompanyRevenue']})
     def test_extract_custom_prefix(self):
         """Test extraction with custom (company-specific) prefix"""
         facts = {
@@ -586,7 +586,7 @@ class TestFundamentalExtractor:
         assert result is not None
         assert result['label'] == 'Company Revenue'
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues']})
+    @patch.dict('alphalab.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues']})
     def test_extract_field_without_units(self):
         """Test extraction when field data doesn't have units"""
         facts = {
@@ -605,7 +605,7 @@ class TestFundamentalExtractor:
         assert result['label'] == 'Revenues'
         # Should handle missing units gracefully
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Rev1', 'us-gaap:Rev2']})
+    @patch.dict('alphalab.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Rev1', 'us-gaap:Rev2']})
     def test_extract_merges_from_multiple_fields(self):
         """Test that units are properly merged from multiple fields"""
         facts = {
@@ -641,7 +641,7 @@ class TestFundamentalExtractor:
         assert 1000000 in values
         assert 2000000 in values
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues:Extra']})
+    @patch.dict('alphalab.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues:Extra']})
     def test_extract_tag_with_multiple_colons(self):
         """Test extraction with tag containing multiple colons"""
         facts = {
@@ -669,14 +669,14 @@ class TestDurationConcepts:
 
     def test_duration_concepts_exists(self):
         """Test that DURATION_CONCEPTS is defined"""
-        from quantdl.collection.fundamental import DURATION_CONCEPTS
+        from alphalab.collection.fundamental import DURATION_CONCEPTS
 
         assert isinstance(DURATION_CONCEPTS, set)
         assert len(DURATION_CONCEPTS) > 0
 
     def test_duration_concepts_contains_expected_values(self):
         """Test that DURATION_CONCEPTS contains expected concepts"""
-        from quantdl.collection.fundamental import DURATION_CONCEPTS
+        from alphalab.collection.fundamental import DURATION_CONCEPTS
 
         # Check for key duration concepts
         expected_concepts = ['sales', 'income', 'cashflow_op', 'capex']
@@ -692,10 +692,10 @@ class TestHeaderConfiguration:
         """Test that HEADER uses environment variable"""
         # Need to reload module to pick up new env var
         import importlib
-        import quantdl.collection.fundamental as fundamental_module
+        import alphalab.collection.fundamental as fundamental_module
         importlib.reload(fundamental_module)
 
-        from quantdl.collection.fundamental import HEADER
+        from alphalab.collection.fundamental import HEADER
 
         assert 'User-Agent' in HEADER
         assert HEADER['User-Agent'] == 'test@example.com'
@@ -704,10 +704,10 @@ class TestHeaderConfiguration:
     def test_header_default_fallback(self):
         """Test that HEADER has default fallback"""
         import importlib
-        import quantdl.collection.fundamental as fundamental_module
+        import alphalab.collection.fundamental as fundamental_module
         importlib.reload(fundamental_module)
 
-        from quantdl.collection.fundamental import HEADER
+        from alphalab.collection.fundamental import HEADER
 
         assert 'User-Agent' in HEADER
         # Should have a fallback value
@@ -719,7 +719,7 @@ class TestParseDatapoints:
 
     def test_parse_datapoints_basic(self):
         """Test basic datapoint parsing"""
-        from quantdl.collection.fundamental import FundamentalExtractor
+        from alphalab.collection.fundamental import FundamentalExtractor
         import datetime as dt
 
         extractor = FundamentalExtractor()
@@ -748,7 +748,7 @@ class TestParseDatapoints:
 
     def test_parse_datapoints_with_normalize_duration(self):
         """Test parsing with duration normalization"""
-        from quantdl.collection.fundamental import FundamentalExtractor
+        from alphalab.collection.fundamental import FundamentalExtractor
 
         extractor = FundamentalExtractor()
 
@@ -771,7 +771,7 @@ class TestParseDatapoints:
 
     def test_parse_datapoints_with_require_frame(self):
         """Test parsing with require_frame filter"""
-        from quantdl.collection.fundamental import FundamentalExtractor
+        from alphalab.collection.fundamental import FundamentalExtractor
 
         extractor = FundamentalExtractor()
 
@@ -804,7 +804,7 @@ class TestParseDatapoints:
 
     def test_parse_datapoints_instant_frame(self):
         """Test is_instant flag for instant frames"""
-        from quantdl.collection.fundamental import FundamentalExtractor
+        from alphalab.collection.fundamental import FundamentalExtractor
 
         extractor = FundamentalExtractor()
 
@@ -827,7 +827,7 @@ class TestParseDatapoints:
 
     def test_parse_datapoints_without_start_date(self):
         """Test parsing datapoint without start date"""
-        from quantdl.collection.fundamental import FundamentalExtractor
+        from alphalab.collection.fundamental import FundamentalExtractor
 
         extractor = FundamentalExtractor()
 
@@ -852,10 +852,10 @@ class TestParseDatapoints:
 class TestEDGARDataSource:
     """Test EDGARDataSource class"""
 
-    @patch('quantdl.collection.fundamental.SECClient')
+    @patch('alphalab.collection.fundamental.SECClient')
     def test_edgar_init_with_response(self, mock_sec_client):
         """Test EDGARDataSource initialization with provided response"""
-        from quantdl.collection.fundamental import EDGARDataSource
+        from alphalab.collection.fundamental import EDGARDataSource
 
         mock_response = {
             'cik': '320193',
@@ -870,10 +870,10 @@ class TestEDGARDataSource:
         # Should NOT call SECClient since response was provided
         mock_sec_client.assert_not_called()
 
-    @patch('quantdl.collection.fundamental.SECClient')
+    @patch('alphalab.collection.fundamental.SECClient')
     def test_edgar_init_without_response(self, mock_sec_client_class):
         """Test EDGARDataSource initialization without response (fetches data)"""
-        from quantdl.collection.fundamental import EDGARDataSource
+        from alphalab.collection.fundamental import EDGARDataSource
 
         mock_client = Mock()
         mock_client.fetch_company_facts.return_value = {
@@ -887,20 +887,20 @@ class TestEDGARDataSource:
         # Should fetch company facts
         mock_client.fetch_company_facts.assert_called_once_with('320193')
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues']})
+    @patch.dict('alphalab.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues']})
     def test_edgar_supports_concept(self):
         """Test supports_concept method"""
-        from quantdl.collection.fundamental import EDGARDataSource
+        from alphalab.collection.fundamental import EDGARDataSource
 
         source = EDGARDataSource(cik='320193', response={'facts': {}})
 
         assert source.supports_concept('sales') is True
         assert source.supports_concept('unknown_concept') is False
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues']})
+    @patch.dict('alphalab.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues']})
     def test_edgar_extract_concept_success(self):
         """Test extract_concept with successful extraction"""
-        from quantdl.collection.fundamental import EDGARDataSource
+        from alphalab.collection.fundamental import EDGARDataSource
 
         response = {
             'facts': {
@@ -932,10 +932,10 @@ class TestEDGARDataSource:
         assert len(result) == 1
         assert result[0].value == 1000000
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues']})
+    @patch.dict('alphalab.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues']})
     def test_edgar_extract_concept_not_found(self):
         """Test extract_concept when concept not found"""
-        from quantdl.collection.fundamental import EDGARDataSource
+        from alphalab.collection.fundamental import EDGARDataSource
 
         response = {
             'facts': {
@@ -950,7 +950,7 @@ class TestEDGARDataSource:
 
     def test_edgar_get_coverage_period(self):
         """Test get_coverage_period method"""
-        from quantdl.collection.fundamental import EDGARDataSource
+        from alphalab.collection.fundamental import EDGARDataSource
 
         source = EDGARDataSource(cik='320193', response={'facts': {}})
         start, end = source.get_coverage_period()
@@ -962,10 +962,10 @@ class TestEDGARDataSource:
 class TestFundamental:
     """Test Fundamental class"""
 
-    @patch('quantdl.collection.fundamental.SECClient')
+    @patch('alphalab.collection.fundamental.SECClient')
     def test_fundamental_init(self, mock_sec_client_class):
         """Test Fundamental initialization"""
-        from quantdl.collection.fundamental import Fundamental
+        from alphalab.collection.fundamental import Fundamental
 
         mock_client = Mock()
         mock_client.fetch_company_facts.return_value = {
@@ -980,10 +980,10 @@ class TestFundamental:
         assert fund.symbol == 'AAPL'
         assert len(fund._sources) == 1  # EDGAR source
 
-    @patch('quantdl.collection.fundamental.SECClient')
+    @patch('alphalab.collection.fundamental.SECClient')
     def test_fundamental_get_concept_data(self, mock_sec_client_class):
         """Test get_concept_data method"""
-        from quantdl.collection.fundamental import Fundamental
+        from alphalab.collection.fundamental import Fundamental
 
         mock_response = {
             'facts': {
@@ -1019,11 +1019,11 @@ class TestFundamental:
         assert len(result) == 1
         assert result[0].value == 1000000
 
-    @patch.dict('quantdl.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues']})
-    @patch('quantdl.collection.fundamental.SECClient')
+    @patch.dict('alphalab.collection.fundamental.MAPPINGS', {'sales': ['us-gaap:Revenues']})
+    @patch('alphalab.collection.fundamental.SECClient')
     def test_fundamental_get_concept_data_with_date_filter(self, mock_sec_client_class):
         """Test get_concept_data with date filtering"""
-        from quantdl.collection.fundamental import Fundamental
+        from alphalab.collection.fundamental import Fundamental
 
         mock_response = {
             'facts': {
@@ -1069,10 +1069,10 @@ class TestFundamental:
         assert len(result) == 1
         assert result[0].value == 1000000
 
-    @patch('quantdl.collection.fundamental.SECClient')
+    @patch('alphalab.collection.fundamental.SECClient')
     def test_fundamental_get_concept_data_not_found(self, mock_sec_client_class):
         """Test get_concept_data when concept not found"""
-        from quantdl.collection.fundamental import Fundamental
+        from alphalab.collection.fundamental import Fundamental
 
         mock_client = Mock()
         mock_client.fetch_company_facts.return_value = {'facts': {}}
@@ -1083,10 +1083,10 @@ class TestFundamental:
 
         assert result is None
 
-    @patch('quantdl.collection.fundamental.SECClient')
+    @patch('alphalab.collection.fundamental.SECClient')
     def test_fundamental_rate_limiter_integration(self, mock_sec_client_class):
         """Test that rate limiter is passed to SECClient"""
-        from quantdl.collection.fundamental import Fundamental
+        from alphalab.collection.fundamental import Fundamental
 
         mock_rate_limiter = Mock()
         mock_client = Mock()
@@ -1104,10 +1104,10 @@ class TestFundamental:
 class TestSECClientRateLimiter:
     """Test SECClient rate limiter integration"""
 
-    @patch('quantdl.collection.fundamental.requests.get')
+    @patch('alphalab.collection.fundamental.requests.get')
     def test_sec_client_rate_limiter_acquire(self, mock_get):
         """Test that rate limiter acquire is called before request"""
-        from quantdl.collection.fundamental import SECClient
+        from alphalab.collection.fundamental import SECClient
 
         mock_rate_limiter = Mock()
         mock_response = Mock()
@@ -1127,7 +1127,7 @@ class TestFundamentalExtractorEdgeCases:
 
     def test_extract_concept_raises_for_undefined_concept(self):
         """Test extract_concept raises KeyError for undefined concept."""
-        from quantdl.collection.fundamental import extract_concept
+        from alphalab.collection.fundamental import extract_concept
 
         facts = {'us-gaap': {}}
 
@@ -1136,7 +1136,7 @@ class TestFundamentalExtractorEdgeCases:
 
     def test_extractor_normalize_duration_empty_input(self):
         """Test FundamentalExtractor._normalize_duration_raw handles empty input."""
-        from quantdl.collection.fundamental import FundamentalExtractor
+        from alphalab.collection.fundamental import FundamentalExtractor
 
         extractor = FundamentalExtractor()
         result = extractor._normalize_duration_raw([])

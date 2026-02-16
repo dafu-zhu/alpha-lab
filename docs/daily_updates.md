@@ -4,9 +4,9 @@
 
 Daily updates are triggered via CLI:
 ```bash
-uv run quantdl-update [--date YYYY-MM-DD]  # defaults to yesterday
-uv run quantdl-update --no-ticks           # skip ticks, only fundamentals
-uv run quantdl-update --lookback 14        # check 14 days for new filings
+uv run al-update [--date YYYY-MM-DD]  # defaults to yesterday
+uv run al-update --no-ticks           # skip ticks, only fundamentals
+uv run al-update --lookback 14        # check 14 days for new filings
 ```
 
 ## Update Flow
@@ -152,7 +152,7 @@ Separate from SecurityMaster update, `get_symbols_with_recent_filings()`:
 
 | File | Purpose |
 |------|---------|
-| `src/quantdl/master/security_master.py` | Core SecurityMaster class |
-| `src/quantdl/update/app.py` | DailyUpdateApp with WRDS |
-| `src/quantdl/update/app_no_wrds.py` | DailyUpdateApp without WRDS |
-| `src/quantdl/update/cli.py` | CLI entry point |
+| `src/alphalab/master/security_master.py` | Core SecurityMaster class |
+| `src/alphalab/update/app.py` | DailyUpdateApp with WRDS |
+| `src/alphalab/update/app_no_wrds.py` | DailyUpdateApp without WRDS |
+| `src/alphalab/update/cli.py` | CLI entry point |

@@ -7,13 +7,13 @@ import datetime as dt
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 import polars as pl
-from quantdl.utils.mapping import symbol_cik_mapping, align_calendar
+from alphalab.utils.mapping import symbol_cik_mapping, align_calendar
 
 
 class TestSymbolCikMapping:
     """Test symbol_cik_mapping function"""
 
-    @patch('quantdl.utils.mapping.requests.get')
+    @patch('alphalab.utils.mapping.requests.get')
     def test_successful_mapping_retrieval(self, mock_get):
         """Test successful retrieval of symbol-CIK mapping"""
         # Mock SEC response
@@ -41,7 +41,7 @@ class TestSymbolCikMapping:
             "GOOGL": 1652044
         }
 
-    @patch('quantdl.utils.mapping.requests.get')
+    @patch('alphalab.utils.mapping.requests.get')
     def test_failed_request(self, mock_get):
         """Test handling of failed HTTP request"""
         mock_response = Mock()
@@ -53,7 +53,7 @@ class TestSymbolCikMapping:
         # Should return empty dict on failure
         assert result == {}
 
-    @patch('quantdl.utils.mapping.requests.get')
+    @patch('alphalab.utils.mapping.requests.get')
     def test_missing_ticker_field(self, mock_get):
         """Test handling of entries with missing ticker field"""
         mock_response = Mock()
@@ -73,7 +73,7 @@ class TestSymbolCikMapping:
             "GOOGL": 1652044
         }
 
-    @patch('quantdl.utils.mapping.requests.get')
+    @patch('alphalab.utils.mapping.requests.get')
     def test_empty_response(self, mock_get):
         """Test handling of empty response"""
         mock_response = Mock()

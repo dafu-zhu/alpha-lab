@@ -28,7 +28,7 @@ class TestFeaturesHandler:
         return feature_builder, security_master, universe_manager, calendar, logger
 
     def test_build_calls_feature_builder(self, mock_deps):
-        from quantdl.storage.handlers.features import FeaturesHandler
+        from alphalab.storage.handlers.features import FeaturesHandler
 
         fb, sm, um, cal, log = mock_deps
         handler = FeaturesHandler(fb, sm, um, cal, log)
@@ -38,7 +38,7 @@ class TestFeaturesHandler:
         assert "close" in result
 
     def test_build_collects_security_ids(self, mock_deps):
-        from quantdl.storage.handlers.features import FeaturesHandler
+        from alphalab.storage.handlers.features import FeaturesHandler
 
         fb, sm, um, cal, log = mock_deps
         handler = FeaturesHandler(fb, sm, um, cal, log)
@@ -48,7 +48,7 @@ class TestFeaturesHandler:
         assert sm.get_security_id.call_count == 2
 
     def test_build_skips_unresolvable_symbols(self, mock_deps):
-        from quantdl.storage.handlers.features import FeaturesHandler
+        from alphalab.storage.handlers.features import FeaturesHandler
 
         fb, sm, um, cal, log = mock_deps
         sm.get_security_id.side_effect = [12345, ValueError("not found")]
@@ -62,7 +62,7 @@ class TestFeaturesHandler:
         assert "12345" in sids
 
     def test_build_multi_year(self, mock_deps):
-        from quantdl.storage.handlers.features import FeaturesHandler
+        from alphalab.storage.handlers.features import FeaturesHandler
 
         fb, sm, um, cal, log = mock_deps
         handler = FeaturesHandler(fb, sm, um, cal, log)
@@ -72,7 +72,7 @@ class TestFeaturesHandler:
         assert um.load_symbols_for_year.call_count == 2
 
     def test_build_passes_overwrite(self, mock_deps):
-        from quantdl.storage.handlers.features import FeaturesHandler
+        from alphalab.storage.handlers.features import FeaturesHandler
 
         fb, sm, um, cal, log = mock_deps
         handler = FeaturesHandler(fb, sm, um, cal, log)

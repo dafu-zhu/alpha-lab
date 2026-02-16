@@ -1,4 +1,4 @@
-"""Shared test fixtures for QuantDL API."""
+"""Shared test fixtures for AlphaLab API."""
 
 from collections.abc import Generator
 from datetime import date
@@ -97,5 +97,5 @@ def test_data_dir(tmp_path: Path) -> Generator[Path, None, None]:
 @pytest.fixture
 def client(test_data_dir: Path) -> Any:
     """Create client with local test data."""
-    from quantdl.api import QuantDLClient
-    return QuantDLClient(data_path=str(test_data_dir))
+    from alphalab.api import AlphaLabClient
+    return AlphaLabClient(data_path=str(test_data_dir))

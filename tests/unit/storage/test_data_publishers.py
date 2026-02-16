@@ -8,11 +8,11 @@ from unittest.mock import Mock, patch
 import polars as pl
 import requests
 
-from quantdl.storage.utils import NoSuchKeyError
+from alphalab.storage.utils import NoSuchKeyError
 
 
 def _make_publisher(tmp_path=None):
-    from quantdl.storage.pipeline import DataPublishers
+    from alphalab.storage.pipeline import DataPublishers
 
     storage_client = Mock()
     if tmp_path:

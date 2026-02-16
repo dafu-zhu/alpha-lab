@@ -6,7 +6,7 @@ import pytest
 from unittest.mock import Mock, MagicMock, patch
 import logging
 
-from quantdl.storage.handlers.top3000 import Top3000Handler
+from alphalab.storage.handlers.top3000 import Top3000Handler
 
 
 @pytest.fixture
@@ -49,7 +49,7 @@ class TestTop3000Handler:
         deps['universe_manager'].load_symbols_for_year.return_value = ['AAPL']
         deps['validator'].top_3000_exists.return_value = True
 
-        with patch('quantdl.storage.handlers.top3000.dt') as mock_dt:
+        with patch('alphalab.storage.handlers.top3000.dt') as mock_dt:
             mock_dt.date.today.return_value = dt.date(2020, 12, 31)
             mock_dt.datetime = dt.datetime
             result = handler.upload_year(2020, overwrite=False)
@@ -61,7 +61,7 @@ class TestTop3000Handler:
         deps['validator'].top_3000_exists.return_value = False
         deps['calendar'].load_trading_days.return_value = []
 
-        with patch('quantdl.storage.handlers.top3000.dt') as mock_dt:
+        with patch('alphalab.storage.handlers.top3000.dt') as mock_dt:
             mock_dt.date.today.return_value = dt.date(2020, 12, 31)
             mock_dt.datetime = dt.datetime
             result = handler.upload_year(2020)
@@ -85,7 +85,7 @@ class TestTop3000Handler:
         deps['universe_manager'].get_top_3000.return_value = ['AAPL']
         deps['data_publishers'].publish_top_3000.return_value = {'status': 'success'}
 
-        with patch('quantdl.storage.handlers.top3000.dt') as mock_dt:
+        with patch('alphalab.storage.handlers.top3000.dt') as mock_dt:
             mock_dt.date.today.return_value = dt.date(2025, 1, 31)
             mock_dt.datetime = dt.datetime
             result = handler.upload_year(2025)
@@ -100,7 +100,7 @@ class TestTop3000Handler:
         deps['universe_manager'].get_top_3000.return_value = ['AAPL', 'MSFT']
         deps['data_publishers'].publish_top_3000.return_value = {'status': 'success'}
 
-        with patch('quantdl.storage.handlers.top3000.dt') as mock_dt:
+        with patch('alphalab.storage.handlers.top3000.dt') as mock_dt:
             mock_dt.date.today.return_value = dt.date(2020, 12, 31)
             mock_dt.datetime = dt.datetime
             result = handler.upload_year(2020)
@@ -114,7 +114,7 @@ class TestTop3000Handler:
         deps['universe_manager'].get_top_3000.return_value = ['AAPL']
         deps['data_publishers'].publish_top_3000.return_value = {'status': 'skipped', 'error': 'No data'}
 
-        with patch('quantdl.storage.handlers.top3000.dt') as mock_dt:
+        with patch('alphalab.storage.handlers.top3000.dt') as mock_dt:
             mock_dt.date.today.return_value = dt.date(2020, 12, 31)
             mock_dt.datetime = dt.datetime
             result = handler.upload_year(2020)
@@ -128,7 +128,7 @@ class TestTop3000Handler:
         deps['universe_manager'].get_top_3000.return_value = ['AAPL']
         deps['data_publishers'].publish_top_3000.return_value = {'status': 'failed', 'error': 'S3 err'}
 
-        with patch('quantdl.storage.handlers.top3000.dt') as mock_dt:
+        with patch('alphalab.storage.handlers.top3000.dt') as mock_dt:
             mock_dt.date.today.return_value = dt.date(2020, 12, 31)
             mock_dt.datetime = dt.datetime
             result = handler.upload_year(2020)
@@ -140,7 +140,7 @@ class TestTop3000Handler:
         deps['universe_manager'].load_symbols_for_year.return_value = ['AAPL']
         deps['validator'].top_3000_exists.return_value = True
 
-        with patch('quantdl.storage.handlers.top3000.dt') as mock_dt:
+        with patch('alphalab.storage.handlers.top3000.dt') as mock_dt:
             mock_dt.date.today.return_value = dt.date(2020, 12, 31)
             mock_dt.datetime = dt.datetime
             handler.upload_year(2020)
@@ -155,7 +155,7 @@ class TestTop3000Handler:
         deps['universe_manager'].get_top_3000.return_value = ['AAPL']
         deps['data_publishers'].publish_top_3000.return_value = {'status': 'success'}
 
-        with patch('quantdl.storage.handlers.top3000.dt') as mock_dt:
+        with patch('alphalab.storage.handlers.top3000.dt') as mock_dt:
             mock_dt.date.today.return_value = dt.date(2020, 12, 31)
             mock_dt.datetime = dt.datetime
             result = handler.upload_year(2020, overwrite=True)

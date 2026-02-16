@@ -1,4 +1,4 @@
-"""Tests for features() API method on QuantDLClient."""
+"""Tests for features() API method on AlphaLabClient."""
 
 import pytest
 import polars as pl
@@ -26,15 +26,15 @@ class TestFeaturesAPI:
 
     @pytest.fixture
     def client(self, features_dir):
-        """Create QuantDLClient with mock security master."""
-        from quantdl.api.types import SecurityInfo
-        from quantdl.api.client import QuantDLClient
+        """Create AlphaLabClient with mock security master."""
+        from alphalab.api.types import SecurityInfo
+        from alphalab.api.client import AlphaLabClient
 
-        with patch.object(QuantDLClient, '__init__', lambda self, **kw: None):
-            client = QuantDLClient.__new__(QuantDLClient)
+        with patch.object(AlphaLabClient, '__init__', lambda self, **kw: None):
+            client = AlphaLabClient.__new__(AlphaLabClient)
 
         # Manually set up internals
-        from quantdl.api.backend import StorageBackend
+        from alphalab.api.backend import StorageBackend
         client._storage = StorageBackend(str(features_dir))
 
         mock_sm = Mock()
@@ -84,12 +84,12 @@ class TestFeaturesAPI:
         assert result["Date"][0] == date(2024, 1, 3)
 
     def test_features_invalid_field_raises(self, client):
-        from quantdl.api.exceptions import ValidationError
+        from alphalab.api.exceptions import ValidationError
         with pytest.raises(ValidationError, match="Unknown feature field"):
             client.get("totally_fake_field_xyz")
 
     def test_features_no_matching_symbols_raises(self, client):
-        from quantdl.api.exceptions import DataNotFoundError
+        from alphalab.api.exceptions import DataNotFoundError
         with pytest.raises(DataNotFoundError):
             client.get("close", symbols=["ZZZZ"])
 
@@ -129,14 +129,14 @@ class TestQueryAPI:
 
     @pytest.fixture
     def query_client(self, query_dir):
-        """Create QuantDLClient for query tests."""
-        from quantdl.api.types import SecurityInfo
-        from quantdl.api.client import QuantDLClient
+        """Create AlphaLabClient for query tests."""
+        from alphalab.api.types import SecurityInfo
+        from alphalab.api.client import AlphaLabClient
 
-        with patch.object(QuantDLClient, '__init__', lambda self, **kw: None):
-            client = QuantDLClient.__new__(QuantDLClient)
+        with patch.object(AlphaLabClient, '__init__', lambda self, **kw: None):
+            client = AlphaLabClient.__new__(AlphaLabClient)
 
-        from quantdl.api.backend import StorageBackend
+        from alphalab.api.backend import StorageBackend
         client._storage = StorageBackend(str(query_dir))
 
         mock_sm = Mock()
@@ -200,7 +200,7 @@ class TestQueryAPI:
 
 class TestStorageBackendIPC:
     def test_read_ipc(self, tmp_path):
-        from quantdl.api.backend import StorageBackend
+        from alphalab.api.backend import StorageBackend
 
         df = pl.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
         path = tmp_path / "test.arrow"
@@ -211,7 +211,7 @@ class TestStorageBackendIPC:
         assert result.shape == (3, 2)
 
     def test_read_ipc_with_columns(self, tmp_path):
-        from quantdl.api.backend import StorageBackend
+        from alphalab.api.backend import StorageBackend
 
         df = pl.DataFrame({"a": [1, 2], "b": [3, 4], "c": [5, 6]})
         path = tmp_path / "test.arrow"
@@ -222,15 +222,15 @@ class TestStorageBackendIPC:
         assert result.columns == ["a", "c"]
 
     def test_read_ipc_missing_file_raises(self, tmp_path):
-        from quantdl.api.backend import StorageBackend
-        from quantdl.api.exceptions import StorageError
+        from alphalab.api.backend import StorageBackend
+        from alphalab.api.exceptions import StorageError
 
         backend = StorageBackend(str(tmp_path))
         with pytest.raises(StorageError):
             backend.read_ipc("nonexistent.arrow")
 
     def test_scan_ipc(self, tmp_path):
-        from quantdl.api.backend import StorageBackend
+        from alphalab.api.backend import StorageBackend
 
         df = pl.DataFrame({"x": [10, 20]})
         path = tmp_path / "scan.arrow"

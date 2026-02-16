@@ -7,7 +7,7 @@ from datetime import date
 
 class TestFundamentalBuilderRaw:
     def test_build_raw_assets(self, raw_data_dir, trading_days, security_ids):
-        from quantdl.features.builders.fundamental import FundamentalFeatureBuilder
+        from alphalab.features.builders.fundamental import FundamentalFeatureBuilder
         builder = FundamentalFeatureBuilder(str(raw_data_dir))
         result = builder.build_raw("assets", "assets", trading_days, security_ids)
 
@@ -17,7 +17,7 @@ class TestFundamentalBuilderRaw:
             assert sid in result.columns
 
     def test_forward_fill_works(self, raw_data_dir, trading_days, security_ids):
-        from quantdl.features.builders.fundamental import FundamentalFeatureBuilder
+        from alphalab.features.builders.fundamental import FundamentalFeatureBuilder
         builder = FundamentalFeatureBuilder(str(raw_data_dir))
         result = builder.build_raw("assets", "assets", trading_days, security_ids)
 
@@ -29,7 +29,7 @@ class TestFundamentalBuilderRaw:
         assert vals[9] == 1e9  # forward-filled
 
     def test_missing_concept_returns_nulls(self, raw_data_dir, trading_days, security_ids):
-        from quantdl.features.builders.fundamental import FundamentalFeatureBuilder
+        from alphalab.features.builders.fundamental import FundamentalFeatureBuilder
         builder = FundamentalFeatureBuilder(str(raw_data_dir))
         result = builder.build_raw("nonexistent", "nonexistent_concept", trading_days, security_ids)
 
@@ -42,7 +42,7 @@ class TestFundamentalBuilderDerived:
     @pytest.fixture
     def built_deps(self, raw_data_dir, trading_days, security_ids):
         """Pre-build fundamental dependencies."""
-        from quantdl.features.builders.fundamental import FundamentalFeatureBuilder
+        from alphalab.features.builders.fundamental import FundamentalFeatureBuilder
         builder = FundamentalFeatureBuilder(str(raw_data_dir))
         deps = {}
         for concept in ["assets", "liabilities", "income", "equity", "sharesout",
@@ -89,7 +89,7 @@ class TestFundamentalBuilderDerived:
 
     def test_division_by_zero_returns_none(self, trading_days, security_ids):
         """Test that division by zero in derived fields produces None."""
-        from quantdl.features.builders.fundamental import FundamentalFeatureBuilder
+        from alphalab.features.builders.fundamental import FundamentalFeatureBuilder
         builder = FundamentalFeatureBuilder(".")
 
         # Create deps with zero denominator
@@ -106,7 +106,7 @@ class TestFundamentalBuilderDerived:
         assert result["SEC001"].null_count() == len(trading_days)
 
     def test_unknown_derived_raises(self, trading_days, security_ids):
-        from quantdl.features.builders.fundamental import FundamentalFeatureBuilder
+        from alphalab.features.builders.fundamental import FundamentalFeatureBuilder
         builder = FundamentalFeatureBuilder(".")
         with pytest.raises(ValueError, match="Unknown derived"):
             builder.build_derived("nonexistent_metric", {}, trading_days, security_ids)
@@ -147,7 +147,7 @@ class TestFundamentalBuilderDerived:
 
     def test_derived_empty_wide_no_common_sids(self, trading_days):
         """Derived field returns empty wide table when no common sids."""
-        from quantdl.features.builders.fundamental import FundamentalFeatureBuilder
+        from alphalab.features.builders.fundamental import FundamentalFeatureBuilder
         builder = FundamentalFeatureBuilder(".")
         calendar = pl.DataFrame({"Date": trading_days})
         deps = {
@@ -159,7 +159,7 @@ class TestFundamentalBuilderDerived:
 
     def test_sales_growth_empty_cols(self, trading_days):
         """sales_growth returns empty wide when no matching sids in sales."""
-        from quantdl.features.builders.fundamental import FundamentalFeatureBuilder
+        from alphalab.features.builders.fundamental import FundamentalFeatureBuilder
         builder = FundamentalFeatureBuilder(".")
         calendar = pl.DataFrame({"Date": trading_days})
         deps = {"sales": calendar.with_columns(pl.lit(1.0).alias("X"))}
@@ -170,7 +170,7 @@ class TestFundamentalBuilderDerived:
 class TestFundamentalEdgeCases:
     def test_missing_file_returns_none(self, tmp_path, trading_days):
         """Security without parquet file returns no data."""
-        from quantdl.features.builders.fundamental import FundamentalFeatureBuilder
+        from alphalab.features.builders.fundamental import FundamentalFeatureBuilder
         builder = FundamentalFeatureBuilder(str(tmp_path))
         result = builder.build_raw("assets", "assets", trading_days, ["NOSID"])
         assert "Date" in result.columns
@@ -178,7 +178,7 @@ class TestFundamentalEdgeCases:
 
     def test_string_as_of_date_cast(self, tmp_path, trading_days):
         """String as_of_date column is auto-cast to Date."""
-        from quantdl.features.builders.fundamental import FundamentalFeatureBuilder
+        from alphalab.features.builders.fundamental import FundamentalFeatureBuilder
         fnd_dir = tmp_path / "data" / "raw" / "fundamental" / "STRDATE"
         fnd_dir.mkdir(parents=True)
         df = pl.DataFrame({
@@ -194,7 +194,7 @@ class TestFundamentalEdgeCases:
 
     def test_corrupted_file_returns_none(self, tmp_path, trading_days):
         """Corrupted parquet is handled gracefully."""
-        from quantdl.features.builders.fundamental import FundamentalFeatureBuilder
+        from alphalab.features.builders.fundamental import FundamentalFeatureBuilder
         fnd_dir = tmp_path / "data" / "raw" / "fundamental" / "BAD"
         fnd_dir.mkdir(parents=True)
         (fnd_dir / "fundamental.parquet").write_text("corrupted")

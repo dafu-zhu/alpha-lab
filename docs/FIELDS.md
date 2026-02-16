@@ -2,7 +2,7 @@
 
 66 pre-built data fields stored as wide matrices (Date x security_id) in Arrow IPC format at `data/features/{field}.arrow`. Use any field name directly in alpha expressions.
 
-Source: [`src/quantdl/features/registry.py`](../src/quantdl/features/registry.py)
+Source: [`src/alphalab/features/registry.py`](../src/alphalab/features/registry.py)
 
 ---
 
@@ -152,7 +152,7 @@ All fields are written as Arrow IPC files at `$LOCAL_STORAGE_PATH/data/features/
 - **Build order:** Topological sort ensures dependencies are built before derived fields
 
 ```python
-from quantdl.features.registry import ALL_FIELDS, get_build_order
+from alphalab.features.registry import ALL_FIELDS, get_build_order
 
 # List all field names
 print(sorted(ALL_FIELDS.keys()))

@@ -6,11 +6,11 @@ from datetime import date
 import polars as pl
 import pytest
 
-from quantdl.api.operators import (
+from alphalab.api.operators import (
     abs as op_abs,
     bucket,
 )
-from quantdl.api.operators import (
+from alphalab.api.operators import (
     add,
     and_,
     days_from_last_change,
@@ -75,10 +75,10 @@ from quantdl.api.operators import (
     winsorize,
     zscore,
 )
-from quantdl.api.operators import (
+from alphalab.api.operators import (
     max as op_max,
 )
-from quantdl.api.operators import (
+from alphalab.api.operators import (
     min as op_min,
 )
 
@@ -1981,7 +1981,7 @@ class TestTradeWhen:
 
     def test_basic_trigger_enter(self, dates: list[date]) -> None:
         """Entry signal sets alpha value."""
-        from quantdl.api.operators import trade_when
+        from alphalab.api.operators import trade_when
         trigger = pl.DataFrame({"Date": dates, "A": [1.0, 0.0, 0.0, 1.0, 0.0]})
         alpha = pl.DataFrame({"Date": dates, "A": [10.0, 20.0, 30.0, 40.0, 50.0]})
         result = trade_when(trigger, alpha, -1)  # never exit
@@ -1990,7 +1990,7 @@ class TestTradeWhen:
 
     def test_carry_forward(self, dates: list[date]) -> None:
         """Position carries forward when no trigger."""
-        from quantdl.api.operators import trade_when
+        from alphalab.api.operators import trade_when
         trigger = pl.DataFrame({"Date": dates, "A": [1.0, 0.0, 0.0, 0.0, 0.0]})
         alpha = pl.DataFrame({"Date": dates, "A": [10.0, 20.0, 30.0, 40.0, 50.0]})
         result = trade_when(trigger, alpha, -1)
@@ -2000,7 +2000,7 @@ class TestTradeWhen:
 
     def test_exit_trigger_clears(self, dates: list[date]) -> None:
         """Exit signal produces NaN."""
-        from quantdl.api.operators import trade_when
+        from alphalab.api.operators import trade_when
         import math
         trigger = pl.DataFrame({"Date": dates, "A": [1.0, 0.0, 0.0, 0.0, 0.0]})
         alpha = pl.DataFrame({"Date": dates, "A": [10.0, 20.0, 30.0, 40.0, 50.0]})
@@ -2013,7 +2013,7 @@ class TestTradeWhen:
 
     def test_scalar_exit_never(self, dates: list[date]) -> None:
         """Scalar exit -1 means never exit."""
-        from quantdl.api.operators import trade_when
+        from alphalab.api.operators import trade_when
         trigger = pl.DataFrame({"Date": dates, "A": [1.0, 0.0, 0.0, 0.0, 0.0]})
         alpha = pl.DataFrame({"Date": dates, "A": [99.0, 0.0, 0.0, 0.0, 0.0]})
         result = trade_when(trigger, alpha, -1)
@@ -2023,7 +2023,7 @@ class TestTradeWhen:
 
     def test_all_nan_when_exit_always(self, dates: list[date]) -> None:
         """Scalar exit 1 means always exit (all NaN)."""
-        from quantdl.api.operators import trade_when
+        from alphalab.api.operators import trade_when
         import math
         trigger = pl.DataFrame({"Date": dates, "A": [1.0, 1.0, 1.0, 1.0, 1.0]})
         alpha = pl.DataFrame({"Date": dates, "A": [10.0, 20.0, 30.0, 40.0, 50.0]})
@@ -2033,7 +2033,7 @@ class TestTradeWhen:
 
     def test_multiple_columns(self, dates: list[date]) -> None:
         """Works with multiple symbol columns."""
-        from quantdl.api.operators import trade_when
+        from alphalab.api.operators import trade_when
         trigger = pl.DataFrame({
             "Date": dates,
             "A": [1.0, 0.0, 0.0, 0.0, 0.0],

@@ -5,7 +5,7 @@ from unittest.mock import Mock, MagicMock, patch, call
 import logging
 import polars as pl
 
-from quantdl.storage.handlers.fundamental import FundamentalHandler
+from alphalab.storage.handlers.fundamental import FundamentalHandler
 
 
 # -- Shared fixtures ----------------------------------------------------------
@@ -53,8 +53,8 @@ class TestFundamentalHandler:
         assert result['failed'] == 0
         handler.logger.warning.assert_called_once()
 
-    @patch('quantdl.storage.handlers.fundamental.tqdm')
-    @patch('quantdl.storage.handlers.fundamental.ThreadPoolExecutor')
+    @patch('alphalab.storage.handlers.fundamental.tqdm')
+    @patch('alphalab.storage.handlers.fundamental.ThreadPoolExecutor')
     def test_upload_processes_symbols(self, mock_executor_cls, mock_tqdm, handler):
         with patch.object(handler, '_prepare_symbols', return_value=(['AAPL'], {'AAPL': '123'}, {'AAPL': 100}, 0.1)):
             mock_future = Mock()

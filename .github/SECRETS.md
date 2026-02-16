@@ -51,7 +51,7 @@ Run the test workflow to verify all secrets are configured:
 All secrets should show "SET" (not "MISSING").
 
 ### Test the Workflow
-The test workflow runs `quantdl-update --no-ticks` which:
+The test workflow runs `al-update --no-ticks` which:
 - Only checks for new fundamental filings (fast)
 - Validates WRDS, AWS, and SEC credentials
 - Sends a test email

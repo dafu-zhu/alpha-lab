@@ -68,7 +68,7 @@ uv run pytest tests/unit/storage/test_rate_limiter.py::TestRateLimiter::test_thr
 
 ```bash
 # Generate coverage report
-uv run pytest --cov=src/quantdl --cov-report=html
+uv run pytest --cov=src/alphalab --cov-report=html
 
 # View coverage report
 open htmlcov/index.html  # macOS
@@ -110,7 +110,7 @@ Unit tests for mymodule
 Tests functionality of MyClass
 """
 import pytest
-from quantdl.mymodule import MyClass
+from alphalab.mymodule import MyClass
 
 
 class TestMyClass:
@@ -140,7 +140,7 @@ Use `unittest.mock` to mock external dependencies:
 ```python
 from unittest.mock import Mock, patch
 
-@patch('quantdl.collection.fundamental.requests.get')
+@patch('alphalab.collection.fundamental.requests.get')
 def test_api_call(mock_get):
     """Test API call with mocked response"""
     mock_get.return_value.json.return_value = {"data": "test"}

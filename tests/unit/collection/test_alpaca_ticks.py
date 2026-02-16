@@ -6,12 +6,12 @@ import polars as pl
 import pytest
 from unittest.mock import Mock, patch
 
-from quantdl.collection.alpaca_ticks import Ticks
+from alphalab.collection.alpaca_ticks import Ticks
 
 
 MOCK_ENV = {'ALPACA_API_KEY': 'test_key', 'ALPACA_API_SECRET': 'test_secret'}
-MOCK_LOGGER_PATH = 'quantdl.collection.alpaca_ticks.LoggerFactory'
-MOCK_REQUESTS_GET_PATH = 'quantdl.collection.alpaca_ticks.requests.get'
+MOCK_LOGGER_PATH = 'alphalab.collection.alpaca_ticks.LoggerFactory'
+MOCK_REQUESTS_GET_PATH = 'alphalab.collection.alpaca_ticks.requests.get'
 
 SAMPLE_BAR = {
     't': '2024-01-03T14:30:00Z',
@@ -237,7 +237,7 @@ class TestRecentDailyTicks:
 
         mock_get.return_value = _make_api_response({'AAPL': []})
 
-        with patch('quantdl.collection.alpaca_ticks.dt.datetime', FixedDateTime):
+        with patch('alphalab.collection.alpaca_ticks.dt.datetime', FixedDateTime):
             ticks = Ticks()
             result = ticks.recent_daily_ticks(['AAPL'], '2024-06-30', window=90)
 

@@ -1,5 +1,5 @@
 def main():
-    print("Hello from us-equity-datalake!")
+    print("Hello from alphalab!")
 
 
 if __name__ == "__main__":

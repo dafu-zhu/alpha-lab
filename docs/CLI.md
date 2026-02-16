@@ -1,7 +1,7 @@
 # CLI Reference
 
 ```
-uv run qdl [OPTIONS]
+uv run al [OPTIONS]
 ```
 
 ## Commands
@@ -30,20 +30,20 @@ uv run qdl [OPTIONS]
 
 ```bash
 # Full setup from scratch
-uv run qdl --master
-uv run qdl --all --start 2017 --end 2025
+uv run al --master
+uv run al --all --start 2017 --end 2025
 
 # Update only prices for current year
-uv run qdl --ticks --start 2025 --end 2025
+uv run al --ticks --start 2025 --end 2025
 
 # Rebuild feature tables after new data
-uv run qdl --features
+uv run al --features
 
 # Force re-download fundamentals
-uv run qdl --fundamental --overwrite
+uv run al --fundamental --overwrite
 
 # Slower API calls (if rate limited)
-uv run qdl --ticks --daily-chunk-size 50 --daily-sleep-time 1.0
+uv run al --ticks --daily-chunk-size 50 --daily-sleep-time 1.0
 ```
 
 ## Environment Variables

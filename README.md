@@ -11,9 +11,9 @@ The long-term goal is a **full local proxy of WorldQuant BRAIN** — data, opera
 Get started with `uv sync`:
 
 ```python
-from quantdl.api.client import QuantDLClient
+from alphalab.api.client import AlphaLabClient
 
-client = QuantDLClient(data_path="/path/to/your/data")
+client = AlphaLabClient(data_path="/path/to/your/data")
 
 alpha = client.query("""
 regime = ts_rank(ts_sum(volume, 5)/ts_sum(volume, 60), 60) > 0.5;
@@ -58,8 +58,8 @@ Please find more about the environment variables in [`.env.example`](.env.exampl
 ### Build & Download
 
 ```bash
-uv run qdl --master                         # Build security master + calendar
-uv run qdl --all --start 2017 --end 2025    # Download everything (~45 min first run)
+uv run al --master                         # Build security master + calendar
+uv run al --all --start 2017 --end 2025    # Download everything (~45 min first run)
 ```
 
 Or pick what you need: `--ticks`, `--fundamental`, `--top-3000`, `--features`. See the [CLI reference](docs/CLI.md) for all options.
@@ -67,7 +67,7 @@ Or pick what you need: `--ticks`, `--fundamental`, `--top-3000`, `--features`. S
 ### Research
 
 ```python
-client = QuantDLClient(data_path="/path/to/your/data")
+client = AlphaLabClient(data_path="/path/to/your/data")
 
 # Look up any symbol (resolves across ticker changes)
 client.lookup("AAPL")
@@ -81,11 +81,11 @@ client.query("rank(-ts_delta(close, 5))")
 
 ## Documentation
 
-- [API Reference](docs/API.md) — `QuantDLClient` methods: `get()`, `query()`, `lookup()`, `universe()`
+- [API Reference](docs/API.md) — `AlphaLabClient` methods: `get()`, `query()`, `lookup()`, `universe()`
 - [Operators](docs/OPERATORS.md) — Full reference for all 68 operators with signatures
 - [Data Fields](docs/FIELDS.md) — 66 fields with categories and XBRL mappings
 - [Expression Guide](docs/ALPHA-GUIDE.md) — How to write alpha expressions and multi-line queries
-- [CLI Reference](docs/CLI.md) — All `qdl` command options
+- [CLI Reference](docs/CLI.md) — All `al` command options
 - [Storage Layout](docs/STORAGE.md) — Directory structure and design decisions
 - [Backtest Criteria](docs/BACKTEST.md) — WQ BRAIN submission requirements (planned)
 - [Testing](tests/README.md) — Test structure, markers, and fixtures
@@ -106,7 +106,7 @@ This project is under active development toward a full local WorldQuant BRAIN ex
 ```bash
 uv run pytest                    # All tests
 uv run pytest -m unit            # Unit tests only (~14s)
-uv run pytest --cov=src/quantdl  # With coverage
+uv run pytest --cov=src/alphalab  # With coverage
 ```
 
 <details>

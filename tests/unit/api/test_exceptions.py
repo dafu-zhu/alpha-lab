@@ -2,10 +2,10 @@
 
 import pytest
 
-from quantdl.api.exceptions import (
+from alphalab.api.exceptions import (
     ConfigurationError,
     DataNotFoundError,
-    QuantDLError,
+    AlphaLabError,
     SecurityNotFoundError,
     StorageError,
 )
@@ -28,10 +28,10 @@ class TestSecurityNotFoundError:
         assert exc.as_of == "2024-01-01"
         assert str(exc) == "Security not found: AAPL as of 2024-01-01"
 
-    def test_security_not_found_is_quantdl_error(self) -> None:
-        """Test SecurityNotFoundError inherits from QuantDLError."""
+    def test_security_not_found_is_alphalab_error(self) -> None:
+        """Test SecurityNotFoundError inherits from AlphaLabError."""
         exc = SecurityNotFoundError("AAPL")
-        assert isinstance(exc, QuantDLError)
+        assert isinstance(exc, AlphaLabError)
 
 
 class TestStorageError:
@@ -55,10 +55,10 @@ class TestStorageError:
         assert "Storage scan_parquet failed for: /data/test.parquet" in str(exc)
         assert "connection failed" in str(exc)
 
-    def test_storage_error_is_quantdl_error(self) -> None:
-        """Test StorageError inherits from QuantDLError."""
+    def test_storage_error_is_alphalab_error(self) -> None:
+        """Test StorageError inherits from AlphaLabError."""
         exc = StorageError("read", "/path")
-        assert isinstance(exc, QuantDLError)
+        assert isinstance(exc, AlphaLabError)
 
 
 class TestDataNotFoundError:
@@ -71,10 +71,10 @@ class TestDataNotFoundError:
         assert exc.identifier == "AAPL"
         assert str(exc) == "daily data not found for: AAPL"
 
-    def test_data_not_found_is_quantdl_error(self) -> None:
-        """Test DataNotFoundError inherits from QuantDLError."""
+    def test_data_not_found_is_alphalab_error(self) -> None:
+        """Test DataNotFoundError inherits from AlphaLabError."""
         exc = DataNotFoundError("fundamentals", "MSFT")
-        assert isinstance(exc, QuantDLError)
+        assert isinstance(exc, AlphaLabError)
 
 
 class TestConfigurationError:
@@ -85,22 +85,22 @@ class TestConfigurationError:
         exc = ConfigurationError("Missing credentials")
         assert str(exc) == "Missing credentials"
 
-    def test_configuration_error_is_quantdl_error(self) -> None:
-        """Test ConfigurationError inherits from QuantDLError."""
+    def test_configuration_error_is_alphalab_error(self) -> None:
+        """Test ConfigurationError inherits from AlphaLabError."""
         exc = ConfigurationError("error")
-        assert isinstance(exc, QuantDLError)
+        assert isinstance(exc, AlphaLabError)
 
 
-class TestQuantDLError:
-    """Tests for base QuantDLError."""
+class TestAlphaLabError:
+    """Tests for base AlphaLabError."""
 
-    def test_quantdl_error_is_exception(self) -> None:
-        """Test QuantDLError is an Exception."""
-        exc = QuantDLError("base error")
+    def test_alphalab_error_is_exception(self) -> None:
+        """Test AlphaLabError is an Exception."""
+        exc = AlphaLabError("base error")
         assert isinstance(exc, Exception)
         assert str(exc) == "base error"
 
-    def test_can_raise_quantdl_error(self) -> None:
-        """Test QuantDLError can be raised and caught."""
-        with pytest.raises(QuantDLError):
-            raise QuantDLError("test error")
+    def test_can_raise_alphalab_error(self) -> None:
+        """Test AlphaLabError can be raised and caught."""
+        with pytest.raises(AlphaLabError):
+            raise AlphaLabError("test error")
