@@ -12,18 +12,26 @@ import os
 import requests
 
 
+def _default_calendar_path() -> Path:
+    """Get default calendar path under LOCAL_STORAGE_PATH."""
+    base = os.getenv("LOCAL_STORAGE_PATH", "")
+    if base:
+        return Path(base) / "data" / "meta" / "master" / "calendar_master.parquet"
+    return Path("data/meta/master/calendar_master.parquet")
+
+
 class TradingCalendar:
     """
     Utility class for working with trading calendars.
     """
 
-    def __init__(self, calendar_path: Path = Path("data/calendar/master.parquet")):
+    def __init__(self, calendar_path: Path = None):
         """
         Initialize trading calendar.
 
         :param calendar_path: Path to master calendar parquet file
         """
-        self.calendar_path = calendar_path
+        self.calendar_path = calendar_path or _default_calendar_path()
 
         # Auto-generate calendar if missing
         if not self.calendar_path.exists():

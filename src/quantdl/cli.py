@@ -102,7 +102,7 @@ def _build_calendar_master(output_path: Path, logger) -> None:
         for entry in data
     ]
 
-    df = pl.DataFrame({"date": dates})
+    df = pl.DataFrame({"timestamp": dates})
     df.write_parquet(output_path)
     logger.info(f"Calendar master: {len(dates)} trading days -> {output_path}")
 
