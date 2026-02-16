@@ -41,8 +41,9 @@ class TestTradingCalendar:
 
     def test_initialization_default_path(self):
         """Test TradingCalendar initialization with default path"""
-        # Create calendar file to prevent auto-generation
-        calendar_path = Path("data/calendar/master.parquet")
+        from quantdl.utils.calendar import _default_calendar_path
+
+        calendar_path = _default_calendar_path()
         calendar_path.parent.mkdir(parents=True, exist_ok=True)
 
         if not calendar_path.exists():
