@@ -65,6 +65,9 @@ class Validator:
         """
         Check if data exists for a given symbol/identifier.
 
+        For ticks with a year specified, checks whether the file contains
+        data for that specific year (not just file existence).
+
         :param symbol: Stock symbol (used as fallback identifier)
         :param data_type: "ticks" or "fundamental"
         :param year: Year for ticks data (used to check year overlap in single file)
@@ -86,7 +89,20 @@ class Validator:
             local_path = os.getenv('LOCAL_STORAGE_PATH', '')
             local_file = Path(local_path) / key
 
-        return local_file.exists()
+        if not local_file.exists():
+            return False
+
+        # For ticks with a year, check if the file contains that year's data
+        if data_type == 'ticks' and year is not None:
+            try:
+                import polars as pl
+                ts = pl.scan_parquet(local_file).select('timestamp').collect().to_series()
+                year_prefix = str(year)
+                return ts.str.starts_with(year_prefix).any()
+            except Exception:
+                return False
+
+        return True
 
     def top_3000_exists(self, year: int, month: int) -> bool:
         key = f"data/meta/universe/{year}/{month:02d}/top3000.txt"

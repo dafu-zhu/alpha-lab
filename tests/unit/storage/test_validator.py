@@ -5,8 +5,23 @@ Tests data validation and existence checking (local-only storage)
 import os
 import pytest
 from unittest.mock import Mock, patch
+import polars as pl
 
 from quantdl.storage.clients import LocalStorageClient
+
+
+def _write_ticks_parquet(path, year=2024, rows=5):
+    """Helper to create a real ticks parquet file with timestamp data."""
+    dates = [f"{year}-01-{i+1:02d}" for i in range(rows)]
+    df = pl.DataFrame({
+        "timestamp": dates,
+        "open": [100.0] * rows,
+        "high": [101.0] * rows,
+        "low": [99.0] * rows,
+        "close": [100.5] * rows,
+        "volume": [1000] * rows,
+    })
+    df.write_parquet(path)
 
 
 class TestValidatorLocal:
@@ -17,7 +32,7 @@ class TestValidatorLocal:
         from quantdl.storage.pipeline import Validator
         ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily" / "12345"
         ticks_dir.mkdir(parents=True)
-        (ticks_dir / "ticks.parquet").write_text("dummy")
+        _write_ticks_parquet(ticks_dir / "ticks.parquet", year=2024)
 
         client = LocalStorageClient(str(tmp_path))
         validator = Validator(storage_client=client)
@@ -75,7 +90,7 @@ class TestValidatorLocal:
 
         ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily" / "12345"
         ticks_dir.mkdir(parents=True)
-        (ticks_dir / "ticks.parquet").write_text("dummy")
+        _write_ticks_parquet(ticks_dir / "ticks.parquet", year=2024)
 
         client = LocalStorageClient(str(tmp_path))
         validator = Validator(storage_client=client)
@@ -88,12 +103,27 @@ class TestValidatorLocal:
 
         ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily" / "AAPL"
         ticks_dir.mkdir(parents=True)
-        (ticks_dir / "ticks.parquet").write_text("dummy")
+        _write_ticks_parquet(ticks_dir / "ticks.parquet", year=2024)
 
         client = LocalStorageClient(str(tmp_path))
         validator = Validator(storage_client=client)
         result = validator.data_exists("AAPL", "ticks", year=2024)
         assert result is True
+
+    def test_data_exists_ticks_year_check(self, tmp_path):
+        """Test data_exists checks for specific year within ticks file."""
+        from quantdl.storage.pipeline import Validator
+
+        ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily" / "12345"
+        ticks_dir.mkdir(parents=True)
+        _write_ticks_parquet(ticks_dir / "ticks.parquet", year=2024)
+
+        client = LocalStorageClient(str(tmp_path))
+        validator = Validator(storage_client=client)
+        # Year 2024 exists in file
+        assert validator.data_exists("AAPL", "ticks", year=2024, security_id=12345) is True
+        # Year 2023 does NOT exist in file
+        assert validator.data_exists("AAPL", "ticks", year=2023, security_id=12345) is False
 
     def test_data_exists_fundamental_with_security_id(self, tmp_path):
         """Test data_exists for fundamental uses security_id-based path."""
