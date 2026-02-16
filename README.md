@@ -3,246 +3,241 @@
 [![Tests](https://github.com/dafu-zhu/us-equity-datalake/actions/workflows/tests.yml/badge.svg)](https://github.com/dafu-zhu/us-equity-datalake/actions/workflows/tests.yml)
 [![Coverage](https://codecov.io/gh/dafu-zhu/us-equity-datalake/branch/main/graph/badge.svg)](https://codecov.io/gh/dafu-zhu/us-equity-datalake)
 
-A self-hosted, automated market data infrastructure for US equities using official/authoritative sources, with daily updates and programmatic access via Python API.
+A self-hosted market data infrastructure for US equities. Downloads price data and financial statements from official sources, stores everything locally as Parquet files, and provides a Python API for quantitative research.
 
-## Overview
+## What It Does
 
-This project provides comprehensive data collection, storage, and query capabilities for US equity markets:
+This project builds a local data lake containing:
 
-- **Daily tick data (OHLCV)** from CRSP via WRDS (2009+)
-- **Minute-level tick data** from Alpaca Market Data API (2016+)
-- **Fundamental data** from SEC EDGAR JSON API (2009+)
-- **Derived financial indicators** (ROA, ROE, etc.)
+| Data | Source | Coverage | Update Frequency |
+|------|--------|----------|-----------------|
+| **Daily prices** (OHLCV) | [Alpaca](https://alpaca.markets/) | 2017 -- present | On demand |
+| **Fundamentals** (income, balance sheet, cash flow) | [SEC EDGAR](https://www.sec.gov/edgar) | 2009 -- present | On demand |
+| **Security master** (symbol changes, delistings, GICS classification) | CRSP + SEC + Nasdaq + yfinance | 1986 -- present | On demand |
+| **Universe snapshots** (top 3000 by liquidity, monthly) | Alpaca + SecurityMaster | 2017 -- present | On demand |
+| **Feature wide tables** (time x security matrices for alpha research) | Derived from above | 2017 -- present | On demand |
 
-All data is stored in a flat-file structure on AWS S3, optimized for fast querying and minimal storage costs.
+All data lives on your local filesystem -- no cloud services required.
 
-## Features
+## Why
 
-- **Official Data Sources**: All data from authoritative sources (SEC, CRSP, Alpaca)
-- **Automated Updates**: Daily scheduled updates with error handling and retry logic
-- **Flat File Storage**: Organized by symbol and time period for efficient querying
-- **Security Master**: Track stocks across symbol changes, mergers, and corporate actions
-- **No Survivorship Bias**: Delisted and inactive stocks are retained for unbiased backtesting
-- **Alpha Research API**: Structured for quantitative research via [quantdl-api](https://github.com/dafu-zhu/quantdl-api)
+- **No survivorship bias** -- delisted and inactive stocks are retained
+- **Security master tracks corporate actions** -- symbol changes, mergers, and delistings are handled automatically via `security_id` (a stable identifier that follows each company through ticker changes)
+- **Structured for alpha research** -- pre-built wide tables (timestamp x security_id) for prices, volumes, fundamentals, and derived metrics
+- **Official sources only** -- SEC EDGAR for fundamentals, Alpaca SIP feed for prices
+- **Flat-file storage** -- everything is Parquet/Arrow, no database server needed
 
-## Installation
+## Quick Start
 
 ### Prerequisites
 
 - Python 3.12+
-- AWS account with S3 access
-- WRDS account (for CRSP data)
-- Alpaca account (for minute-level data)
+- [uv](https://docs.astral.sh/uv/) package manager
+- Free [Alpaca](https://app.alpaca.markets/signup) account (for price data + trading calendar)
+- Email address (for SEC EDGAR User-Agent, [required by SEC](https://www.sec.gov/os/webmaster-faq#code-support))
 
-### Setup
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/dafu-zhu/us-equity-datalake.git
-   cd us-equity-datalake
-   ```
-
-2. Install dependencies using uv:
-   ```bash
-   uv sync
-   ```
-
-3. Configure environment variables (create `.env` file):
-   ```bash
-   # WRDS Credentials
-   WRDS_USERNAME=your_username
-   WRDS_PASSWORD=your_password
-
-   # Alpaca API Credentials
-   ALPACA_API_KEY=your_api_key
-   ALPACA_API_SECRET=your_secret_key
-
-   # AWS Credentials (for S3 storage)
-   AWS_ACCESS_KEY_ID=your_access_key
-   AWS_SECRET_ACCESS_KEY=your_secret_key
-
-   # SEC EDGAR API (required User-Agent)
-   SEC_USER_AGENT=your_name@example.com
-   ```
-
-## Commands
-
-### Upload (Initial Backfill)
+### 1. Clone and install
 
 ```bash
-uv run quantdl-storage [OPTIONS]
+git clone https://github.com/dafu-zhu/us-equity-datalake.git
+cd us-equity-datalake
+uv sync
+```
+
+### 2. Configure environment
+
+Copy `.env.example` to `.env` and fill in your credentials:
+
+```bash
+cp .env.example .env
+```
+
+```env
+# Where to store all downloaded data (required)
+LOCAL_STORAGE_PATH=/path/to/your/data
+
+# Alpaca API (free account, required for prices + calendar)
+ALPACA_API_KEY=your_key
+ALPACA_API_SECRET=your_secret
+
+# SEC EDGAR (just your email, no account needed)
+SEC_USER_AGENT=your_name@example.com
+
+# OpenFIGI (optional, for symbol rebrand detection)
+OpenFIGI_API_KEY=your_key
+```
+
+### 3. Build the security master
+
+The security master is the foundation -- it maps every stock to a stable `security_id` that persists across ticker changes. A pre-built copy ships with the package, but you need to create a working copy and update it with current data:
+
+```bash
+uv run qdl --master
+```
+
+This will:
+1. Copy the bundled `security_master.parquet` to your `LOCAL_STORAGE_PATH`
+2. Update it with current exchange listings from SEC
+3. Detect new IPOs from Nasdaq
+4. Classify sectors/industries via yfinance
+5. Build the NYSE trading calendar from Alpaca
+
+### 4. Download data
+
+```bash
+# Download everything (ticks + fundamentals + universe + features)
+uv run qdl --all --start 2017 --end 2025
+
+# Or download specific data types:
+uv run qdl --ticks                          # Daily OHLCV prices
+uv run qdl --fundamental                    # SEC financial statements
+uv run qdl --top-3000                       # Monthly universe snapshots
+uv run qdl --features                       # Build feature wide tables
+```
+
+The first full download (2017--2025) takes roughly 10--15 minutes for prices and 30--60 minutes for fundamentals.
+
+### 5. Use the data
+
+```python
+from quantdl.api.client import QuantDLClient
+
+client = QuantDLClient(data_path="/path/to/your/data")
+
+# Look up a symbol
+info = client.lookup("AAPL")
+# SecurityInfo(security_id=14593, symbol='AAPL', company='APPLE INC', ...)
+
+# Get closing prices for specific stocks
+df = client.get("close", symbols=["AAPL", "MSFT"], start="2024-01-01")
+
+# Get all available features for the full universe
+df = client.get("returns")
+```
+
+## CLI Reference
+
+```
+uv run qdl [OPTIONS]
 ```
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--start-year` | 2009 | Start year for data collection |
-| `--end-year` | 2025 | End year for data collection |
-| `--overwrite` | false | Overwrite existing data |
-| `--resume` | false | Resume from last checkpoint (minute ticks) |
-| `--run-all` | false | Run all upload workflows (excludes minute ticks) |
-| `--run-fundamental` | false | Upload fundamental data only |
-| `--run-derived-fundamental` | false | Upload derived metrics only |
-| `--run-ttm-fundamental` | false | Upload TTM fundamentals only |
-| `--run-daily-ticks` | false | Upload daily ticks only |
-| `--run-minute-ticks` | false | Upload minute ticks only |
-| `--run-top-3000` | false | Upload top 3000 stocks only |
-| `--alpaca-start-year` | 2025 | Alpaca data start year |
-| `--minute-start-year` | 2017 | Minute ticks start year |
-| `--daily-chunk-size` | 200 | Batch size for daily ticks |
-| `--daily-sleep-time` | 0.2 | Sleep between daily batches (seconds) |
-| `--max-workers` | 50 | Max parallel workers |
-| `--minute-workers` | 50 | Workers for minute ticks |
-| `--minute-chunk-size` | 500 | Batch size for minute ticks |
-| `--minute-sleep-time` | 0.0 | Sleep between minute batches (seconds) |
+| `--master` | | Build security master + trading calendar |
+| `--all` | | Master build + download all data types |
+| `--ticks` | | Download daily OHLCV prices |
+| `--fundamental` | | Download SEC fundamental data |
+| `--top-3000` | | Download monthly universe snapshots |
+| `--features` | | Build feature wide tables from raw data |
+| `--start` | 2017 | Start year |
+| `--end` | 2025 | End year |
+| `--overwrite` | false | Re-download even if data exists |
+| `--daily-chunk-size` | 200 | Symbols per Alpaca API batch |
+| `--daily-sleep-time` | 0.2 | Seconds between API batches |
+| `--max-workers` | 50 | Parallel workers for fundamentals |
 
-**Examples:**
-```bash
-# Full backfill (excludes minute ticks by default)
-uv run quantdl-storage --run-all --start-year 2009 --end-year 2025
+## Data Layout
 
-# Full backfill including minute ticks
-uv run quantdl-storage --run-all --run-minute-ticks --start-year 2017 --end-year 2025
+All data is stored under `$LOCAL_STORAGE_PATH`:
 
-# Upload specific data types
-uv run quantdl-storage --run-fundamental
-uv run quantdl-storage --run-daily-ticks
-uv run quantdl-storage --run-minute-ticks
+```
+$LOCAL_STORAGE_PATH/
+├── data/
+│   ├── meta/
+│   │   ├── master/
+│   │   │   ├── security_master.parquet    # Symbol-to-security_id mapping
+│   │   │   ├── calendar_master.parquet    # NYSE trading days
+│   │   │   └── prev_universe.json         # Previous universe snapshot
+│   │   └── universe/{YYYY}/{MM}/
+│   │       └── top3000.txt                # Monthly top 3000 symbols
+│   ├── raw/
+│   │   ├── ticks/daily/{security_id}/
+│   │   │   └── ticks.parquet              # OHLCV: timestamp, close, volume, num_trades, vwap
+│   │   └── fundamental/{security_id}/
+│   │       └── fundamental.parquet        # Long table: concept, value, as_of_date, ...
+│   └── features/
+│       ├── close.arrow                    # Wide table: Date x security_ids
+│       ├── volume.arrow
+│       ├── returns.arrow
+│       ├── sales.arrow
+│       ├── sector.arrow                   # GICS sector labels
+│       └── ...                            # ~30 feature fields total
 ```
 
-### Update (Daily Incremental)
+**Key design decisions:**
 
-```bash
-uv run quantdl-update [OPTIONS]
-```
+- **One file per security** for raw data -- simple, no database needed, easy to inspect
+- **security_id-based paths** -- stable across ticker changes (e.g., FB and META both map to the same security_id)
+- **Arrow IPC for features** -- columnar format optimized for time-series slicing
+- **Parquet for raw data** -- compact, widely supported, self-describing schema
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--date` | yesterday | Target date (YYYY-MM-DD) |
-| `--backfill-from` | - | Backfill from date to --date (max 30 days) |
-| `--no-ticks` | false | Skip all ticks (daily + minute) |
-| `--no-daily-ticks` | false | Skip daily ticks only |
-| `--minute-ticks` | false | Include minute ticks (disabled by default) |
-| `--no-minute-ticks` | false | Skip minute ticks (default behavior, for backward compat) |
-| `--no-fundamental` | false | Skip raw fundamental update |
-| `--no-ttm` | false | Skip TTM fundamental update |
-| `--no-derived` | false | Skip derived metrics update |
-| `--no-sentiment` | false | Skip sentiment analysis update |
-| `--lookback` | 7 | Days to look back for EDGAR filings |
-| `--no-wrds` | false | WRDS-free mode (Nasdaq universe + SEC CIK mapping) |
+## Feature Fields
 
-**Examples:**
-```bash
-# Update yesterday's data (daily ticks + fundamentals + sentiment, no minute ticks)
-uv run quantdl-update
+Feature wide tables are time x security_id matrices stored as Arrow IPC files. Available fields:
 
-# Update with minute ticks included
-uv run quantdl-update --minute-ticks
-
-# Update specific date
-uv run quantdl-update --date 2025-01-10
-
-# Backfill a date range
-uv run quantdl-update --backfill-from 2025-01-01 --date 2025-01-10
-
-# Skip ticks, only fundamentals
-uv run quantdl-update --no-ticks
-```
-
-### Consolidate (Year-End)
-
-```bash
-uv run quantdl-consolidate --year YYYY
-```
-
-Consolidates monthly Parquet files into `history.parquet` for completed years. Run annually on Jan 1.
-
-## Data Storage Format
-
-| Data Type | Path | Format | Coverage |
-|-----------|------|--------|----------|
-| Daily Ticks | `data/raw/ticks/daily/{security_id}/{YYYY}/{MM}/ticks.parquet` | Parquet (OHLCV) | 2009+ (CRSP) |
-| Minute Ticks | `data/raw/ticks/minute/{security_id}/{YYYY}/{MM}/{DD}/ticks.parquet` | Parquet (OHLCV) | 2016+ (Alpaca) |
-| Fundamentals | `data/raw/fundamental/{cik}/fundamental.parquet` | Parquet (long table) | 2009+ (SEC EDGAR) |
-| TTM Derived | `data/derived/features/fundamental/{cik}/ttm.parquet` | Parquet (long table) | 2009+ |
-| Metrics Derived | `data/derived/features/fundamental/{cik}/metrics.parquet` | Parquet (long table) | 2009+ |
+| Category | Fields |
+|----------|--------|
+| **Price/Volume** | `close`, `volume`, `vwap`, `num_trades`, `returns`, `adv20`, `cap`, `split` |
+| **Fundamental (raw)** | `sales`, `income`, `assets`, `equity`, `liabilities`, `cash`, `debt_lt`, `debt_st`, `cfo`, `sharesout`, `operating_income`, `cogs`, `sga_expense`, `depre_amort`, `inventory`, `assets_curr`, `liabilities_curr` |
+| **Fundamental (derived)** | `ebitda`, `eps`, `bookvalue_ps`, `sales_ps`, `current_ratio`, `return_equity`, `return_assets`, `debt`, `working_capital`, `enterprise_value`, `invested_capital`, `operating_expense`, `inventory_turnover`, `sales_growth` |
+| **Group** | `sector`, `industry`, `subindustry`, `exchange` |
 
 ## Project Structure
 
 ```
 us-equity-datalake/
-├── src/quantdl/              # Main package
-│   ├── collection/           # Data collectors (CRSP, Alpaca, SEC)
-│   ├── storage/              # Upload and validation logic
-│   ├── master/               # Security master (symbol tracking)
-│   ├── update/               # Daily data update logic
-│   ├── universe/             # Universe and stock filtering
-│   ├── derived/              # Technical indicators
-│   └── utils/                # Logging, mapping, rate limiting
-├── scripts/                  # One-off scripts and utilities
-├── docs/                     # Additional documentation
-└── tests/                    # Unit and integration tests
+├── src/quantdl/
+│   ├── api/                # Python API for querying data (QuantDLClient)
+│   ├── collection/         # Data collectors (Alpaca prices, SEC fundamentals)
+│   ├── features/           # Feature wide table builders
+│   ├── master/             # Security master (tracks symbols across changes)
+│   ├── storage/            # Upload pipeline (collect → validate → publish)
+│   ├── universe/           # Universe management (current + historical)
+│   ├── data/               # Bundled data (source security_master.parquet)
+│   └── utils/              # Logging, rate limiting, mapping
+├── scripts/                # Utility scripts (WRDS build, XBRL harvesting)
+├── configs/                # SEC field mappings, GICS classification
+└── tests/                  # Unit + integration tests (854 tests)
 ```
-
-## GitHub Actions Workflows
-
-| Workflow | Trigger | Description |
-|----------|---------|-------------|
-| **Tests** | Push, PR | Runs pytest with coverage, uploads to Codecov |
-| **Daily Update** | Daily at 9:00 UTC (4am ET) | Incremental data update (WRDS-free mode) |
-| **Manual Daily Update** | Manual dispatch | On-demand update with backfill support |
-| **Year Consolidation** | Jan 1 at 10:00 UTC | Consolidates previous year's monthly files |
-
-### Required Secrets
-
-| Secret | Description |
-|--------|-------------|
-| `ALPACA_API_KEY` | Alpaca API key |
-| `ALPACA_API_SECRET` | Alpaca API secret |
-| `AWS_ACCESS_KEY_ID` | AWS access key for S3 |
-| `AWS_SECRET_ACCESS_KEY` | AWS secret key for S3 |
-| `SEC_USER_AGENT` | User-Agent for SEC EDGAR API |
-| `MAIL_SERVER` | SMTP server for notifications |
-| `MAIL_PORT` | SMTP port |
-| `MAIL_USERNAME` | SMTP username |
-| `MAIL_PASSWORD` | SMTP password |
-| `MAIL_TO` | Notification recipient |
-| `MAIL_FROM` | Notification sender |
 
 ## Development
 
-### Running Tests
-
 ```bash
+# Run all tests
+uv run pytest
+
+# Run unit tests only (fast, ~14s)
+uv run pytest -m unit
+
+# Run a single test file
+uv run pytest tests/unit/collection/test_alpaca_ticks.py
+
+# Run with coverage
 uv run pytest --cov=src/quantdl
 ```
 
-## Data Quality and Known Limitations
+## Rebuilding the Security Master from WRDS
 
-| Data Type | Coverage | Notes |
-|-----------|----------|-------|
-| Daily ticks | ~99% | Complete market coverage (2009+) |
-| Fundamentals | ~75% | Small-cap limited by SEC filing requirements |
-| Minute data | 2016+ | Alpaca API limitation |
+The bundled `security_master.parquet` is pre-built from CRSP via WRDS. To rebuild it from scratch (requires a [WRDS](https://wrds-www.wharton.upenn.edu/) account):
 
-## Contributing
+```bash
+# Set WRDS credentials
+export WRDS_USERNAME=your_username
+export WRDS_PASSWORD=your_password
 
-Contributions are welcome! Please:
+# Install wrds (not a runtime dependency)
+uv add wrds
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+# Rebuild
+uv run python scripts/build_security_master.py
+
+# Remove wrds when done
+uv remove wrds
+```
 
 ## Acknowledgments
 
-- **WRDS** for CRSP database access
-- **SEC** for EDGAR API and official filings
-- **Alpaca** for minute-level market data
-- **Nasdaq** for reference data
-
-## Support
-
-For questions or issues:
-- Open an issue on GitHub
-- Check the [documentation](docs/)
+- [SEC EDGAR](https://www.sec.gov/edgar) for free access to financial statements
+- [Alpaca](https://alpaca.markets/) for free market data API
+- [Nasdaq](https://www.nasdaqtrader.com/) for reference data
+- [WRDS/CRSP](https://wrds-www.wharton.upenn.edu/) for historical security master data
