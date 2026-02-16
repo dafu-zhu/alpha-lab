@@ -861,6 +861,9 @@ class SecurityMaster:
             yf_metadata = self._fetch_yfinance_metadata(yf_tickers)
 
         # 9. Process updates
+        #    Only extend end_date for "current" rows (end_date >= CRSP_LATEST_DATE).
+        #    Historical rows with earlier end_dates are preserved as-is.
+        crsp_end = dt.datetime.strptime(self.CRSP_LATEST_DATE, '%Y-%m-%d').date()
         updated_rows = []
 
         for row in self.master_tb.iter_rows(named=True):
@@ -868,8 +871,14 @@ class SecurityMaster:
             symbol_norm = normalize(row['symbol'])
 
             if symbol_norm in still_active:
-                # EXTEND: still active, update end_date + fill nulls from SEC
-                row_dict['end_date'] = today
+                # EXTEND: only if this is a "current" row
+                row_end = row_dict.get('end_date')
+                if row_end is not None and row_end >= crsp_end:
+                    row_dict['end_date'] = today
+                    stats['extended'] += 1
+                else:
+                    stats['unchanged'] += 1
+                # Enrich from SEC if null (all rows for this symbol)
                 sec_info = sec_lookup.get(symbol_norm)
                 if sec_info:
                     if not row_dict.get('exchange'):
@@ -878,7 +887,6 @@ class SecurityMaster:
                         row_dict['cik'] = sec_info.get('cik')
                     if not row_dict.get('company') or row_dict['company'] == '':
                         row_dict['company'] = sec_info.get('company')
-                stats['extended'] += 1
 
             elif symbol_norm in rebrand_old:
                 # REBRAND (old ticker): freeze end_date
@@ -1016,15 +1024,24 @@ class SecurityMaster:
         sec_lookup: Dict[str, Dict[str, Optional[str]]],
     ) -> Dict[str, int]:
         """
-        Bootstrap helper: extend end_dates and enrich from SEC for active tickers.
-        Used when no prev_universe exists.
+        Bootstrap helper: extend end_dates, enrich from SEC, and fetch OpenFIGI
+        for active tickers. Used when no prev_universe exists.
+
+        Only extends end_date for "current" rows (end_date == CRSP_LATEST_DATE).
+        Historical rows with earlier end_dates are preserved as-is.
         """
         stats = {'extended': 0, 'rebranded': 0, 'added': 0, 'delisted': 0, 'unchanged': 0}
+        crsp_end = dt.datetime.strptime(self.CRSP_LATEST_DATE, '%Y-%m-%d').date()
 
         def normalize(ticker):
             return ticker.replace('.', '').replace('-', '').upper()
 
-        current_normalized = {normalize(t) for t in current_nasdaq}
+        current_normalized = {normalize(t): t for t in current_nasdaq}
+
+        # Fetch OpenFIGI for all active tickers
+        self.logger.info(f"Bootstrap: fetching OpenFIGI for {len(current_nasdaq)} active tickers...")
+        figi_mapping = self._fetch_openfigi_mapping(list(current_nasdaq))
+        figi_by_norm = {normalize(t): figi for t, figi in figi_mapping.items()}
 
         updated_rows = []
         for row in self.master_tb.iter_rows(named=True):
@@ -1033,8 +1050,14 @@ class SecurityMaster:
             symbol_norm = normalize(row['symbol'])
 
             if symbol_norm in current_normalized:
-                row_dict['end_date'] = today
-                # Enrich from SEC if null
+                # Only extend "current" rows (end_date == CRSP latest date)
+                if row_dict.get('end_date') == crsp_end:
+                    row_dict['end_date'] = today
+                    stats['extended'] += 1
+                else:
+                    stats['unchanged'] += 1
+
+                # Enrich from SEC if null (all rows for this symbol)
                 sec_info = sec_lookup.get(symbol_norm)
                 if sec_info:
                     if not row_dict.get('exchange'):
@@ -1043,7 +1066,10 @@ class SecurityMaster:
                         row_dict['cik'] = sec_info.get('cik')
                     if not row_dict.get('company') or row_dict['company'] == '':
                         row_dict['company'] = sec_info.get('company')
-                stats['extended'] += 1
+
+                # Store FIGI (on all rows for this symbol)
+                if not row_dict.get('share_class_figi'):
+                    row_dict['share_class_figi'] = figi_by_norm.get(symbol_norm)
             else:
                 stats['unchanged'] += 1
 
@@ -1058,6 +1084,9 @@ class SecurityMaster:
 
         if stats['extended'] > 0:
             self.logger.info(f"Bootstrap: extended {stats['extended']} securities to {today}")
+
+        figi_count = sum(1 for v in figi_by_norm.values() if v is not None)
+        self.logger.info(f"Bootstrap: {figi_count}/{len(current_nasdaq)} FIGIs populated")
 
         return stats
 
