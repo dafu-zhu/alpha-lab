@@ -146,10 +146,6 @@ activemq-data/
 
 # Local data
 /data/
-!/data/meta/
-!/data/meta/master/
-/data/meta/master/*
-!/data/meta/master/security_master.parquet
 
 # SageMath parsed files
 *.sage.py
@@ -232,6 +228,3 @@ tmpclaude-*
 
 # Temporary script
 tmp.py
-
-# WRDS build scripts (one-time, not needed at runtime)
-scripts/

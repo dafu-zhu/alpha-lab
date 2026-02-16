@@ -1,32 +1,42 @@
-import polars as pl
-from dotenv import load_dotenv
+import datetime as dt
+import json
+import logging
 import os
 import time
-import json
-import requests
-import datetime as dt
-import yaml
-from typing import List, Tuple, Optional, Dict, Set, Any
 from pathlib import Path
-import logging
-import pyarrow.parquet as pq
+from typing import Dict, List, Optional, Set, Tuple
 
-from quantdl.utils.logger import setup_logger
-from quantdl.universe.current import fetch_all_stocks
+import polars as pl
+import pyarrow.parquet as pq
+import requests
+import yaml
+from dotenv import load_dotenv
+
 from quantdl.storage.utils import RateLimiter
+from quantdl.universe.current import fetch_all_stocks
+from quantdl.utils.logger import setup_logger
 
 load_dotenv()
 
+# Source parquet bundled with the package
+_SOURCE_MASTER_PATH = Path(__file__).resolve().parent.parent / "data" / "security_master.parquet"
+
 # Default local path for security master parquet
-# Prefer working copy under LOCAL_STORAGE_PATH, fall back to project root
+# Prefer working copy under LOCAL_STORAGE_PATH, fall back to bundled source
 _storage_base = os.getenv("LOCAL_STORAGE_PATH", "")
 if _storage_base:
     LOCAL_MASTER_PATH = Path(_storage_base) / "data" / "meta" / "master" / "security_master.parquet"
 else:
-    LOCAL_MASTER_PATH = Path("data/meta/master/security_master.parquet")
+    LOCAL_MASTER_PATH = _SOURCE_MASTER_PATH
 
 # Morningstar→GICS mapping file
 GICS_MAPPING_PATH = Path("configs/morningstar_to_gics.yaml")
+
+
+def _normalize_ticker(ticker: str) -> str:
+    """Remove separators and uppercase: 'BRK.B' -> 'BRKB', 'BRK-B' -> 'BRKB'."""
+    return ticker.replace('.', '').replace('-', '').upper()
+
 
 # OpenFIGI rate limits (with API key: 25 req/6s, 100 jobs/req)
 OPENFIGI_RATE_LIMIT_NO_KEY = 25 / 60  # ~0.42 req/sec (no key)
@@ -80,8 +90,7 @@ class SymbolNormalizer:
             # Skip NaN or non-string values
             if not isinstance(ticker, str):
                 continue
-            # Remove separators for lookup key
-            crsp_key = ticker.replace('.', '').replace('-', '').upper()
+            crsp_key = _normalize_ticker(ticker)
             self.sym_map[crsp_key] = ticker
 
         self.security_master = security_master
@@ -107,8 +116,7 @@ class SymbolNormalizer:
         if not symbol:
             return symbol
 
-        # Remove separators
-        crsp_key = symbol.replace('.', '').replace('-', '').upper()
+        crsp_key = _normalize_ticker(symbol)
 
         # Check if exists in current stock list
         if crsp_key not in self.sym_map:
@@ -170,7 +178,7 @@ class SymbolNormalizer:
         :param symbol: Ticker in any format (e.g., BRK.B, BRK-B, BRKB)
         :return: CRSP format (e.g., BRKB)
         """
-        return symbol.replace('.', '').replace('-', '').upper()
+        return _normalize_ticker(symbol)
 
     @staticmethod
     def to_sec_format(symbol: str) -> str:
@@ -219,7 +227,7 @@ class SecurityMaster:
         if not local_path.exists():
             raise FileNotFoundError(
                 f"Security master not found at {local_path}. "
-                "Check that data/meta/master/security_master.parquet exists."
+                "Run: python scripts/build_security_master.py or qdl --master"
             )
 
         self.master_tb = self._load_from_local(local_path)
@@ -240,6 +248,21 @@ class SecurityMaster:
         if "cusip" in df.columns:
             df = df.drop("cusip")
         return df
+
+    @staticmethod
+    def _enrich_row_from_sec(
+        row_dict: dict,
+        sec_info: Optional[Dict[str, Optional[str]]],
+    ) -> None:
+        """Fill null exchange/cik/company fields from SEC data (mutates row_dict)."""
+        if not sec_info:
+            return
+        if not row_dict.get('exchange'):
+            row_dict['exchange'] = sec_info.get('exchange')
+        if not row_dict.get('cik'):
+            row_dict['cik'] = sec_info.get('cik')
+        if not row_dict.get('company') or row_dict['company'] == '':
+            row_dict['company'] = sec_info.get('company')
 
     def _fetch_sec_exchange_mapping(self) -> pl.DataFrame:
         """
@@ -270,8 +293,7 @@ class SecurityMaster:
             name = str(row[name_idx])
             exchange = str(row[exchange_idx]) if row[exchange_idx] else None
 
-            # Normalize ticker to CRSP format (remove separators)
-            ticker = ticker_raw.replace('.', '').replace('-', '').upper()
+            ticker = _normalize_ticker(ticker_raw)
             cik = str(cik_raw).zfill(10)
 
             if ticker and cik != '0000000000':
@@ -299,33 +321,31 @@ class SecurityMaster:
             self.logger.warning("yfinance not installed, skipping classification lookup")
             return {}
 
+        import io
+        import sys
+
         results: Dict[str, Dict[str, str]] = {}
         total = len(tickers)
-
         self.logger.info(f"Fetching yfinance metadata for {total} tickers...")
 
         for i, ticker in enumerate(tickers):
             try:
-                # yfinance uses Yahoo format (dashes): BRK-B, not Nasdaq dots BRK.B
                 yf_ticker = ticker.replace('.', '-')
-                # Suppress yfinance 404 stderr noise for unrecognized tickers
-                import io, sys
-                _stderr = sys.stderr
+                # Suppress yfinance 404 stderr noise
+                saved_stderr = sys.stderr
                 sys.stderr = io.StringIO()
                 try:
                     info = yf.Ticker(yf_ticker).info
                 finally:
-                    sys.stderr = _stderr
+                    sys.stderr = saved_stderr
                 sector = info.get('sector')
                 industry = info.get('industry')
                 if sector or industry:
-                    # Store with CRSP-normalized key
-                    crsp_key = ticker.replace('.', '').replace('-', '').upper()
-                    results[crsp_key] = {
+                    results[_normalize_ticker(ticker)] = {
                         'sector': sector or '',
                         'industry': industry or '',
                     }
-                time.sleep(0.3)  # Rate limit
+                time.sleep(0.3)
             except Exception as e:
                 self.logger.debug(f"yfinance failed for {ticker}: {e}")
 
@@ -413,12 +433,11 @@ class SecurityMaster:
 
     def auto_resolve(self, symbol: str, day: str) -> int:
         """
-        Smart resolve unmatched symbol and query day.
-        Route to the security that is active on 'day', and have most recently used / use 'symbol' in the future
+        Resolve an unmatched symbol to the security active on *day* that most
+        recently used (or will use) *symbol*.
         """
         date_check = dt.datetime.strptime(day, '%Y-%m-%d').date()
 
-        # Find all securities that ever used this symbol
         candidates = (
             self.master_tb.filter(pl.col('symbol').eq(symbol))
             .select('security_id')
@@ -440,130 +459,114 @@ class SecurityMaster:
             was_active = self.master_tb.filter(
                 pl.col('security_id').eq(candidate_sid),
                 pl.col('start_date').le(date_check),
-                pl.col('end_date').ge(date_check)
+                pl.col('end_date').ge(date_check),
             )
-            if not was_active.is_empty():
-                # Find when this security used the queried symbol
-                symbol_usage = self.master_tb.filter(
-                    pl.col('security_id').eq(candidate_sid),
-                    pl.col('symbol').eq(symbol)
-                ).select(['start_date', 'end_date']).head(1)
+            if was_active.is_empty():
+                continue
+            symbol_usage = self.master_tb.filter(
+                pl.col('security_id').eq(candidate_sid),
+                pl.col('symbol').eq(symbol),
+            ).select(['start_date', 'end_date']).head(1)
 
-                active_securities.append({
-                    'sid': candidate_sid,
-                    'symbol_start': symbol_usage['start_date'][0],
-                    'symbol_end': symbol_usage['end_date'][0]
-                })
+            active_securities.append({
+                'sid': candidate_sid,
+                'symbol_start': symbol_usage['start_date'][0],
+                'symbol_end': symbol_usage['end_date'][0],
+            })
+
         if null_candidates > 0:
             self.logger.warning(
                 f"auto_resolve: filtered {null_candidates} null security_id values for symbol='{symbol}'"
             )
 
-        # Resolve ambiguity
         if len(active_securities) == 0:
             self.logger.debug(
-                    f"auto_resolve failed: symbol '{symbol}' exists but associated security "
-                    f"was not active on {day}"
-                )
+                f"auto_resolve failed: symbol '{symbol}' exists but associated security "
+                f"was not active on {day}"
+            )
             raise ValueError(
                 f"Symbol '{symbol}' exists but the associated security was not active on {day}"
             )
-        elif len(active_securities) == 1:
+
+        if len(active_securities) == 1:
             sid = active_securities[0]['sid']
         else:
-            # Multiple securities used this symbol and were active on target date
-            # Pick the one that used this symbol closest to the query date
-            def distance_to_date(sec):
-                """Calculate temporal distance from query date to when symbol was used"""
+            # Multiple candidates -- pick the one whose symbol usage is closest to query date
+            def distance_to_date(sec: dict) -> int:
                 if date_check < sec['symbol_start']:
                     return (sec['symbol_start'] - date_check).days
-                elif date_check > sec['symbol_end']:
+                if date_check > sec['symbol_end']:
                     return (date_check - sec['symbol_end']).days
-                else:
-                    return 0
+                return 0
 
-            # Pick security with minimum distance
             best_match = min(active_securities, key=distance_to_date)
             sid = best_match['sid']
-
-            self.logger.info(
-                f"auto_resolve: Multiple candidates found, selected security_id={sid} "
-            )
+            self.logger.info(f"auto_resolve: Multiple candidates found, selected security_id={sid}")
 
         try:
-            # Try to fetch the info
             cik = self.sid_to_info(sid, day, info='cik')
             company = self.sid_to_info(sid, day, info='company')
-
-            self.logger.info(f"auto_resolve triggered for symbol='{symbol}' ({company}) on date='{day}', sid={sid}, cik={cik}")
+            self.logger.info(
+                f"auto_resolve triggered for symbol='{symbol}' ({company}) on date='{day}', sid={sid}, cik={cik}"
+            )
         except Exception as e:
-            # If it fails, log the specific error so you know WHY it crashed
-            self.logger.error(f"auto_resolve triggered for symbol='{symbol}', sid={sid}: {str(e)}")
+            self.logger.error(f"auto_resolve triggered for symbol='{symbol}', sid={sid}: {e}")
 
         return sid
 
-    def get_security_id(self, symbol: str, day: str, auto_resolve: bool=True) -> int:
+    def get_security_id(self, symbol: str, day: str, auto_resolve: bool = True) -> int:
         """
-        Finds the Internal ID for a specific Symbol at a specific point in time.
+        Find the security_id for a symbol at a specific point in time.
 
-        :param auto_resolve: If the security has name change, resolve symbol to the nearest security
+        :param auto_resolve: If no exact match, resolve to the nearest security
         """
         date_check = dt.datetime.strptime(day, '%Y-%m-%d').date()
 
         match = self.master_tb.filter(
             pl.col('symbol').eq(symbol),
             pl.col('start_date').le(date_check),
-            pl.col('end_date').ge(date_check)
+            pl.col('end_date').ge(date_check),
         )
 
         if match.is_empty():
-            if not auto_resolve:
-                raise ValueError(f"Symbol {symbol} not found in day {day}")
-            else:
+            if auto_resolve:
                 return self.auto_resolve(symbol, day)
+            raise ValueError(f"Symbol {symbol} not found in day {day}")
 
         result = match.head(1).select('security_id').item()
-
-        # Validate that security_id is not None (data quality check)
         if result is None:
             raise ValueError(
                 f"Symbol '{symbol}' found in security master for {day}, but security_id is None. "
                 "This indicates corrupted data in the security master table."
             )
-
         return result
 
     def get_symbol_history(self, sid: int) -> List[Tuple[str, str, str]]:
         """
-        Full list of symbol usage history for a given security_id
+        Return all (symbol, start_iso, end_iso) tuples for a given security_id.
 
         Example: [('META', '2022-06-09', '2024-12-31'), ('FB', '2012-05-18', '2022-06-08')]
         """
-        sid_df = self.master_tb.filter(
-            pl.col('security_id').eq(sid)
-        ).group_by('symbol').agg(
-            pl.col('start_date').min(),
-            pl.col('end_date').max()
+        hist = (
+            self.master_tb
+            .filter(pl.col('security_id').eq(sid))
+            .group_by('symbol')
+            .agg(pl.col('start_date').min(), pl.col('end_date').max())
+            .select(['symbol', 'start_date', 'end_date'])
+            .rows()
         )
+        return [(sym, start.isoformat(), end.isoformat()) for sym, start, end in hist]
 
-        hist = sid_df.select(['symbol', 'start_date', 'end_date']).rows()
-        isoformat_hist = [(sym, start.isoformat(), end.isoformat()) for sym, start, end in hist]
-
-        return isoformat_hist
-
-    def sid_to_info(self, sid: int, day: str, info: str):
-
+    def sid_to_info(self, sid: int, day: str, info: str) -> object:
+        """Look up a single field for a security_id on a given date."""
         date_obj = dt.datetime.strptime(day, "%Y-%m-%d").date()
-
-        master_tb = self.master_tb
-        result = (
-            master_tb.filter(
+        return (
+            self.master_tb.filter(
                 pl.col('security_id').eq(sid),
                 pl.col('start_date').le(date_obj),
-                pl.col('end_date').ge(date_obj)
+                pl.col('end_date').ge(date_obj),
             ).select(info).head(1).item()
         )
-        return result
 
     def save_local(self, path: Optional[Path] = None) -> None:
         """
@@ -575,16 +578,11 @@ class SecurityMaster:
             path = LOCAL_MASTER_PATH
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Exclude cusip if somehow present
         out_df = self.master_tb
-        if "cusip" in out_df.columns:
-            out_df = out_df.drop("cusip")
-
-        # Convert to Arrow table with metadata
         table = out_df.to_arrow()
         metadata = {
             b'crsp_end_date': self.CRSP_LATEST_DATE.encode(),
-            b'export_timestamp': dt.datetime.utcnow().isoformat().encode(),
+            b'export_timestamp': dt.datetime.now(dt.timezone.utc).isoformat().encode(),
             b'version': b'1.0',
             b'row_count': str(len(out_df)).encode()
         }
@@ -856,10 +854,6 @@ class SecurityMaster:
         # 3. Load previous universe
         prev_universe, prev_date = self._load_prev_universe()
 
-        # Normalize helper
-        def normalize(ticker):
-            return ticker.replace('.', '').replace('-', '').upper()
-
         # 4. Bootstrap: if no prev_universe, extend existing + enrich from SEC
         if not prev_universe:
             self.logger.info("Bootstrapping: using current Nasdaq list as prev_universe")
@@ -867,8 +861,8 @@ class SecurityMaster:
             return self._bootstrap_extend(current_nasdaq, today, sec_lookup)
 
         # 5. Compute changes
-        current_normalized = {normalize(t): t for t in current_nasdaq}
-        prev_normalized = {normalize(t): t for t in prev_universe}
+        current_normalized = {_normalize_ticker(t): t for t in current_nasdaq}
+        prev_normalized = {_normalize_ticker(t): t for t in prev_universe}
 
         current_set = set(current_normalized.keys())
         prev_set = set(prev_normalized.keys())
@@ -916,7 +910,7 @@ class SecurityMaster:
 
         for row in self.master_tb.iter_rows(named=True):
             row_dict = dict(row)
-            symbol_norm = normalize(row['symbol'])
+            symbol_norm = _normalize_ticker(row['symbol'])
 
             if symbol_norm in still_active:
                 # Convert CRSP symbol to Nasdaq format
@@ -929,15 +923,7 @@ class SecurityMaster:
                     stats['extended'] += 1
                 else:
                     stats['unchanged'] += 1
-                # Enrich from SEC if null (all rows for this symbol)
-                sec_info = sec_lookup.get(symbol_norm)
-                if sec_info:
-                    if not row_dict.get('exchange'):
-                        row_dict['exchange'] = sec_info.get('exchange')
-                    if not row_dict.get('cik'):
-                        row_dict['cik'] = sec_info.get('cik')
-                    if not row_dict.get('company') or row_dict['company'] == '':
-                        row_dict['company'] = sec_info.get('company')
+                self._enrich_row_from_sec(row_dict, sec_lookup.get(symbol_norm))
 
             elif symbol_norm in rebrand_old:
                 # REBRAND (old ticker): freeze end_date
@@ -982,7 +968,7 @@ class SecurityMaster:
             # Get GICS for rebranded ticker from yfinance
             yf_rebrand = self._fetch_yfinance_metadata([new_ticker])
             gics = {'sector': None, 'industry': None, 'subindustry': None}
-            yf_key = normalize(new_ticker)
+            yf_key = _normalize_ticker(new_ticker)
             if yf_key in yf_rebrand:
                 gics = self._map_to_gics(
                     yf_rebrand[yf_key].get('sector', ''),
@@ -1084,21 +1070,18 @@ class SecurityMaster:
         stats = {'extended': 0, 'rebranded': 0, 'added': 0, 'delisted': 0, 'unchanged': 0}
         crsp_end = dt.datetime.strptime(self.CRSP_LATEST_DATE, '%Y-%m-%d').date()
 
-        def normalize(ticker):
-            return ticker.replace('.', '').replace('-', '').upper()
-
-        current_normalized = {normalize(t): t for t in current_nasdaq}
+        current_normalized = {_normalize_ticker(t): t for t in current_nasdaq}
 
         # Fetch OpenFIGI for all active tickers
         self.logger.info(f"Bootstrap: fetching OpenFIGI for {len(current_nasdaq)} active tickers...")
         figi_mapping = self._fetch_openfigi_mapping(list(current_nasdaq))
-        figi_by_norm = {normalize(t): figi for t, figi in figi_mapping.items()}
+        figi_by_norm = {_normalize_ticker(t): figi for t, figi in figi_mapping.items()}
 
         updated_rows = []
         for row in self.master_tb.iter_rows(named=True):
             row_dict = dict(row)
             row_dict.pop('cusip', None)
-            symbol_norm = normalize(row['symbol'])
+            symbol_norm = _normalize_ticker(row['symbol'])
 
             # Convert CRSP symbol to Nasdaq format (BRKB -> BRK.B)
             if symbol_norm in current_normalized:
@@ -1111,15 +1094,7 @@ class SecurityMaster:
                 else:
                     stats['unchanged'] += 1
 
-                # Enrich from SEC if null (all rows for this symbol)
-                sec_info = sec_lookup.get(symbol_norm)
-                if sec_info:
-                    if not row_dict.get('exchange'):
-                        row_dict['exchange'] = sec_info.get('exchange')
-                    if not row_dict.get('cik'):
-                        row_dict['cik'] = sec_info.get('cik')
-                    if not row_dict.get('company') or row_dict['company'] == '':
-                        row_dict['company'] = sec_info.get('company')
+                self._enrich_row_from_sec(row_dict, sec_lookup.get(symbol_norm))
 
                 # Store FIGI (on all rows for this symbol)
                 if not row_dict.get('share_class_figi'):
@@ -1133,7 +1108,7 @@ class SecurityMaster:
         extended_norms = set()
         for row in self.master_tb.iter_rows(named=True):
             if row.get('end_date') == crsp_end:
-                extended_norms.add(normalize(row['symbol']))
+                extended_norms.add(_normalize_ticker(row['symbol']))
 
         unmatched = set(current_normalized.keys()) - extended_norms
         if unmatched:

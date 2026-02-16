@@ -40,7 +40,7 @@ def _build_master(logger) -> None:
 
     # --- Security Master ---
     console_log(logger, "Security Master", section=True)
-    source = Path("data/meta/master/security_master.parquet")
+    source = Path(__file__).resolve().parent / "data" / "security_master.parquet"
     working = master_dir / "security_master.parquet"
 
     if not working.exists():

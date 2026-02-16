@@ -1,25 +1,31 @@
-"""
-Unit tests for master.security_master module
-Tests symbol normalization and security master functionality
-"""
-import pytest
-from unittest.mock import Mock, patch, MagicMock
-import polars as pl
+"""Unit tests for master.security_master module."""
 import datetime as dt
 import os
-import threading
+from unittest.mock import Mock, patch
+
+import polars as pl
+import pytest
 import requests
-from quantdl.master.security_master import SymbolNormalizer, SecurityMaster
+
+from quantdl.master.security_master import SecurityMaster, SymbolNormalizer
+
+
+def _make_security_master(master_tb: pl.DataFrame, **overrides) -> SecurityMaster:
+    """Create a SecurityMaster with injected data, bypassing __init__."""
+    sm = SecurityMaster.__new__(SecurityMaster)
+    sm.master_tb = master_tb
+    sm.logger = overrides.pop('logger', Mock())
+    for key, value in overrides.items():
+        setattr(sm, key, value)
+    return sm
 
 
 class TestSymbolNormalizer:
-    """Test SymbolNormalizer class"""
+    """Test SymbolNormalizer class."""
 
     @patch('quantdl.master.security_master.fetch_all_stocks')
     @patch('quantdl.master.security_master.setup_logger')
     def test_initialization(self, mock_logger, mock_fetch):
-        """Test SymbolNormalizer initialization"""
-        # Mock current stock list
         mock_stocks = pl.DataFrame({
             'Ticker': ['AAPL', 'BRK.B', 'GOOGL', 'ABC.D']
         })
@@ -30,16 +36,14 @@ class TestSymbolNormalizer:
         # Verify fetch was called
         mock_fetch.assert_called_once_with(with_filter=True, refresh=False)
 
-        # Verify symbol map was created
         assert 'AAPL' in normalizer.sym_map
-        assert 'BRKB' in normalizer.sym_map  # Dots removed
+        assert 'BRKB' in normalizer.sym_map
         assert 'GOOGL' in normalizer.sym_map
-        assert 'ABCD' in normalizer.sym_map  # Dots removed
+        assert 'ABCD' in normalizer.sym_map
 
     @patch('quantdl.master.security_master.fetch_all_stocks')
     @patch('quantdl.master.security_master.setup_logger')
     def test_initialization_with_security_master(self, mock_logger, mock_fetch):
-        """Test initialization with SecurityMaster instance"""
         mock_stocks = pl.DataFrame({'Ticker': ['AAPL']})
         mock_fetch.return_value = mock_stocks
 
@@ -51,89 +55,68 @@ class TestSymbolNormalizer:
     @patch('quantdl.master.security_master.fetch_all_stocks')
     @patch('quantdl.master.security_master.setup_logger')
     def test_to_nasdaq_format_simple_match(self, mock_logger, mock_fetch):
-        """Test to_nasdaq_format with simple symbol match"""
         mock_stocks = pl.DataFrame({'Ticker': ['AAPL', 'MSFT', 'GOOGL']})
         mock_fetch.return_value = mock_stocks
 
         normalizer = SymbolNormalizer()
 
-        # Test uppercase conversion
         assert normalizer.to_nasdaq_format('aapl') == 'AAPL'
         assert normalizer.to_nasdaq_format('MSFT') == 'MSFT'
 
     @patch('quantdl.master.security_master.fetch_all_stocks')
     @patch('quantdl.master.security_master.setup_logger')
     def test_to_nasdaq_format_with_separator(self, mock_logger, mock_fetch):
-        """Test to_nasdaq_format with symbols containing separators"""
         mock_stocks = pl.DataFrame({'Ticker': ['BRK.B', 'ABC-D']})
         mock_fetch.return_value = mock_stocks
 
         normalizer = SymbolNormalizer()
 
-        # BRKB should normalize to BRK.B
         assert normalizer.to_nasdaq_format('BRKB') == 'BRK.B'
         assert normalizer.to_nasdaq_format('BRK.B') == 'BRK.B'
         assert normalizer.to_nasdaq_format('BRK-B') == 'BRK.B'
-
-        # ABCD should normalize to ABC-D
         assert normalizer.to_nasdaq_format('ABCD') == 'ABC-D'
 
     @patch('quantdl.master.security_master.fetch_all_stocks')
     @patch('quantdl.master.security_master.setup_logger')
     def test_to_nasdaq_format_not_in_current_list(self, mock_logger, mock_fetch):
-        """Test to_nasdaq_format with delisted symbol not in current list"""
         mock_stocks = pl.DataFrame({'Ticker': ['AAPL', 'MSFT']})
         mock_fetch.return_value = mock_stocks
 
         normalizer = SymbolNormalizer()
 
-        # Symbol not in current list should return as-is (uppercased)
         assert normalizer.to_nasdaq_format('DELISTD') == 'DELISTD'
         assert normalizer.to_nasdaq_format('oldstock') == 'OLDSTOCK'
 
     @patch('quantdl.master.security_master.fetch_all_stocks')
     @patch('quantdl.master.security_master.setup_logger')
     def test_to_nasdaq_format_with_validation_same_security(self, mock_logger, mock_fetch):
-        """Test to_nasdaq_format with SecurityMaster validation (same security)"""
         mock_stocks = pl.DataFrame({'Ticker': ['BRK.B']})
         mock_fetch.return_value = mock_stocks
 
         mock_sm = Mock()
-        # Mock same security_id for both dates
         mock_sm.get_security_id.return_value = 'security_123'
 
         normalizer = SymbolNormalizer(security_master=mock_sm)
 
-        result = normalizer.to_nasdaq_format('BRKB', day='2024-01-01')
-
-        # Should return Nasdaq format since same security
-        assert result == 'BRK.B'
-
-        # Verify get_security_id was called twice
+        assert normalizer.to_nasdaq_format('BRKB', day='2024-01-01') == 'BRK.B'
         assert mock_sm.get_security_id.call_count == 2
 
     @patch('quantdl.master.security_master.fetch_all_stocks')
     @patch('quantdl.master.security_master.setup_logger')
     def test_to_nasdaq_format_with_validation_different_security(self, mock_logger, mock_fetch):
-        """Test to_nasdaq_format with SecurityMaster validation (different security)"""
         mock_stocks = pl.DataFrame({'Ticker': ['ABC.D']})
         mock_fetch.return_value = mock_stocks
 
         mock_sm = Mock()
-        # Mock different security_ids
         mock_sm.get_security_id.side_effect = ['security_old', 'security_new']
 
         normalizer = SymbolNormalizer(security_master=mock_sm)
 
-        result = normalizer.to_nasdaq_format('ABCD', day='2022-01-01')
-
-        # Should return original format since different security
-        assert result == 'ABCD'
+        assert normalizer.to_nasdaq_format('ABCD', day='2022-01-01') == 'ABCD'
 
     @patch('quantdl.master.security_master.fetch_all_stocks')
     @patch('quantdl.master.security_master.setup_logger')
     def test_to_nasdaq_format_validation_error(self, mock_logger, mock_fetch):
-        """Test to_nasdaq_format when validation raises error"""
         mock_stocks = pl.DataFrame({'Ticker': ['AAPL']})
         mock_fetch.return_value = mock_stocks
 
@@ -142,14 +125,11 @@ class TestSymbolNormalizer:
 
         normalizer = SymbolNormalizer(security_master=mock_sm)
 
-        # Should return original format when validation fails
-        result = normalizer.to_nasdaq_format('AAPL', day='2024-01-01')
-        assert result == 'AAPL'
+        assert normalizer.to_nasdaq_format('AAPL', day='2024-01-01') == 'AAPL'
 
     @patch('quantdl.master.security_master.fetch_all_stocks')
     @patch('quantdl.master.security_master.setup_logger')
     def test_to_nasdaq_format_empty_symbol(self, mock_logger, mock_fetch):
-        """Test to_nasdaq_format with empty symbol"""
         mock_stocks = pl.DataFrame({'Ticker': ['AAPL']})
         mock_fetch.return_value = mock_stocks
 
@@ -161,25 +141,18 @@ class TestSymbolNormalizer:
     @patch('quantdl.master.security_master.fetch_all_stocks')
     @patch('quantdl.master.security_master.setup_logger')
     def test_to_nasdaq_format_no_date_context(self, mock_logger, mock_fetch):
-        """Test to_nasdaq_format without date context"""
         mock_stocks = pl.DataFrame({'Ticker': ['BRK.B']})
         mock_fetch.return_value = mock_stocks
 
         mock_sm = Mock()
         normalizer = SymbolNormalizer(security_master=mock_sm)
 
-        result = normalizer.to_nasdaq_format('BRKB')
-
-        # Should return Nasdaq format without validation
-        assert result == 'BRK.B'
-
-        # Verify get_security_id was NOT called
+        assert normalizer.to_nasdaq_format('BRKB') == 'BRK.B'
         mock_sm.get_security_id.assert_not_called()
 
     @patch('quantdl.master.security_master.fetch_all_stocks')
     @patch('quantdl.master.security_master.setup_logger')
     def test_batch_normalize(self, mock_logger, mock_fetch):
-        """Test batch_normalize"""
         mock_stocks = pl.DataFrame({'Ticker': ['AAPL', 'BRK.B', 'GOOGL']})
         mock_fetch.return_value = mock_stocks
 
@@ -193,7 +166,6 @@ class TestSymbolNormalizer:
     @patch('quantdl.master.security_master.fetch_all_stocks')
     @patch('quantdl.master.security_master.setup_logger')
     def test_batch_normalize_with_date(self, mock_logger, mock_fetch):
-        """Test batch_normalize with date context"""
         mock_stocks = pl.DataFrame({'Ticker': ['AAPL', 'BRK.B']})
         mock_fetch.return_value = mock_stocks
 
@@ -219,8 +191,6 @@ class TestSymbolNormalizer:
         assert normalizer.to_nasdaq_format('BRKB', day='2024-01-01') == 'BRK.B'
 
     def test_to_crsp_format(self):
-        """Test to_crsp_format static method"""
-        # Test various input formats
         assert SymbolNormalizer.to_crsp_format('BRK.B') == 'BRKB'
         assert SymbolNormalizer.to_crsp_format('BRK-B') == 'BRKB'
         assert SymbolNormalizer.to_crsp_format('ABC.D.E') == 'ABCDE'
@@ -228,15 +198,12 @@ class TestSymbolNormalizer:
         assert SymbolNormalizer.to_crsp_format('aapl') == 'AAPL'
 
     def test_to_sec_format(self):
-        """Test to_sec_format static method"""
         assert SymbolNormalizer.to_sec_format('BRK.B') == 'BRK-B'
         assert SymbolNormalizer.to_sec_format('aapl') == 'AAPL'
 
     @patch('quantdl.master.security_master.fetch_all_stocks')
     @patch('quantdl.master.security_master.setup_logger')
     def test_handles_non_string_tickers(self, mock_logger, mock_fetch):
-        """Test that initialization handles non-string tickers gracefully"""
-        # Include NaN and None values
         mock_stocks = pl.DataFrame({
             'Ticker': ['AAPL', None, 'MSFT', 'GOOGL']
         })
@@ -244,20 +211,17 @@ class TestSymbolNormalizer:
 
         normalizer = SymbolNormalizer()
 
-        # Should skip non-string values
         assert 'AAPL' in normalizer.sym_map
         assert 'MSFT' in normalizer.sym_map
         assert 'GOOGL' in normalizer.sym_map
-        # None should not cause issues
 
 
 class TestSymbolNormalizerEdgeCases:
-    """Test edge cases for SymbolNormalizer"""
+    """Test edge cases for SymbolNormalizer."""
 
     @patch('quantdl.master.security_master.fetch_all_stocks')
     @patch('quantdl.master.security_master.setup_logger')
     def test_case_insensitivity(self, mock_logger, mock_fetch):
-        """Test that symbol matching is case-insensitive"""
         mock_stocks = pl.DataFrame({'Ticker': ['AAPL', 'BRK.B']})
         mock_fetch.return_value = mock_stocks
 
@@ -271,7 +235,6 @@ class TestSymbolNormalizerEdgeCases:
     @patch('quantdl.master.security_master.fetch_all_stocks')
     @patch('quantdl.master.security_master.setup_logger')
     def test_multiple_separators(self, mock_logger, mock_fetch):
-        """Test symbols with multiple separators"""
         mock_stocks = pl.DataFrame({'Ticker': ['A.B.C', 'X-Y-Z']})
         mock_fetch.return_value = mock_stocks
 
@@ -282,71 +245,37 @@ class TestSymbolNormalizerEdgeCases:
 
 
 class TestSecurityMaster:
-    """Test SecurityMaster core behaviors with injected data"""
+    """Test SecurityMaster core behaviors with injected data."""
+
+    _SINGLE_ROW = pl.DataFrame({
+        'security_id': [101],
+        'symbol': ['AAA'],
+        'start_date': [dt.date(2020, 1, 1)],
+        'end_date': [dt.date(2020, 12, 31)],
+    })
 
     def test_get_security_id_exact_match(self):
-        master_tb = pl.DataFrame({
-            'security_id': [101],
-            'symbol': ['AAA'],
-            'start_date': [dt.date(2020, 1, 1)],
-            'end_date': [dt.date(2020, 12, 31)]
-        })
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
-        sm.logger = Mock()
-        sm.auto_resolve = Mock(return_value=999)
+        sm = _make_security_master(self._SINGLE_ROW, auto_resolve=Mock(return_value=999))
 
-        result = sm.get_security_id('AAA', '2020-06-30', auto_resolve=True)
-
-        assert result == 101
+        assert sm.get_security_id('AAA', '2020-06-30', auto_resolve=True) == 101
         sm.auto_resolve.assert_not_called()
 
     def test_get_security_id_no_match_no_auto_resolve(self):
-        master_tb = pl.DataFrame({
-            'security_id': [101],
-            'symbol': ['AAA'],
-            'start_date': [dt.date(2020, 1, 1)],
-            'end_date': [dt.date(2020, 12, 31)]
-        })
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
-        sm.logger = Mock()
+        sm = _make_security_master(self._SINGLE_ROW)
 
         with pytest.raises(ValueError, match="Symbol BBB not found"):
             sm.get_security_id('BBB', '2020-06-30', auto_resolve=False)
 
     def test_get_security_id_no_match_auto_resolve(self):
-        master_tb = pl.DataFrame({
-            'security_id': [101],
-            'symbol': ['AAA'],
-            'start_date': [dt.date(2020, 1, 1)],
-            'end_date': [dt.date(2020, 12, 31)]
-        })
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
-        sm.logger = Mock()
-        sm.auto_resolve = Mock(return_value=555)
+        sm = _make_security_master(self._SINGLE_ROW, auto_resolve=Mock(return_value=555))
 
-        result = sm.get_security_id('BBB', '2020-06-30', auto_resolve=True)
-
-        assert result == 555
+        assert sm.get_security_id('BBB', '2020-06-30', auto_resolve=True) == 555
         sm.auto_resolve.assert_called_once_with('BBB', '2020-06-30')
 
     def test_get_security_id_exact_match_no_auto_resolve_flag(self):
-        master_tb = pl.DataFrame({
-            'security_id': [101],
-            'symbol': ['AAA'],
-            'start_date': [dt.date(2020, 1, 1)],
-            'end_date': [dt.date(2020, 12, 31)]
-        })
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
-        sm.logger = Mock()
-        sm.auto_resolve = Mock(return_value=999)
+        sm = _make_security_master(self._SINGLE_ROW, auto_resolve=Mock(return_value=999))
 
-        result = sm.get_security_id('AAA', '2020-06-30', auto_resolve=False)
-
-        assert result == 101
+        assert sm.get_security_id('AAA', '2020-06-30', auto_resolve=False) == 101
         sm.auto_resolve.assert_not_called()
 
     def test_get_security_id_rejects_none_security_id(self):
@@ -354,11 +283,9 @@ class TestSecurityMaster:
             'security_id': [None],
             'symbol': ['AAA'],
             'start_date': [dt.date(2020, 1, 1)],
-            'end_date': [dt.date(2020, 12, 31)]
+            'end_date': [dt.date(2020, 12, 31)],
         })
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
-        sm.logger = Mock()
+        sm = _make_security_master(master_tb)
 
         with pytest.raises(ValueError, match="security_id is None"):
             sm.get_security_id('AAA', '2020-06-30', auto_resolve=False)
@@ -369,27 +296,20 @@ class TestSecurityMaster:
             'symbol': ['AAA', 'BBB', 'AAA'],
             'company': ['OldCo', 'OldCo', 'NewCo'],
             'start_date': [dt.date(2010, 1, 1), dt.date(2018, 1, 1), dt.date(2020, 1, 1)],
-            'end_date': [dt.date(2010, 12, 31), dt.date(2022, 12, 31), dt.date(2020, 12, 31)]
+            'end_date': [dt.date(2010, 12, 31), dt.date(2022, 12, 31), dt.date(2020, 12, 31)],
         })
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
-        sm.logger = Mock()
-        sm.sid_to_info = Mock(return_value="info")
+        sm = _make_security_master(master_tb, sid_to_info=Mock(return_value="info"))
 
-        result = sm.auto_resolve('AAA', '2020-06-15')
-
-        assert result == 2
+        assert sm.auto_resolve('AAA', '2020-06-15') == 2
 
     def test_auto_resolve_symbol_never_existed(self):
         master_tb = pl.DataFrame({
             'security_id': [1],
             'symbol': ['AAA'],
             'start_date': [dt.date(2010, 1, 1)],
-            'end_date': [dt.date(2010, 12, 31)]
+            'end_date': [dt.date(2010, 12, 31)],
         })
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
-        sm.logger = Mock()
+        sm = _make_security_master(master_tb)
 
         with pytest.raises(ValueError, match="never existed"):
             sm.auto_resolve('ZZZ', '2020-06-15')
@@ -400,30 +320,24 @@ class TestSecurityMaster:
             'symbol': ['AAA'],
             'company': ['TestCo'],
             'start_date': [dt.date(2020, 1, 1)],
-            'end_date': [dt.date(2020, 12, 31)]
+            'end_date': [dt.date(2020, 12, 31)],
         })
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
+        sm = _make_security_master(master_tb)
 
-        result = sm.sid_to_info(101, '2020-06-30', info='company')
-
-        assert result == 'TestCo'
+        assert sm.sid_to_info(101, '2020-06-30', info='company') == 'TestCo'
 
     def test_get_symbol_history(self):
         master_tb = pl.DataFrame({
             'security_id': [101, 101],
             'symbol': ['AAA', 'BBB'],
             'start_date': [dt.date(2020, 1, 1), dt.date(2021, 1, 1)],
-            'end_date': [dt.date(2020, 12, 31), dt.date(2021, 12, 31)]
+            'end_date': [dt.date(2020, 12, 31), dt.date(2021, 12, 31)],
         })
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
+        sm = _make_security_master(master_tb)
 
-        result = sm.get_symbol_history(101)
-
-        assert set(result) == {
+        assert set(sm.get_symbol_history(101)) == {
             ('AAA', '2020-01-01', '2020-12-31'),
-            ('BBB', '2021-01-01', '2021-12-31')
+            ('BBB', '2021-01-01', '2021-12-31'),
         }
 
     def test_auto_resolve_filters_null_security_ids(self):
@@ -431,16 +345,11 @@ class TestSecurityMaster:
             'security_id': [None, 101],
             'symbol': ['AAA', 'AAA'],
             'start_date': [dt.date(2020, 1, 1), dt.date(2020, 1, 1)],
-            'end_date': [dt.date(2020, 12, 31), dt.date(2020, 12, 31)]
+            'end_date': [dt.date(2020, 12, 31), dt.date(2020, 12, 31)],
         })
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
-        sm.logger = Mock()
-        sm.sid_to_info = Mock(return_value="info")
+        sm = _make_security_master(master_tb, sid_to_info=Mock(return_value="info"))
 
-        result = sm.auto_resolve('AAA', '2020-06-30')
-
-        assert result == 101
+        assert sm.auto_resolve('AAA', '2020-06-30') == 101
         sm.logger.warning.assert_not_called()
 
     def test_auto_resolve_logs_error_on_sid_to_info_failure(self):
@@ -449,16 +358,11 @@ class TestSecurityMaster:
             'symbol': ['AAA'],
             'company': ['TestCo'],
             'start_date': [dt.date(2020, 1, 1)],
-            'end_date': [dt.date(2020, 12, 31)]
+            'end_date': [dt.date(2020, 12, 31)],
         })
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
-        sm.logger = Mock()
-        sm.sid_to_info = Mock(side_effect=RuntimeError("boom"))
+        sm = _make_security_master(master_tb, sid_to_info=Mock(side_effect=RuntimeError("boom")))
 
-        result = sm.auto_resolve('AAA', '2020-06-30')
-
-        assert result == 101
+        assert sm.auto_resolve('AAA', '2020-06-30') == 101
         sm.logger.error.assert_called_once()
 
     def test_auto_resolve_no_active_security(self):
@@ -466,11 +370,9 @@ class TestSecurityMaster:
             'security_id': [101],
             'symbol': ['AAA'],
             'start_date': [dt.date(2010, 1, 1)],
-            'end_date': [dt.date(2010, 12, 31)]
+            'end_date': [dt.date(2010, 12, 31)],
         })
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
-        sm.logger = Mock()
+        sm = _make_security_master(master_tb)
 
         with pytest.raises(ValueError, match="was not active"):
             sm.auto_resolve('AAA', '2020-06-30')
@@ -480,38 +382,31 @@ class TestSecurityMaster:
             'security_id': [1, 1, 2],
             'symbol': ['AAA', 'BBB', 'AAA'],
             'start_date': [dt.date(2010, 1, 1), dt.date(2020, 1, 1), dt.date(2020, 6, 1)],
-            'end_date': [dt.date(2010, 12, 31), dt.date(2020, 12, 31), dt.date(2020, 12, 31)]
+            'end_date': [dt.date(2010, 12, 31), dt.date(2020, 12, 31), dt.date(2020, 12, 31)],
         })
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
-        sm.logger = Mock()
-        sm.sid_to_info = Mock(return_value="info")
+        sm = _make_security_master(master_tb, sid_to_info=Mock(return_value="info"))
 
-        result = sm.auto_resolve('AAA', '2020-06-15')
-
-        assert result == 2
+        assert sm.auto_resolve('AAA', '2020-06-15') == 2
         sm.logger.info.assert_called()
 
     def test_ensure_schema_drops_cusip(self):
-        """Test _ensure_schema drops cusip column if present."""
         df = pl.DataFrame({
             'security_id': [1],
             'symbol': ['AAA'],
             'cusip': ['12345678'],
             'start_date': [dt.date(2020, 1, 1)],
-            'end_date': [dt.date(2020, 12, 31)]
+            'end_date': [dt.date(2020, 12, 31)],
         })
         result = SecurityMaster._ensure_schema(df)
         assert 'cusip' not in result.columns
-        assert 'exchange' in result.columns  # Added as null
+        assert 'exchange' in result.columns
 
     def test_ensure_schema_adds_missing_columns(self):
-        """Test _ensure_schema adds exchange/sector/industry/subindustry."""
         df = pl.DataFrame({
             'security_id': [1],
             'symbol': ['AAA'],
             'start_date': [dt.date(2020, 1, 1)],
-            'end_date': [dt.date(2020, 12, 31)]
+            'end_date': [dt.date(2020, 12, 31)],
         })
         result = SecurityMaster._ensure_schema(df)
         for col in ('exchange', 'sector', 'industry', 'subindustry'):
@@ -519,38 +414,31 @@ class TestSecurityMaster:
 
 
 class TestGetSecuritiesInRange:
-    """Test SecurityMaster.get_securities_in_range()"""
+    """Test SecurityMaster.get_securities_in_range()."""
 
     def test_returns_active_securities(self):
-        """Test get_securities_in_range returns securities active in range."""
         master_tb = pl.DataFrame({
             'security_id': [1, 2, 3],
             'symbol': ['AAPL', 'MSFT', 'OLD'],
             'start_date': [dt.date(2015, 1, 1), dt.date(2010, 1, 1), dt.date(2005, 1, 1)],
             'end_date': [dt.date(2025, 12, 31), dt.date(2025, 12, 31), dt.date(2010, 12, 31)],
         })
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
-        sm.logger = Mock()
+        sm = _make_security_master(master_tb)
 
         result = sm.get_securities_in_range(2017, 2025)
 
-        # OLD ended in 2010, should not be included
         assert len(result) == 2
-        symbols = {r[0] for r in result}
-        assert symbols == {'AAPL', 'MSFT'}
+        assert {r[0] for r in result} == {'AAPL', 'MSFT'}
 
     def test_picks_latest_symbol_for_renamed_security(self):
-        """For FB→META, should return META (latest symbol)."""
+        """For FB->META, should return META (latest symbol)."""
         master_tb = pl.DataFrame({
             'security_id': [100, 100],
             'symbol': ['FB', 'META'],
             'start_date': [dt.date(2012, 5, 18), dt.date(2022, 6, 9)],
             'end_date': [dt.date(2022, 6, 8), dt.date(2025, 12, 31)],
         })
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
-        sm.logger = Mock()
+        sm = _make_security_master(master_tb)
 
         result = sm.get_securities_in_range(2017, 2025)
 
@@ -558,35 +446,27 @@ class TestGetSecuritiesInRange:
         assert result[0] == ('META', 100)
 
     def test_includes_delisted_stocks_in_range(self):
-        """Delisted stocks active in the range should be included."""
         master_tb = pl.DataFrame({
             'security_id': [1, 2],
             'symbol': ['AAPL', 'DISH'],
             'start_date': [dt.date(2015, 1, 1), dt.date(2010, 1, 1)],
             'end_date': [dt.date(2025, 12, 31), dt.date(2023, 12, 29)],
         })
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
-        sm.logger = Mock()
+        sm = _make_security_master(master_tb)
 
         result = sm.get_securities_in_range(2017, 2025)
 
-        # DISH ended 2023-12-29, still within 2017-2025 range
         assert len(result) == 2
-        symbols = {r[0] for r in result}
-        assert 'DISH' in symbols
+        assert 'DISH' in {r[0] for r in result}
 
     def test_excludes_securities_outside_range(self):
-        """Securities fully outside range should be excluded."""
         master_tb = pl.DataFrame({
             'security_id': [1, 2],
             'symbol': ['AAPL', 'OLD'],
             'start_date': [dt.date(2015, 1, 1), dt.date(2000, 1, 1)],
             'end_date': [dt.date(2025, 12, 31), dt.date(2016, 12, 31)],
         })
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
-        sm.logger = Mock()
+        sm = _make_security_master(master_tb)
 
         result = sm.get_securities_in_range(2017, 2025)
 
@@ -594,21 +474,17 @@ class TestGetSecuritiesInRange:
         assert result[0][0] == 'AAPL'
 
     def test_sorted_by_security_id(self):
-        """Result should be sorted by security_id."""
         master_tb = pl.DataFrame({
             'security_id': [300, 100, 200],
             'symbol': ['C', 'A', 'B'],
             'start_date': [dt.date(2015, 1, 1)] * 3,
             'end_date': [dt.date(2025, 12, 31)] * 3,
         })
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
-        sm.logger = Mock()
+        sm = _make_security_master(master_tb)
 
         result = sm.get_securities_in_range(2017, 2025)
 
-        sids = [r[1] for r in result]
-        assert sids == [100, 200, 300]
+        assert [r[1] for r in result] == [100, 200, 300]
 
 
 class TestSecurityMasterInitialization:
@@ -665,47 +541,33 @@ class TestSecurityMasterInitialization:
 
 
 class TestSecurityMasterAutoResolve:
-    """Test SecurityMaster auto_resolve edge cases"""
+    """Test SecurityMaster auto_resolve edge cases."""
 
     def test_auto_resolve_with_null_candidates_defensive_code(self):
-        """Test defensive null-checking code in auto_resolve."""
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.logger = Mock()
-        sm.sid_to_info = Mock(return_value="info")
-
-        # Create a master_tb with null security_ids
         master_tb = pl.DataFrame({
             'security_id': [None, None, 101],
             'symbol': ['AAA', 'AAA', 'AAA'],
             'company': ['AAA Corp 1', 'AAA Corp 2', 'AAA Corp 3'],
             'start_date': [dt.date(2020, 1, 1), dt.date(2020, 6, 1), dt.date(2020, 1, 1)],
-            'end_date': [dt.date(2020, 12, 31), dt.date(2020, 12, 31), dt.date(2020, 12, 31)]
+            'end_date': [dt.date(2020, 12, 31), dt.date(2020, 12, 31), dt.date(2020, 12, 31)],
         })
-        sm.master_tb = master_tb
+        sm = _make_security_master(master_tb, sid_to_info=Mock(return_value="info"))
 
-        result = sm.auto_resolve('AAA', '2020-06-30')
-
-        assert result == 101
+        assert sm.auto_resolve('AAA', '2020-06-30') == 101
         sm.logger.warning.assert_not_called()
 
     def test_auto_resolve_verifies_null_filter_works(self):
         """Verify that nulls are filtered before the loop."""
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.logger = Mock()
-        sm.sid_to_info = Mock(return_value="info")
-
         master_tb = pl.DataFrame({
             'security_id': [None, None, 101],
             'symbol': ['AAA', 'AAA', 'AAA'],
             'company': ['AAA Corp', 'AAA Corp', 'AAA Corp'],
             'start_date': [dt.date(2020, 1, 1), dt.date(2020, 1, 1), dt.date(2020, 1, 1)],
-            'end_date': [dt.date(2020, 12, 31), dt.date(2020, 12, 31), dt.date(2020, 12, 31)]
+            'end_date': [dt.date(2020, 12, 31), dt.date(2020, 12, 31), dt.date(2020, 12, 31)],
         })
-        sm.master_tb = master_tb
+        sm = _make_security_master(master_tb, sid_to_info=Mock(return_value="info"))
 
-        result = sm.auto_resolve('AAA', '2020-06-30')
-
-        assert result == 101
+        assert sm.auto_resolve('AAA', '2020-06-30') == 101
         sm.logger.warning.assert_not_called()
 
         candidates = (
@@ -718,56 +580,42 @@ class TestSecurityMasterAutoResolve:
         assert candidates['security_id'][0] == 101
 
     def test_auto_resolve_date_before_symbol_start(self):
-        """Test auto_resolve when query date is before symbol start date"""
         master_tb = pl.DataFrame({
             'security_id': [1, 1, 2, 2],
             'symbol': ['BBB', 'AAA', 'CCC', 'AAA'],
             'company': ['OldCo', 'OldCo', 'NewCo', 'NewCo'],
             'start_date': [dt.date(2018, 1, 1), dt.date(2020, 1, 1), dt.date(2018, 1, 1), dt.date(2021, 1, 1)],
-            'end_date': [dt.date(2019, 12, 31), dt.date(2020, 12, 31), dt.date(2022, 12, 31), dt.date(2022, 12, 31)]
+            'end_date': [dt.date(2019, 12, 31), dt.date(2020, 12, 31), dt.date(2022, 12, 31), dt.date(2022, 12, 31)],
         })
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
-        sm.logger = Mock()
-        sm.sid_to_info = Mock(return_value="info")
+        sm = _make_security_master(master_tb, sid_to_info=Mock(return_value="info"))
 
-        result = sm.auto_resolve('AAA', '2019-06-15')
-
-        assert result == 1
+        assert sm.auto_resolve('AAA', '2019-06-15') == 1
 
     def test_auto_resolve_date_after_symbol_end(self):
-        """Test auto_resolve when query date is after symbol end date"""
         master_tb = pl.DataFrame({
             'security_id': [1, 1, 2, 2],
             'symbol': ['AAA', 'BBB', 'AAA', 'CCC'],
             'company': ['OldCo', 'OldCo', 'NewCo', 'NewCo'],
             'start_date': [dt.date(2018, 1, 1), dt.date(2020, 1, 1), dt.date(2019, 1, 1), dt.date(2020, 1, 1)],
-            'end_date': [dt.date(2019, 12, 31), dt.date(2020, 12, 31), dt.date(2019, 6, 30), dt.date(2020, 12, 31)]
+            'end_date': [dt.date(2019, 12, 31), dt.date(2020, 12, 31), dt.date(2019, 6, 30), dt.date(2020, 12, 31)],
         })
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
-        sm.logger = Mock()
-        sm.sid_to_info = Mock(return_value="info")
+        sm = _make_security_master(master_tb, sid_to_info=Mock(return_value="info"))
 
-        result = sm.auto_resolve('AAA', '2020-06-15')
-
-        assert result == 1
+        assert sm.auto_resolve('AAA', '2020-06-15') == 1
 
 
 class TestSecurityMasterClose:
-    """Test SecurityMaster close method"""
+    """Test SecurityMaster close method."""
 
     def test_close_is_noop(self):
-        """Test that close method is a no-op."""
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.close()  # Should not raise
 
 
 class TestSecurityMasterSecOperations:
-    """Test SecurityMaster SEC operations"""
+    """Test SecurityMaster SEC operations."""
 
     def test_fetch_sec_exchange_mapping(self):
-        """Test _fetch_sec_exchange_mapping fetches and parses SEC data."""
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
 
@@ -789,29 +637,24 @@ class TestSecurityMasterSecOperations:
         assert 'company' in result.columns
         assert 'exchange' in result.columns
 
-        # Verify tickers are CRSP-normalized
         assert result['ticker'][0] == 'AAPL'
-        assert result['exchange'][0] == 'Nasdaq'
 
     def test_auto_resolve_null_candidates_warning(self):
-        """Test auto_resolve raises error when security not active on query date."""
+        """Raises error when security not active on query date."""
         master_tb = pl.DataFrame({
             'security_id': [101, 102],
             'symbol': ['AAA', 'AAA'],
             'permno': [None, None],
             'cik': [None, None],
             'start_date': [dt.date(2019, 1, 1), dt.date(2021, 1, 1)],
-            'end_date': [dt.date(2019, 12, 31), dt.date(2021, 12, 31)]
+            'end_date': [dt.date(2019, 12, 31), dt.date(2021, 12, 31)],
         })
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
-        sm.logger = Mock()
+        sm = _make_security_master(master_tb)
 
         with pytest.raises(ValueError, match="was not active on"):
             sm.auto_resolve('AAA', '2020-06-30')
 
     def test_update_extends_end_dates(self):
-        """Test update() extends end_dates for active securities."""
         master_tb = pl.DataFrame({
             'security_id': [101],
             'symbol': ['AAPL'],
@@ -825,11 +668,7 @@ class TestSecurityMasterSecOperations:
             'industry': ['Technology Hardware & Equipment'],
             'subindustry': ['Technology Hardware, Storage & Peripherals'],
         })
-
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
-        sm.logger = Mock()
-        sm._gics_mapping = None
+        sm = _make_security_master(master_tb, _gics_mapping=None)
 
         import pandas as pd
         mock_nasdaq = pd.DataFrame({'Ticker': ['AAPL']})
@@ -854,7 +693,6 @@ class TestSecurityMasterSecOperations:
         assert updated_row['end_date'][0] > dt.date(2024, 12, 31)
 
     def test_update_adds_new_ipos_with_gics(self):
-        """Test update() adds new IPOs with SEC metadata and GICS classification."""
         master_tb = pl.DataFrame({
             'security_id': [101],
             'symbol': ['AAPL'],
@@ -868,11 +706,7 @@ class TestSecurityMasterSecOperations:
             'industry': ['Technology Hardware & Equipment'],
             'subindustry': ['Technology Hardware, Storage & Peripherals'],
         })
-
-        sm = SecurityMaster.__new__(SecurityMaster)
-        sm.master_tb = master_tb
-        sm.logger = Mock()
-        sm._gics_mapping = None
+        sm = _make_security_master(master_tb, _gics_mapping=None)
 
         sec_df = pl.DataFrame({
             'ticker': ['AAPL', 'NEWIPO'],
@@ -909,10 +743,9 @@ class TestSecurityMasterSecOperations:
 
 
 class TestGICSMapping:
-    """Test Morningstar→GICS mapping functionality."""
+    """Test Morningstar to GICS mapping functionality."""
 
     def test_map_to_gics_industry_match(self):
-        """Test _map_to_gics with known industry."""
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
         sm._gics_mapping = {
@@ -933,7 +766,6 @@ class TestGICSMapping:
         assert result['subindustry'] == 'Semiconductors'
 
     def test_map_to_gics_sector_fallback(self):
-        """Test _map_to_gics falls back to sector when industry not found."""
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
         sm._gics_mapping = {
@@ -948,7 +780,6 @@ class TestGICSMapping:
         assert result['subindustry'] is None
 
     def test_map_to_gics_no_match(self):
-        """Test _map_to_gics returns nulls when nothing matches."""
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
         sm._gics_mapping = {'sectors': {}, 'industries': {}}
@@ -958,7 +789,6 @@ class TestGICSMapping:
         assert result == {'sector': None, 'industry': None, 'subindustry': None}
 
     def test_load_gics_mapping_caches(self):
-        """Test _load_gics_mapping caches after first load."""
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
         cached = {'sectors': {'A': 'B'}, 'industries': {}}
@@ -969,7 +799,6 @@ class TestGICSMapping:
         assert result is cached
 
     def test_load_gics_mapping_missing_file(self):
-        """Test _load_gics_mapping handles missing file."""
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
         sm._gics_mapping = None
@@ -985,7 +814,6 @@ class TestYfinanceMetadata:
     """Test yfinance metadata fetching."""
 
     def test_fetch_yfinance_metadata_success(self):
-        """Test _fetch_yfinance_metadata with mocked yfinance."""
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
 
@@ -1004,7 +832,6 @@ class TestYfinanceMetadata:
         assert result['AAPL']['sector'] == 'Technology'
 
     def test_fetch_yfinance_metadata_import_error(self):
-        """Test _fetch_yfinance_metadata when yfinance not installed."""
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
 
@@ -1017,10 +844,9 @@ class TestYfinanceMetadata:
 
 
 class TestOpenFIGIIntegration:
-    """Test OpenFIGI integration methods"""
+    """Test OpenFIGI integration methods."""
 
     def test_fetch_openfigi_mapping_success(self):
-        """Test _fetch_openfigi_mapping with successful API response."""
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
 
@@ -1043,7 +869,6 @@ class TestOpenFIGIIntegration:
         assert result['UNKNOWN'] is None
 
     def test_fetch_openfigi_mapping_api_error(self):
-        """Test _fetch_openfigi_mapping handles API errors gracefully."""
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
 
@@ -1057,7 +882,6 @@ class TestOpenFIGIIntegration:
         sm.logger.error.assert_called()
 
     def test_fetch_openfigi_mapping_batching(self):
-        """Test _fetch_openfigi_mapping handles batching correctly with API key."""
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
 
@@ -1084,12 +908,10 @@ class TestOpenFIGIIntegration:
                     mock_rl.return_value.acquire = Mock()
                     result = sm._fetch_openfigi_mapping(tickers)
 
-        # With API key: 100 per batch, 250 tickers = 3 batches
         assert call_count == 3
         assert len(result) == 250
 
     def test_fetch_openfigi_uses_api_key_when_available(self):
-        """Test _fetch_openfigi_mapping uses API key from environment."""
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
 
@@ -1102,18 +924,16 @@ class TestOpenFIGIIntegration:
                     mock_rl.return_value.acquire = Mock()
                     sm._fetch_openfigi_mapping(['AAPL'])
 
-        # Check that API key header was included
         call_args = mock_post.call_args
         headers = call_args.kwargs.get('headers', {})
         assert headers.get('X-OPENFIGI-APIKEY') == 'test-key'
 
 
 class TestNasdaqUniverse:
-    """Test Nasdaq universe fetching"""
+    """Test Nasdaq universe fetching."""
 
     @patch('quantdl.master.security_master.fetch_all_stocks')
     def test_fetch_nasdaq_universe_success(self, mock_fetch):
-        """Test _fetch_nasdaq_universe returns set of tickers."""
         import pandas as pd
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
@@ -1127,7 +947,6 @@ class TestNasdaqUniverse:
 
     @patch('quantdl.master.security_master.fetch_all_stocks')
     def test_fetch_nasdaq_universe_error(self, mock_fetch):
-        """Test _fetch_nasdaq_universe returns empty set on error."""
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
 
@@ -1140,10 +959,9 @@ class TestNasdaqUniverse:
 
 
 class TestRebrandDetection:
-    """Test rebrand detection logic"""
+    """Test rebrand detection logic."""
 
     def test_detect_rebrands_finds_match(self):
-        """Test _detect_rebrands finds rebrands by FIGI match."""
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
 
@@ -1160,7 +978,6 @@ class TestRebrandDetection:
         assert result[0] == ('FB', 'META', 'BBG000MM2P62')
 
     def test_detect_rebrands_no_match(self):
-        """Test _detect_rebrands with no FIGI matches."""
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
 
@@ -1176,7 +993,6 @@ class TestRebrandDetection:
         assert len(result) == 0
 
     def test_detect_rebrands_missing_figi(self):
-        """Test _detect_rebrands handles missing FIGI mappings."""
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
 
@@ -1193,10 +1009,9 @@ class TestRebrandDetection:
 
 
 class TestOpenFIGIRetryBehavior:
-    """Test OpenFIGI retry and backoff behavior"""
+    """Test OpenFIGI retry and backoff behavior."""
 
     def test_fetch_openfigi_429_retries_with_backoff(self):
-        """Test _fetch_openfigi_mapping retries on 429 with exponential backoff."""
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
 
@@ -1222,14 +1037,11 @@ class TestOpenFIGIRetryBehavior:
                 with patch('quantdl.master.security_master.time.sleep') as mock_sleep:
                     result = sm._fetch_openfigi_mapping(['AAPL'])
 
-        # Should have retried twice
         assert call_count == 3
-        # Should have slept with exponential backoff (1s, 2s)
         assert mock_sleep.call_count == 2
         assert result['AAPL'] == 'FIGI1'
 
     def test_fetch_openfigi_5xx_retries(self):
-        """Test _fetch_openfigi_mapping retries on 5xx server errors."""
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
 
@@ -1257,8 +1069,6 @@ class TestOpenFIGIRetryBehavior:
         assert result['AAPL'] == 'FIGI1'
 
     def test_fetch_openfigi_exhausts_retries(self):
-        """Test _fetch_openfigi_mapping marks None after exhausting retries."""
-        from quantdl.master.security_master import OPENFIGI_MAX_RETRIES
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
 
@@ -1277,7 +1087,6 @@ class TestOpenFIGIRetryBehavior:
         sm.logger.warning.assert_called()
 
     def test_fetch_openfigi_progress_logging(self):
-        """Test _fetch_openfigi_mapping logs progress every 10 batches."""
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
 
@@ -1302,13 +1111,11 @@ class TestOpenFIGIRetryBehavior:
                     mock_rl.return_value.acquire = Mock()
                     result = sm._fetch_openfigi_mapping(tickers)
 
-        # Check progress logging (should log at batch 10, 15)
         info_calls = [str(call) for call in sm.logger.info.call_args_list]
         progress_logs = [c for c in info_calls if 'progress' in c.lower()]
-        assert len(progress_logs) >= 2  # At least 10th batch and final
+        assert len(progress_logs) >= 2
 
     def test_fetch_openfigi_request_exception_retries(self):
-        """Test _fetch_openfigi_mapping retries on RequestException."""
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
 

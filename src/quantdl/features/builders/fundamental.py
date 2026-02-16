@@ -73,10 +73,11 @@ class FundamentalFeatureBuilder:
         for sid, df in results.items():
             wide = wide.join(df, on="Date", how="left")
 
-        # Forward-fill all value columns
-        value_cols = [c for c in wide.columns if c != "Date"]
-        if value_cols:
-            wide = wide.with_columns([pl.col(c).forward_fill() for c in value_cols])
+        # Sort columns for deterministic output, then forward-fill
+        sorted_cols = sorted(c for c in wide.columns if c != "Date")
+        wide = wide.select("Date", *sorted_cols)
+        if sorted_cols:
+            wide = wide.with_columns([pl.col(c).forward_fill() for c in sorted_cols])
 
         return wide.sort("Date")
 

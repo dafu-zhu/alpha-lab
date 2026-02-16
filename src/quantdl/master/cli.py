@@ -10,8 +10,8 @@ from quantdl.utils.logger import setup_logger
 
 load_dotenv()
 
-# Source parquet (git-tracked)
-SOURCE_PATH = Path("data/meta/master/security_master.parquet")
+# Source parquet bundled with the package
+SOURCE_PATH = Path(__file__).resolve().parent.parent / "data" / "security_master.parquet"
 
 
 def _get_working_path() -> Path:

@@ -59,7 +59,8 @@ class TicksFeatureBuilder:
         for sid, df in results.items():
             wide = wide.join(df, on="Date", how="left")
 
-        return wide.sort("Date")
+        sorted_cols = ["Date"] + sorted(c for c in wide.columns if c != "Date")
+        return wide.select(sorted_cols).sort("Date")
 
     @staticmethod
     def _value_cols(df: pl.DataFrame, security_ids: list[str]) -> list[str]:
