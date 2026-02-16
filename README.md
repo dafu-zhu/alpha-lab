@@ -25,22 +25,16 @@ trade_when(regime, 2*fundamental + timing, -1)
 
 You can find more about the API in the [API reference](docs/API.md), and the full expression syntax in the [expression guide](docs/ALPHA-GUIDE.md).
 
-## Why Local
+## Features
 
+- **68 operators** across time-series, cross-sectional, group, arithmetic, logical, and transformational categories — aligned with [WQ BRAIN conventions](https://platform.worldquantbrain.com/learn/documentation/discover-brain/operators-702). Full reference in [docs/OPERATORS.md](docs/OPERATORS.md).
+- **66 data fields** — price/volume, 30+ fundamentals, derived ratios, and GICS classifications, all pre-built as wide matrices (Date x security_id). Full reference in [docs/FIELDS.md](docs/FIELDS.md).
 - **Zero latency** — data lives on disk, not across a wire. Expression evaluation runs in-process on Arrow columnar memory.
 - **Zero cost** — no API metering, no compute credits, no data transfer fees. All sources are free ([Alpaca](https://alpaca.markets/), [SEC EDGAR](https://www.sec.gov/edgar)).
 - **No platform limits** — unlimited simulations, no queue, no daily submission caps. Iterate as fast as your machine allows.
 - **Survivorship-bias-free** — 20,000+ securities tracked back to 1986, including delisted stocks, symbol changes, and mergers.
 
-## What's Inside
-
-The platform provides **48 data fields** (price/volume, 30+ fundamentals, derived ratios, GICS classifications) and **80+ operators** across time-series, cross-sectional, group, arithmetic, logical, and transformational categories — aligned with [WQ BRAIN operator conventions](https://platform.worldquantbrain.com/learn/documentation/discover-brain/operators-702).
-
-You can find the complete list of available data fields in [docs/FIELDS.md](docs/FIELDS.md), and the full operator reference in [docs/OPERATORS.md](docs/OPERATORS.md).
-
-Data is sourced from [Alpaca](https://alpaca.markets/) (daily OHLCV, 2017+), [SEC EDGAR](https://www.sec.gov/edgar) (fundamentals, 2009+), and a built-in security master derived from CRSP, SEC, Nasdaq, and yfinance (1986+). All data is stored locally as Parquet/Arrow files — no database server needed.
-
-You can find more about the storage layout in [docs/STORAGE.md](docs/STORAGE.md).
+Data is sourced from [Alpaca](https://alpaca.markets/) (daily OHLCV, 2017+), [SEC EDGAR](https://www.sec.gov/edgar) (fundamentals, 2009+), and a built-in security master derived from CRSP, SEC, Nasdaq, and yfinance (1986+). All data is stored locally as Parquet/Arrow files — no database server needed. More about the storage layout in [docs/STORAGE.md](docs/STORAGE.md).
 
 ## Quick Start
 
@@ -88,8 +82,8 @@ client.query("rank(-ts_delta(close, 5))")
 ## Documentation
 
 - [API Reference](docs/API.md) — `QuantDLClient` methods: `get()`, `query()`, `lookup()`, `universe()`
-- [Operators](docs/OPERATORS.md) — Full reference for all 80+ operators with signatures and examples
-- [Data Fields](docs/FIELDS.md) — 48 fields with categories, XBRL mappings, and WQ BRAIN equivalents
+- [Operators](docs/OPERATORS.md) — Full reference for all 68 operators with signatures and examples
+- [Data Fields](docs/FIELDS.md) — 66 fields with categories, XBRL mappings, and WQ BRAIN equivalents
 - [Expression Guide](docs/ALPHA-GUIDE.md) — How to write alpha expressions and multi-line queries
 - [CLI Reference](docs/CLI.md) — All `qdl` command options
 - [Storage Layout](docs/STORAGE.md) — Directory structure and design decisions
@@ -99,13 +93,12 @@ client.query("rank(-ts_delta(close, 5))")
 
 This project is under active development toward a full local WorldQuant BRAIN experience.
 
-- [x] **Data engine** — 48 fields from Alpaca + SEC EDGAR, survivorship-bias-free
-- [x] **Alpha engine** — 80+ operators, WQ-style expression parser, auto-field loading
-- [ ] **Backtest engine** — Simulate alpha PnL, Sharpe, turnover, drawdown, and fitness metrics ([WQ reference](https://platform.worldquantbrain.com/learn/documentation/interpret-results/alpha-submission))
-- [ ] **Alpha diagnostics** — Decay analysis, correlation matrix, self-correlation
+- [x] **Data engine** — 66 data fields from Alpaca + SEC EDGAR, survivorship-bias-free
+- [x] **Alpha engine** — 68 operators, WQ-style expression parser, auto-field loading
+- [ ] **Backtest engine** — Simulate and evaluate alphas against WQ BRAIN submission criteria: Sharpe > 1.25, Fitness > 1, 1% < Turnover < 70%, sub-universe Sharpe > 0.51, weight well-distributed over instruments ([how to improve Sharpe](https://support.worldquantbrain.com/hc/en-us/articles/20251383456663-How-to-improve-Sharpe))
 - [ ] **WQ field translation** — Auto-translate local expressions to WQ BRAIN field names for direct copy-paste submission
+- [ ] **More operators** — Expand operator coverage toward full WQ BRAIN parity
 - [ ] **More data fields** — Short interest, analyst estimates, ETF holdings, options-derived
-- [ ] **Multi-region support** — Extend beyond US equities
 
 ## Development
 
