@@ -114,21 +114,23 @@ class TestUploadAppDailyTicks:
     """Test daily ticks upload delegation to handler."""
 
     def test_upload_daily_ticks_delegates_to_handler(self):
-        """Test upload_daily_ticks creates handler and calls upload_year."""
+        """Test upload_daily_ticks creates handler and calls upload_range."""
         app = _make_app()
         mock_handler = Mock()
-        mock_handler.upload_year.return_value = None
+        mock_handler.upload_range.return_value = None
 
         with patch.object(app, '_get_daily_ticks_handler', return_value=mock_handler):
             result = app.upload_daily_ticks(
-                year=2024,
+                start_year=2017,
+                end_year=2024,
                 overwrite=True,
                 chunk_size=100,
                 sleep_time=0.5,
             )
 
-        mock_handler.upload_year.assert_called_once_with(
-            year=2024,
+        mock_handler.upload_range.assert_called_once_with(
+            start_year=2017,
+            end_year=2024,
             overwrite=True,
             chunk_size=100,
             sleep_time=0.5,
@@ -141,12 +143,13 @@ class TestUploadAppDailyTicks:
         mock_handler = Mock()
 
         with patch.object(app, '_get_daily_ticks_handler', return_value=mock_handler):
-            app.upload_daily_ticks(year=2024)
+            app.upload_daily_ticks(start_year=2017, end_year=2024)
 
-        mock_handler.upload_year.assert_called_once_with(
-            year=2024,
+        mock_handler.upload_range.assert_called_once_with(
+            start_year=2017,
+            end_year=2024,
             overwrite=False,
-            chunk_size=200,
+            chunk_size=50,
             sleep_time=0.2,
         )
 
@@ -299,7 +302,9 @@ class TestUploadAppHandlerFactories:
         MockHandler.assert_called_once()
         call_kwargs = MockHandler.call_args[1]
         assert call_kwargs['data_publishers'] == app.data_publishers
+        assert call_kwargs['security_master'] == app.security_master
         assert call_kwargs['logger'] == app.logger
+        assert 'universe_manager' not in call_kwargs
 
     def test_get_fundamental_handler_creates_handler(self):
         """Test _get_fundamental_handler creates FundamentalHandler."""

@@ -71,22 +71,24 @@ class DataPublishers:
     def publish_daily_ticks(
         self,
         sym: str,
-        year: int,
         security_id: int,
         df: pl.DataFrame,
+        start_year: int,
+        end_year: int,
     ) -> Dict[str, Optional[str]]:
         """
         Publish daily ticks for a single symbol to local storage.
 
         Single file per security_id with append-merge logic:
-        read existing → remove year overlap → concat → write.
+        read existing → remove range overlap → concat → write.
 
         Storage: data/raw/ticks/daily/{security_id}/ticks.parquet
 
         :param sym: Symbol in Alpaca format (e.g., 'BRK.B')
-        :param year: Year of the data being published
         :param security_id: Security ID from SecurityMaster
         :param df: Polars DataFrame with daily ticks data
+        :param start_year: Start year of the range being published
+        :param end_year: End year of the range being published
         :return: Dict with status info
         """
         try:
@@ -103,9 +105,10 @@ class DataPublishers:
                 )
                 existing_df = pl.read_parquet(response['Body'])
 
-                # Remove existing year data (if any) and append new
+                # Remove data within the requested range and replace with new
                 existing_df = existing_df.filter(
-                    ~pl.col('timestamp').str.starts_with(str(year))
+                    (pl.col('timestamp') < f"{start_year}-01-01") |
+                    (pl.col('timestamp') > f"{end_year}-12-31")
                 )
                 combined_df = pl.concat([existing_df, df]).sort('timestamp')
             except NoSuchKeyError:

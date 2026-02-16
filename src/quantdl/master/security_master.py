@@ -379,6 +379,38 @@ class SecurityMaster:
 
         return {'sector': None, 'industry': None, 'subindustry': None}
 
+    def get_securities_in_range(
+        self, start_year: int, end_year: int
+    ) -> List[Tuple[str, int]]:
+        """
+        Return all (symbol, security_id) pairs active in [start_year, end_year].
+
+        For securities with multiple symbols (e.g., FB→META), returns the
+        latest symbol — Alpaca returns full history for the current symbol.
+
+        :param start_year: Start year (inclusive)
+        :param end_year: End year (inclusive)
+        :return: List of (symbol, security_id) tuples sorted by security_id
+        """
+        year_start = dt.date(start_year, 1, 1)
+        year_end = dt.date(end_year, 12, 31)
+
+        active = self.master_tb.filter(
+            pl.col('start_date').le(year_end),
+            pl.col('end_date').ge(year_start),
+        )
+
+        # Per security_id, pick row with latest end_date → most recent symbol
+        result = (
+            active
+            .sort('end_date', descending=True)
+            .unique(subset=['security_id'], keep='first')
+            .select(['symbol', 'security_id'])
+            .sort('security_id')
+        )
+
+        return list(result.iter_rows())
+
     def auto_resolve(self, symbol: str, day: str) -> int:
         """
         Smart resolve unmatched symbol and query day.

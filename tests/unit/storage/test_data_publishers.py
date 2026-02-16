@@ -58,7 +58,7 @@ class TestDataPublishers:
             "volume": [50000000]
         })
 
-        result = publisher.publish_daily_ticks("AAPL", 2024, 12345, df)
+        result = publisher.publish_daily_ticks("AAPL", 12345, df, 2024, 2024)
 
         assert result == {"symbol": "AAPL", "status": "success", "error": None}
         publisher.upload_fileobj.assert_called_once()
@@ -76,7 +76,7 @@ class TestDataPublishers:
             "volume": []
         })
 
-        result = publisher.publish_daily_ticks("AAPL", 2024, 12345, df)
+        result = publisher.publish_daily_ticks("AAPL", 12345, df, 2024, 2024)
         assert result["status"] == "skipped"
 
     def test_publish_daily_ticks_value_error_skips(self):
@@ -95,7 +95,7 @@ class TestDataPublishers:
             "volume": [50000000]
         })
 
-        result = publisher.publish_daily_ticks("AAPL", 2024, 12345, df)
+        result = publisher.publish_daily_ticks("AAPL", 12345, df, 2024, 2024)
 
         assert result["status"] == "skipped"
 
@@ -116,7 +116,7 @@ class TestDataPublishers:
             "volume": [50000000]
         })
 
-        result = publisher.publish_daily_ticks("AAPL", 2024, 12345, df)
+        result = publisher.publish_daily_ticks("AAPL", 12345, df, 2024, 2024)
 
         assert result["status"] == "failed"
         assert result["error"] == "some other error"
@@ -135,7 +135,7 @@ class TestDataPublishers:
             "volume": [50000000]
         })
 
-        result = publisher.publish_daily_ticks("AAPL", 2024, 12345, df)
+        result = publisher.publish_daily_ticks("AAPL", 12345, df, 2024, 2024)
 
         assert result["status"] == "failed"
 
@@ -152,7 +152,7 @@ class TestDataPublishers:
             "volume": [50000000]
         })
 
-        result = publisher.publish_daily_ticks("AAPL", 2024, 12345, df)
+        result = publisher.publish_daily_ticks("AAPL", 12345, df, 2024, 2024)
 
         assert result["status"] == "failed"
 

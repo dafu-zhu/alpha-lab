@@ -108,6 +108,28 @@ class TicksDataCollector(DataCollector):
             result[sym] = self._normalize_daily_df(df)
         return result
 
+    def collect_daily_ticks_range_bulk(
+        self, symbols: List[str], start: str, end: str
+    ) -> Dict[str, pl.DataFrame]:
+        """
+        Bulk fetch daily ticks for an arbitrary date range.
+
+        :param symbols: List of symbols in Alpaca format
+        :param start: Start date (YYYY-MM-DD)
+        :param end: End date (YYYY-MM-DD)
+        :return: Dict mapping symbol -> normalized DataFrame
+        """
+        start_str = f"{start}T00:00:00Z"
+        end_str = f"{end}T23:59:59Z"
+        symbol_bars = self.alpaca_ticks.fetch_daily_range_bulk(
+            symbols, start_str, end_str, adjusted=True
+        )
+        result = {}
+        for sym in symbols:
+            df = self._bars_to_daily_df(symbol_bars.get(sym, []))
+            result[sym] = self._normalize_daily_df(df)
+        return result
+
     def collect_daily_ticks_month(
         self,
         sym: str,
@@ -433,6 +455,11 @@ class DataCollectors:
         )
 
     # Delegation methods for ticks collection
+    def collect_daily_ticks_range_bulk(
+        self, symbols: List[str], start: str, end: str
+    ) -> Dict[str, pl.DataFrame]:
+        return self.ticks_collector.collect_daily_ticks_range_bulk(symbols, start, end)
+
     def collect_daily_ticks_year(self, sym: str, year: int) -> pl.DataFrame:
         return self.ticks_collector.collect_daily_ticks_year(sym, year)
 

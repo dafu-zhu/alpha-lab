@@ -20,7 +20,6 @@ def daily_deps():
         'data_publishers': Mock(),
         'data_collectors': Mock(),
         'security_master': Mock(),
-        'universe_manager': Mock(),
         'validator': Mock(),
         'logger': Mock(spec=logging.Logger),
     }
@@ -38,78 +37,89 @@ class TestDailyTicksHandler:
     def test_init(self, handler, daily_deps):
         assert handler.publishers is daily_deps['data_publishers']
         assert handler.collectors is daily_deps['data_collectors']
+        assert handler.security_master is daily_deps['security_master']
+        assert handler.validator is daily_deps['validator']
 
     @patch('quantdl.storage.handlers.ticks.tqdm')
-    def test_upload_year_with_data(self, mock_tqdm, handler, daily_deps):
-        """Test upload_year processes symbols and publishes."""
+    def test_upload_range_with_data(self, mock_tqdm, handler, daily_deps):
+        """Test upload_range processes securities and publishes."""
         mock_pbar = MagicMock()
         mock_tqdm.return_value = mock_pbar
 
-        daily_deps['universe_manager'].load_symbols_for_year.return_value = ['AAPL']
+        daily_deps['security_master'].get_securities_in_range.return_value = [('AAPL', 1)]
         daily_deps['validator'].data_exists.return_value = False
-        daily_deps['data_collectors'].collect_daily_ticks_year_bulk.return_value = {
+        daily_deps['data_collectors'].collect_daily_ticks_range_bulk.return_value = {
             'AAPL': pl.DataFrame({'close': [100.0]})
         }
         daily_deps['data_publishers'].publish_daily_ticks.return_value = {'status': 'success'}
 
-        with patch.object(handler, '_build_security_id_cache', return_value={'AAPL': 1}):
-            result = handler.upload_year(2020)
+        result = handler.upload_range(2017, 2025)
 
         assert result['success'] == 1
         daily_deps['data_publishers'].publish_daily_ticks.assert_called_once_with(
-            'AAPL', 2020, 1, daily_deps['data_collectors'].collect_daily_ticks_year_bulk.return_value['AAPL']
+            'AAPL', 1,
+            daily_deps['data_collectors'].collect_daily_ticks_range_bulk.return_value['AAPL'],
+            2017, 2025
         )
 
     @patch('quantdl.storage.handlers.ticks.tqdm')
-    def test_upload_year_no_symbols(self, mock_tqdm, handler, daily_deps):
-        """Test upload_year with empty symbol list."""
+    def test_upload_range_no_securities(self, mock_tqdm, handler, daily_deps):
+        """Test upload_range with empty security list."""
         mock_pbar = MagicMock()
         mock_tqdm.return_value = mock_pbar
 
-        daily_deps['universe_manager'].load_symbols_for_year.return_value = []
+        daily_deps['security_master'].get_securities_in_range.return_value = []
 
-        with patch.object(handler, '_build_security_id_cache', return_value={}):
-            result = handler.upload_year(2020)
+        result = handler.upload_range(2017, 2025)
 
         assert result['success'] == 0
         daily_deps['data_publishers'].publish_daily_ticks.assert_not_called()
 
     @patch('quantdl.storage.handlers.ticks.tqdm')
-    def test_upload_year_overwrite_skips_filter(self, mock_tqdm, handler, daily_deps):
-        """Test upload_year with overwrite=True skips filtering."""
+    def test_upload_range_overwrite_skips_filter(self, mock_tqdm, handler, daily_deps):
+        """Test upload_range with overwrite=True skips filtering."""
         mock_pbar = MagicMock()
         mock_tqdm.return_value = mock_pbar
 
-        daily_deps['universe_manager'].load_symbols_for_year.return_value = ['AAPL']
-        daily_deps['data_collectors'].collect_daily_ticks_year_bulk.return_value = {
+        daily_deps['security_master'].get_securities_in_range.return_value = [('AAPL', 1)]
+        daily_deps['data_collectors'].collect_daily_ticks_range_bulk.return_value = {
             'AAPL': pl.DataFrame({'close': [100.0]})
         }
         daily_deps['data_publishers'].publish_daily_ticks.return_value = {'status': 'success'}
 
-        with patch.object(handler, '_build_security_id_cache', return_value={'AAPL': 1}), \
-             patch.object(handler, '_filter_existing_symbols') as mock_filter:
-            handler.upload_year(2020, overwrite=True)
+        with patch.object(handler, '_filter_existing') as mock_filter:
+            handler.upload_range(2017, 2025, overwrite=True)
 
         mock_filter.assert_not_called()
 
-    def test_build_security_id_cache(self, handler, daily_deps):
-        daily_deps['security_master'].get_security_id.side_effect = [100, ValueError('not found')]
+    @patch('quantdl.storage.handlers.ticks.tqdm')
+    def test_upload_range_calls_range_bulk(self, mock_tqdm, handler, daily_deps):
+        """Test upload_range uses collect_daily_ticks_range_bulk with correct dates."""
+        mock_pbar = MagicMock()
+        mock_tqdm.return_value = mock_pbar
 
-        cache = handler._build_security_id_cache(['AAPL', 'BADTICKER'], 2020)
+        daily_deps['security_master'].get_securities_in_range.return_value = [('AAPL', 1)]
+        daily_deps['validator'].data_exists.return_value = False
+        daily_deps['data_collectors'].collect_daily_ticks_range_bulk.return_value = {
+            'AAPL': pl.DataFrame()
+        }
+        daily_deps['data_publishers'].publish_daily_ticks.return_value = {'status': 'skipped'}
 
-        assert cache == {'AAPL': 100, 'BADTICKER': None}
+        handler.upload_range(2020, 2023)
 
-    def test_filter_existing_symbols(self, handler, daily_deps):
+        daily_deps['data_collectors'].collect_daily_ticks_range_bulk.assert_called_once_with(
+            ['AAPL'], '2020-01-01', '2023-12-31'
+        )
+
+    def test_filter_existing(self, handler, daily_deps):
         daily_deps['validator'].data_exists.side_effect = [True, False]
         pbar = MagicMock()
 
-        # sec_id None -> skipped, sec_id exists -> canceled, sec_id new -> fetch
-        cache = {'SYM_NONE': None, 'SYM_EXISTS': 1, 'SYM_NEW': 2}
-        result = handler._filter_existing_symbols(
-            ['SYM_NONE', 'SYM_EXISTS', 'SYM_NEW'], 2020, cache, pbar
-        )
+        # sid None -> skipped, sid exists -> canceled, sid new -> fetch
+        securities = [('SYM_NONE', None), ('SYM_EXISTS', 1), ('SYM_NEW', 2)]
+        result = handler._filter_existing(securities, 2025, pbar)
 
-        assert result == ['SYM_NEW']
+        assert result == [('SYM_NEW', 2)]
         assert handler.stats['skipped'] == 1
         assert handler.stats['canceled'] == 1
 

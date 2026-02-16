@@ -518,6 +518,99 @@ class TestSecurityMaster:
             assert col in result.columns
 
 
+class TestGetSecuritiesInRange:
+    """Test SecurityMaster.get_securities_in_range()"""
+
+    def test_returns_active_securities(self):
+        """Test get_securities_in_range returns securities active in range."""
+        master_tb = pl.DataFrame({
+            'security_id': [1, 2, 3],
+            'symbol': ['AAPL', 'MSFT', 'OLD'],
+            'start_date': [dt.date(2015, 1, 1), dt.date(2010, 1, 1), dt.date(2005, 1, 1)],
+            'end_date': [dt.date(2025, 12, 31), dt.date(2025, 12, 31), dt.date(2010, 12, 31)],
+        })
+        sm = SecurityMaster.__new__(SecurityMaster)
+        sm.master_tb = master_tb
+        sm.logger = Mock()
+
+        result = sm.get_securities_in_range(2017, 2025)
+
+        # OLD ended in 2010, should not be included
+        assert len(result) == 2
+        symbols = {r[0] for r in result}
+        assert symbols == {'AAPL', 'MSFT'}
+
+    def test_picks_latest_symbol_for_renamed_security(self):
+        """For FB→META, should return META (latest symbol)."""
+        master_tb = pl.DataFrame({
+            'security_id': [100, 100],
+            'symbol': ['FB', 'META'],
+            'start_date': [dt.date(2012, 5, 18), dt.date(2022, 6, 9)],
+            'end_date': [dt.date(2022, 6, 8), dt.date(2025, 12, 31)],
+        })
+        sm = SecurityMaster.__new__(SecurityMaster)
+        sm.master_tb = master_tb
+        sm.logger = Mock()
+
+        result = sm.get_securities_in_range(2017, 2025)
+
+        assert len(result) == 1
+        assert result[0] == ('META', 100)
+
+    def test_includes_delisted_stocks_in_range(self):
+        """Delisted stocks active in the range should be included."""
+        master_tb = pl.DataFrame({
+            'security_id': [1, 2],
+            'symbol': ['AAPL', 'DISH'],
+            'start_date': [dt.date(2015, 1, 1), dt.date(2010, 1, 1)],
+            'end_date': [dt.date(2025, 12, 31), dt.date(2023, 12, 29)],
+        })
+        sm = SecurityMaster.__new__(SecurityMaster)
+        sm.master_tb = master_tb
+        sm.logger = Mock()
+
+        result = sm.get_securities_in_range(2017, 2025)
+
+        # DISH ended 2023-12-29, still within 2017-2025 range
+        assert len(result) == 2
+        symbols = {r[0] for r in result}
+        assert 'DISH' in symbols
+
+    def test_excludes_securities_outside_range(self):
+        """Securities fully outside range should be excluded."""
+        master_tb = pl.DataFrame({
+            'security_id': [1, 2],
+            'symbol': ['AAPL', 'OLD'],
+            'start_date': [dt.date(2015, 1, 1), dt.date(2000, 1, 1)],
+            'end_date': [dt.date(2025, 12, 31), dt.date(2016, 12, 31)],
+        })
+        sm = SecurityMaster.__new__(SecurityMaster)
+        sm.master_tb = master_tb
+        sm.logger = Mock()
+
+        result = sm.get_securities_in_range(2017, 2025)
+
+        assert len(result) == 1
+        assert result[0][0] == 'AAPL'
+
+    def test_sorted_by_security_id(self):
+        """Result should be sorted by security_id."""
+        master_tb = pl.DataFrame({
+            'security_id': [300, 100, 200],
+            'symbol': ['C', 'A', 'B'],
+            'start_date': [dt.date(2015, 1, 1)] * 3,
+            'end_date': [dt.date(2025, 12, 31)] * 3,
+        })
+        sm = SecurityMaster.__new__(SecurityMaster)
+        sm.master_tb = master_tb
+        sm.logger = Mock()
+
+        result = sm.get_securities_in_range(2017, 2025)
+
+        sids = [r[1] for r in result]
+        assert sids == [100, 200, 300]
+
+
 class TestSecurityMasterInitialization:
     """Test SecurityMaster initialization"""
 

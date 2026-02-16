@@ -102,7 +102,6 @@ class UploadApp:
             data_publishers=self.data_publishers,
             data_collectors=self.data_collectors,
             security_master=self.security_master,
-            universe_manager=self.universe_manager,
             validator=self.validator,
             logger=self.logger,
         )
@@ -153,15 +152,17 @@ class UploadApp:
 
     def upload_daily_ticks(
         self,
-        year: int,
+        start_year: int,
+        end_year: int,
         overwrite: bool = False,
-        chunk_size: int = 200,
+        chunk_size: int = 50,
         sleep_time: float = 0.2,
     ):
-        """Upload daily ticks for a year."""
+        """Upload daily ticks for all securities active in [start_year, end_year]."""
         handler = self._get_daily_ticks_handler()
-        return handler.upload_year(
-            year=year,
+        return handler.upload_range(
+            start_year=start_year,
+            end_year=end_year,
             overwrite=overwrite,
             chunk_size=chunk_size,
             sleep_time=sleep_time,
@@ -254,19 +255,18 @@ class UploadApp:
         chunk_size: int,
         sleep_time: float
     ):
-        """Run daily ticks upload using Alpaca."""
+        """Run daily ticks upload using Alpaca (single range, SecurityMaster-driven)."""
         handler = self._get_daily_ticks_handler()
 
         today = dt.date.today()
         effective_end = min(end_year, today.year)
-        for year in range(start_year, effective_end + 1):
-            self.logger.debug(f"Uploading Alpaca daily ticks for {year}")
-            handler.upload_year(
-                year=year,
-                overwrite=overwrite,
-                chunk_size=chunk_size,
-                sleep_time=sleep_time
-            )
+        handler.upload_range(
+            start_year=start_year,
+            end_year=effective_end,
+            overwrite=overwrite,
+            chunk_size=chunk_size,
+            sleep_time=sleep_time,
+        )
 
     def close(self):
         """Clean up resources."""

@@ -408,6 +408,58 @@ class TestTicksDataCollector:
         assert result.is_empty()
         mock_logger.warning.assert_called()
 
+    def test_collect_daily_ticks_range_bulk(self):
+        """Test range-based bulk fetch delegates to alpaca fetch_daily_range_bulk."""
+        from quantdl.storage.pipeline import TicksDataCollector
+        from quantdl.collection.models import TickDataPoint
+
+        mock_alpaca = Mock()
+        mock_alpaca.fetch_daily_range_bulk.return_value = {
+            "AAPL": [{
+                "t": "2020-06-15T05:00:00Z",
+                "o": 100.0,
+                "h": 102.0,
+                "l": 99.0,
+                "c": 101.0,
+                "v": 1000000,
+                "n": 5000,
+                "vw": 100.5
+            }],
+            "DISH": []
+        }
+        mock_alpaca.parse_ticks.return_value = [
+            TickDataPoint(
+                timestamp="2020-06-15T00:00:00",
+                open=100.0,
+                high=102.0,
+                low=99.0,
+                close=101.0,
+                volume=1000000,
+                num_trades=5000,
+                vwap=100.5
+            )
+        ]
+        mock_logger = Mock(spec=logging.Logger)
+
+        collector = TicksDataCollector(
+            alpaca_ticks=mock_alpaca,
+            alpaca_headers={},
+            logger=mock_logger
+        )
+
+        result = collector.collect_daily_ticks_range_bulk(
+            ["AAPL", "DISH"], "2017-01-01", "2025-12-31"
+        )
+
+        mock_alpaca.fetch_daily_range_bulk.assert_called_once_with(
+            ["AAPL", "DISH"],
+            "2017-01-01T00:00:00Z",
+            "2025-12-31T23:59:59Z",
+            adjusted=True
+        )
+        assert result["AAPL"]["close"][0] == 101.0
+        assert result["DISH"].is_empty()
+
     def test_normalize_daily_df_adds_missing_columns(self):
         """Missing columns are added and types normalized."""
         from quantdl.storage.pipeline import TicksDataCollector
@@ -850,6 +902,25 @@ class TestDataCollectorsOrchestrator:
         # Fundamental collector should share the cache
         assert orchestrator.fundamental_collector._fundamental_cache is orchestrator._fundamental_cache
         assert orchestrator.fundamental_collector._fundamental_cache_lock is orchestrator._fundamental_cache_lock
+
+    def test_delegation_to_ticks_collector_range_bulk(self):
+        """Delegates range bulk fetch to TicksDataCollector."""
+        from quantdl.storage.pipeline import DataCollectors
+
+        mock_logger = Mock(spec=logging.Logger)
+        orchestrator = DataCollectors(
+            alpaca_ticks=Mock(),
+            alpaca_headers={},
+            logger=mock_logger
+        )
+
+        orchestrator.ticks_collector.collect_daily_ticks_range_bulk = Mock(return_value={})
+
+        orchestrator.collect_daily_ticks_range_bulk(["AAPL", "DISH"], "2017-01-01", "2025-12-31")
+
+        orchestrator.ticks_collector.collect_daily_ticks_range_bulk.assert_called_once_with(
+            ["AAPL", "DISH"], "2017-01-01", "2025-12-31"
+        )
 
     def test_delegation_to_ticks_collector(self):
         """Test DataCollectors delegates to TicksDataCollector"""
