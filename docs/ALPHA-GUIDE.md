@@ -1,0 +1,80 @@
+# Expression Guide
+
+Write alpha factors as string expressions, just like on [WorldQuant BRAIN](https://platform.worldquantbrain.com/).
+
+## Basic Usage
+
+```python
+from quantdl.api.client import QuantDLClient
+
+client = QuantDLClient(data_path="/path/to/your/data")
+
+# Single expression — fields are auto-loaded
+alpha = client.query("rank(-ts_delta(close, 5))")
+```
+
+## Syntax
+
+Expressions use standard Python syntax with operators available directly by name (no imports needed inside expressions).
+
+### Arithmetic
+
+```python
+close / ts_delay(close, 1) - 1          # Daily returns
+(close - ts_mean(close, 20)) / ts_std(close, 20)  # Z-score from 20d MA
+```
+
+### Comparisons and Logic
+
+```python
+ts_rank(volume, 20) > 0.8               # Boolean mask
+(close > ts_mean(close, 50)) & (volume > ts_mean(volume, 20))  # Combined conditions
+```
+
+### Multi-line with Variables
+
+Use semicolons to separate statements. The last expression is returned.
+
+```python
+alpha = client.query("""
+momentum = ts_delta(close, 10);
+volatility = ts_std(returns, 20);
+rank(momentum / volatility)
+""")
+```
+
+### Group Operations
+
+Use group fields (`sector`, `industry`, `subindustry`, `exchange`) for within-group operations.
+
+```python
+# Rank within each sector
+group_rank(ts_delta(close, 5), sector)
+
+# Neutralize alpha by sector (subtract sector mean)
+raw = rank(-ts_delta(close, 5));
+group_neutralize(raw, sector)
+```
+
+### trade_when
+
+Conditional alpha with entry/exit signals and carry-forward.
+
+```python
+# Enter when volume regime is high, exit on signal reversal
+regime = ts_rank(ts_sum(volume, 5)/ts_sum(volume, 60), 60) > 0.5;
+signal = group_rank(ts_delta(income/sharesout, 21), subindustry);
+trade_when(regime, signal, -1)
+```
+
+## Auto-Field Loading
+
+`client.query()` automatically detects field names in the expression and loads them via `client.get()`. You don't need to pre-load data.
+
+Recognized field names are those in the [data field registry](FIELDS.md). Operator names and user-defined variables are excluded from auto-loading.
+
+## Available Functions
+
+All 68 operators are available directly in expressions. See the [Operator Reference](OPERATORS.md) for the full list.
+
+Built-in functions also available: `abs`, `min`, `max`, `log`, `sqrt`, `sign`.

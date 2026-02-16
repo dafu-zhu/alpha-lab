@@ -1,0 +1,43 @@
+# Storage Layout
+
+All data is stored under `$LOCAL_STORAGE_PATH`:
+
+```
+$LOCAL_STORAGE_PATH/
+├── data/
+│   ├── meta/
+│   │   ├── master/
+│   │   │   ├── security_master.parquet    # Symbol → security_id mapping (20k+ securities)
+│   │   │   ├── calendar_master.parquet    # NYSE trading days
+│   │   │   └── prev_universe.json         # Previous universe snapshot (for change detection)
+│   │   └── universe/{YYYY}/{MM}/
+│   │       └── top3000.txt                # Monthly top 3000 symbols by liquidity
+│   ├── raw/
+│   │   ├── ticks/daily/{security_id}/
+│   │   │   └── ticks.parquet              # OHLCV: timestamp, open, high, low, close, volume, vwap, num_trades
+│   │   └── fundamental/{security_id}/
+│   │       └── fundamental.parquet        # Long table: concept, value, unit, as_of_date, filed_date, ...
+│   └── features/
+│       ├── close.arrow                    # Wide table: Date x security_ids
+│       ├── volume.arrow
+│       ├── returns.arrow
+│       ├── sales.arrow
+│       ├── sector.arrow                   # GICS sector labels
+│       └── ...                            # 66 feature fields total
+```
+
+## Design Decisions
+
+**One file per security** for raw data — simple, no database needed, easy to inspect individual stocks.
+
+**security_id-based paths** — stable across ticker changes. FB and META both resolve to the same security_id, so historical data is continuous.
+
+**Arrow IPC for features** — columnar format optimized for time-series slicing. Each `.arrow` file is a wide matrix with `Date` as the first column and one column per security_id.
+
+**Parquet for raw data** — compact, widely supported, self-describing schema. Append-merge on upload: existing data outside the download range is preserved.
+
+## File Sizes (approximate)
+
+- Daily ticks: ~1.2 GB for 5000 symbols x 8 years
+- Fundamentals: ~7.5 GB for 5000 symbols x 15 years
+- Features: ~50 MB per field (66 fields = ~3.3 GB total)

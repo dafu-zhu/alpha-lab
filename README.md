@@ -82,20 +82,21 @@ client.query("rank(-ts_delta(close, 5))")
 ## Documentation
 
 - [API Reference](docs/API.md) — `QuantDLClient` methods: `get()`, `query()`, `lookup()`, `universe()`
-- [Operators](docs/OPERATORS.md) — Full reference for all 68 operators with signatures and examples
-- [Data Fields](docs/FIELDS.md) — 66 fields with categories, XBRL mappings, and WQ BRAIN equivalents
+- [Operators](docs/OPERATORS.md) — Full reference for all 68 operators with signatures
+- [Data Fields](docs/FIELDS.md) — 66 fields with categories and XBRL mappings
 - [Expression Guide](docs/ALPHA-GUIDE.md) — How to write alpha expressions and multi-line queries
 - [CLI Reference](docs/CLI.md) — All `qdl` command options
 - [Storage Layout](docs/STORAGE.md) — Directory structure and design decisions
+- [Backtest Criteria](docs/BACKTEST.md) — WQ BRAIN submission requirements (planned)
 - [Testing](tests/README.md) — Test structure, markers, and fixtures
 
 ## Roadmap
 
 This project is under active development toward a full local WorldQuant BRAIN experience.
 
-- [x] **Data engine** — 66 data fields from Alpaca + SEC EDGAR, survivorship-bias-free
+- [x] **Data engine** — 66 fields from Alpaca + SEC EDGAR, survivorship-bias-free
 - [x] **Alpha engine** — 68 operators, WQ-style expression parser, auto-field loading
-- [ ] **Backtest engine** — Simulate and evaluate alphas against WQ BRAIN submission criteria: Sharpe > 1.25, Fitness > 1, 1% < Turnover < 70%, sub-universe Sharpe >= 0.75 * sqrt(sub_size / alpha_size) * alpha_Sharpe, weight well-distributed over instruments ([Sharpe](https://support.worldquantbrain.com/hc/en-us/articles/20251383456663-How-to-improve-Sharpe), [sub-universe cutoff](https://support.worldquantbrain.com/hc/en-us/articles/6568644868375-How-do-I-resolve-this-error-Sub-universe-Sharpe-NaN-is-not-above-cutoff))
+- [ ] **Backtest engine** — Simulate and evaluate alphas against [WQ BRAIN submission criteria](docs/BACKTEST.md)
 - [ ] **WQ field translation** — Auto-translate local expressions to WQ BRAIN field names for direct copy-paste submission
 - [ ] **More operators** — Expand operator coverage toward full WQ BRAIN parity
 - [ ] **More data fields** — Short interest, analyst estimates, ETF holdings, options-derived
