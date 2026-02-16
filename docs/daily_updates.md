@@ -104,7 +104,7 @@ security_master = crsp_ticks.security_master  # Built from CRSP
 ```python
 security_master = SecurityMaster(
     s3_client=s3_client,
-    bucket_name='us-equity-datalake'
+    bucket_name='alpha-lab'
 )
 # Loads from S3 cache (~1-2 sec vs ~30 sec WRDS rebuild)
 ```

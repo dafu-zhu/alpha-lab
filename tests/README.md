@@ -207,7 +207,7 @@ uv sync
 uv pip install -e .
 
 # Or add to PYTHONPATH
-export PYTHONPATH=/path/to/us-equity-datalake/src:$PYTHONPATH
+export PYTHONPATH=/path/to/alpha-lab/src:$PYTHONPATH
 ```
 
 ### Missing Test Dependencies

@@ -1,7 +1,7 @@
-# US Equity Data Lake
+# AlphaLab
 
-[![Tests](https://github.com/dafu-zhu/us-equity-datalake/actions/workflows/tests.yml/badge.svg)](https://github.com/dafu-zhu/us-equity-datalake/actions/workflows/tests.yml)
-[![Coverage](https://codecov.io/gh/dafu-zhu/us-equity-datalake/branch/main/graph/badge.svg)](https://codecov.io/gh/dafu-zhu/us-equity-datalake)
+[![Tests](https://github.com/dafu-zhu/alpha-lab/actions/workflows/tests.yml/badge.svg)](https://github.com/dafu-zhu/alpha-lab/actions/workflows/tests.yml)
+[![Coverage](https://codecov.io/gh/dafu-zhu/alpha-lab/branch/main/graph/badge.svg)](https://codecov.io/gh/dafu-zhu/alpha-lab)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
 A local-first alpha research platform that brings [WorldQuant BRAIN](https://platform.worldquantbrain.com/)-style development to your own machine — same expression syntax, same operators, no latency, no transfer costs, no platform limits.
@@ -47,8 +47,8 @@ Data is sourced from [Alpaca](https://alpaca.markets/) (daily OHLCV, 2017+), [SE
 ### Install
 
 ```bash
-git clone https://github.com/dafu-zhu/us-equity-datalake.git
-cd us-equity-datalake
+git clone https://github.com/dafu-zhu/alpha-lab.git
+cd alpha-lab
 uv sync
 cp .env.example .env   # then fill in credentials
 ```
