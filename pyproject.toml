@@ -21,8 +21,7 @@ dependencies = [
 ]
 
 [project.scripts]
-quantdl-storage = "quantdl.storage.cli:main"
-qdl-master = "quantdl.master.cli:main"
+qdl = "quantdl.cli:main"
 
 [tool.uv]
 package = true

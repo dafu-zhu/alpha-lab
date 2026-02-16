@@ -20,9 +20,6 @@ load_dotenv()
 # Default local path for security master parquet
 LOCAL_MASTER_PATH = Path("data/meta/master/security_master.parquet")
 
-# Default local path for prev_universe persistence
-LOCAL_PREV_UNIVERSE_PATH = Path("data/meta/master/prev_universe.json")
-
 # Morningstar→GICS mapping file
 GICS_MAPPING_PATH = Path("configs/morningstar_to_gics.yaml")
 
@@ -209,6 +206,10 @@ class SecurityMaster:
         if local_path is None:
             local_path = LOCAL_MASTER_PATH
 
+        self.local_path = local_path
+        # prev_universe.json lives next to the security_master.parquet
+        self._prev_universe_path = local_path.parent / "prev_universe.json"
+
         if not local_path.exists():
             raise FileNotFoundError(
                 f"Security master not found at {local_path}. "
@@ -299,7 +300,16 @@ class SecurityMaster:
 
         for i, ticker in enumerate(tickers):
             try:
-                info = yf.Ticker(ticker).info
+                # yfinance uses Yahoo format (dashes): BRK-B, not Nasdaq dots BRK.B
+                yf_ticker = ticker.replace('.', '-')
+                # Suppress yfinance 404 stderr noise for unrecognized tickers
+                import io, sys
+                _stderr = sys.stderr
+                sys.stderr = io.StringIO()
+                try:
+                    info = yf.Ticker(yf_ticker).info
+                finally:
+                    sys.stderr = _stderr
                 sector = info.get('sector')
                 industry = info.get('industry')
                 if sector or industry:
@@ -710,8 +720,8 @@ class SecurityMaster:
         :return: Tuple of (prev_universe set, prev_date string or None)
         """
         try:
-            if LOCAL_PREV_UNIVERSE_PATH.exists():
-                data = json.loads(LOCAL_PREV_UNIVERSE_PATH.read_text(encoding='utf-8'))
+            if self._prev_universe_path.exists():
+                data = json.loads(self._prev_universe_path.read_text(encoding='utf-8'))
                 prev_universe = set(data.get('tickers', []))
                 prev_date = data.get('date')
                 self.logger.info(f"Loaded prev_universe: {len(prev_universe)} tickers from {prev_date}")
@@ -734,12 +744,12 @@ class SecurityMaster:
         :param universe: Set of ticker symbols
         :param date: Date string (YYYY-MM-DD)
         """
-        LOCAL_PREV_UNIVERSE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        self._prev_universe_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             'tickers': sorted(list(universe)),
             'date': date
         }
-        LOCAL_PREV_UNIVERSE_PATH.write_text(
+        self._prev_universe_path.write_text(
             json.dumps(data, indent=2),
             encoding='utf-8'
         )
@@ -871,6 +881,9 @@ class SecurityMaster:
             symbol_norm = normalize(row['symbol'])
 
             if symbol_norm in still_active:
+                # Convert CRSP symbol to Nasdaq format
+                row_dict['symbol'] = current_normalized[symbol_norm]
+
                 # EXTEND: only if this is a "current" row
                 row_end = row_dict.get('end_date')
                 if row_end is not None and row_end >= crsp_end:
@@ -1049,7 +1062,10 @@ class SecurityMaster:
             row_dict.pop('cusip', None)
             symbol_norm = normalize(row['symbol'])
 
+            # Convert CRSP symbol to Nasdaq format (BRKB -> BRK.B)
             if symbol_norm in current_normalized:
+                row_dict['symbol'] = current_normalized[symbol_norm]
+
                 # Only extend "current" rows (end_date == CRSP latest date)
                 if row_dict.get('end_date') == crsp_end:
                     row_dict['end_date'] = today
@@ -1075,6 +1091,54 @@ class SecurityMaster:
 
             updated_rows.append(row_dict)
 
+        # Identify Nasdaq tickers not matched to any "current" row (new IPOs / symbol reuses)
+        extended_norms = set()
+        for row in self.master_tb.iter_rows(named=True):
+            if row.get('end_date') == crsp_end:
+                extended_norms.add(normalize(row['symbol']))
+
+        unmatched = set(current_normalized.keys()) - extended_norms
+        if unmatched:
+            self.logger.info(
+                f"Bootstrap: {len(unmatched)} Nasdaq tickers not in CRSP data, adding as new IPOs"
+            )
+
+            # Fetch yfinance for GICS classification
+            yf_tickers = [current_normalized[n] for n in unmatched]
+            yf_metadata = self._fetch_yfinance_metadata(yf_tickers)
+
+            max_sid: int = self.master_tb['security_id'].max() or 1000  # type: ignore[assignment]
+
+            for ticker_norm in unmatched:
+                ticker = current_normalized[ticker_norm]
+                sec_info = sec_lookup.get(ticker_norm, {})
+
+                # Map yfinance → GICS
+                gics = {'sector': None, 'industry': None, 'subindustry': None}
+                if ticker_norm in yf_metadata:
+                    gics = self._map_to_gics(
+                        yf_metadata[ticker_norm].get('sector', ''),
+                        yf_metadata[ticker_norm].get('industry', ''),
+                    )
+
+                max_sid += 1
+                new_row = {
+                    'security_id': max_sid,
+                    'permno': None,
+                    'symbol': ticker,
+                    'company': sec_info.get('company', ''),
+                    'cik': sec_info.get('cik'),
+                    'share_class_figi': figi_by_norm.get(ticker_norm),
+                    'start_date': today,
+                    'end_date': today,
+                    'exchange': sec_info.get('exchange'),
+                    'sector': gics.get('sector'),
+                    'industry': gics.get('industry'),
+                    'subindustry': gics.get('subindustry'),
+                }
+                updated_rows.append(new_row)
+                stats['added'] += 1
+
         if updated_rows:
             self.master_tb = pl.DataFrame(updated_rows).cast({
                 'security_id': pl.Int64,
@@ -1082,11 +1146,11 @@ class SecurityMaster:
                 'end_date': pl.Date
             })
 
-        if stats['extended'] > 0:
-            self.logger.info(f"Bootstrap: extended {stats['extended']} securities to {today}")
-
         figi_count = sum(1 for v in figi_by_norm.values() if v is not None)
-        self.logger.info(f"Bootstrap: {figi_count}/{len(current_nasdaq)} FIGIs populated")
+        self.logger.info(
+            f"Bootstrap: {stats['extended']} extended, {stats['added']} new IPOs added, "
+            f"{figi_count}/{len(current_nasdaq)} FIGIs populated"
+        )
 
         return stats
 
