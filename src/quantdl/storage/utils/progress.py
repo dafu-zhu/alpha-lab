@@ -1,11 +1,10 @@
 """
 Progress Tracker for Upload Operations
-Tracks completed security_ids or symbols in S3 for resume capability
+Tracks completed security_ids or symbols for resume capability
 """
 import json
 from datetime import datetime, timezone
 from typing import Set, Union, Literal
-from botocore.exceptions import ClientError
 from quantdl.storage.utils.exceptions import NoSuchKeyError
 
 KeyType = Union[int, str]
@@ -15,7 +14,7 @@ class UploadProgressTracker:
     """
     Tracks completed security_ids or symbols for upload operations.
 
-    Stores progress in S3 as JSON:
+    Stores progress as JSON:
         data/upload_progress/{task_name}.json
 
     Schema:
@@ -28,8 +27,7 @@ class UploadProgressTracker:
 
     def __init__(
         self,
-        s3_client,
-        bucket_name: str,
+        storage_client,
         task_name: str = 'daily_ticks_backfill',
         flush_interval: int = 100,
         key_type: Literal['int', 'str'] = 'int'
@@ -37,16 +35,14 @@ class UploadProgressTracker:
         """
         Initialize progress tracker.
 
-        :param s3_client: Boto3 S3 client
-        :param bucket_name: S3 bucket name
+        :param storage_client: LocalStorageClient instance
         :param task_name: Unique name for this upload task
-        :param flush_interval: Save to S3 every N completions (default: 100)
+        :param flush_interval: Save every N completions (default: 100)
         :param key_type: Type of keys to track ('int' for security_ids, 'str' for symbols)
         """
-        self.s3_client = s3_client
-        self.bucket_name = bucket_name
+        self.storage_client = storage_client
         self.task_name = task_name
-        self.s3_key = f'data/upload_progress/{task_name}.json'
+        self.key = f'data/upload_progress/{task_name}.json'
         self.flush_interval = flush_interval
         self.key_type = key_type
 
@@ -57,7 +53,7 @@ class UploadProgressTracker:
 
     def load(self) -> Set[KeyType]:
         """
-        Load completed keys from S3.
+        Load completed keys from storage.
 
         :return: Set of completed keys (security_ids or symbols)
         """
@@ -65,21 +61,18 @@ class UploadProgressTracker:
             return self._completed
 
         try:
-            response = self.s3_client.get_object(
-                Bucket=self.bucket_name,
-                Key=self.s3_key
+            response = self.storage_client.get_object(
+                Bucket='',
+                Key=self.key
             )
             data = json.loads(response['Body'].read().decode('utf-8'))
             self._completed = set(data.get('completed', []))
             self._stats = data.get('stats', self._stats)
             self._loaded = True
-        except (ClientError, NoSuchKeyError) as e:
-            if e.response.get('Error', {}).get('Code') == 'NoSuchKey':
-                # No progress file yet - start fresh
-                self._completed = set()
-                self._loaded = True
-            else:
-                raise
+        except NoSuchKeyError:
+            # No progress file yet - start fresh
+            self._completed = set()
+            self._loaded = True
 
         return self._completed
 
@@ -87,7 +80,7 @@ class UploadProgressTracker:
         """
         Mark a key as completed.
 
-        Automatically flushes to S3 every flush_interval completions.
+        Automatically flushes every flush_interval completions.
 
         :param key: Key that was successfully processed (security_id or symbol)
         """
@@ -150,7 +143,7 @@ class UploadProgressTracker:
 
     def save(self):
         """
-        Save progress to S3.
+        Save progress to storage.
         """
         data = {
             'completed': sorted(list(self._completed)),
@@ -158,23 +151,23 @@ class UploadProgressTracker:
             'stats': self._stats
         }
 
-        self.s3_client.put_object(
-            Bucket=self.bucket_name,
-            Key=self.s3_key,
+        self.storage_client.put_object(
+            Bucket='',
+            Key=self.key,
             Body=json.dumps(data, indent=2).encode('utf-8'),
             ContentType='application/json'
         )
 
     def reset(self):
         """
-        Reset progress (delete S3 file and clear state).
+        Reset progress (delete file and clear state).
         """
         try:
-            self.s3_client.delete_object(
-                Bucket=self.bucket_name,
-                Key=self.s3_key
+            self.storage_client.delete_object(
+                Bucket='',
+                Key=self.key
             )
-        except ClientError:
+        except Exception:
             pass
 
         self._completed: Set[KeyType] = set()

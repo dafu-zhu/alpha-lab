@@ -125,7 +125,6 @@ class TestSymbolChanges:
             "symbol": ["OLD_SYM", "NEW_SYM"],
             "company": ["Test Company", "Test Company"],
             "cik": ["0001234567", "0001234567"],
-            "cusip": ["123456789", "123456789"],
             "start_date": [date(2020, 1, 1), date(2023, 1, 1)],
             "end_date": [date(2022, 12, 31), None],
         })

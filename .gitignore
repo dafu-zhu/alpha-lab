@@ -232,3 +232,6 @@ tmpclaude-*
 
 # Temporary script
 tmp.py
+
+# WRDS build scripts (one-time, not needed at runtime)
+scripts/

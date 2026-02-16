@@ -1,38 +1,46 @@
 """CLI for SecurityMaster operations"""
 import argparse
+import shutil
 from pathlib import Path
 from dotenv import load_dotenv
+import os
 
 from quantdl.master.security_master import SecurityMaster
-from quantdl.storage.clients import S3Client
 from quantdl.utils.logger import setup_logger
 
 load_dotenv()
+
+# Source parquet (git-tracked)
+SOURCE_PATH = Path("data/meta/master/security_master.parquet")
+
+
+def _get_working_path() -> Path:
+    """Get working copy path under LOCAL_STORAGE_PATH."""
+    base = os.getenv("LOCAL_STORAGE_PATH", "")
+    if not base:
+        return SOURCE_PATH
+    return Path(base) / "data" / "meta" / "master" / "security_master.parquet"
+
+
+def _copy_source_to_working(source: Path, working: Path) -> None:
+    """Copy source parquet to working path if needed."""
+    if source == working:
+        return
+    if not source.exists():
+        raise FileNotFoundError(
+            f"Source parquet not found at {source}. "
+            "Run: python scripts/build_security_master.py"
+        )
+    working.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(str(source), str(working))
 
 
 def main():
     parser = argparse.ArgumentParser(description="SecurityMaster operations")
     parser.add_argument(
-        '--export',
+        '--build',
         action='store_true',
-        help='Export SecurityMaster to S3'
-    )
-    parser.add_argument(
-        '--force-rebuild',
-        action='store_true',
-        help='Force rebuild from WRDS (skip S3 cache)'
-    )
-    parser.add_argument(
-        '--bucket',
-        type=str,
-        default='us-equity-datalake',
-        help='S3 bucket name'
-    )
-    parser.add_argument(
-        '--s3-key',
-        type=str,
-        default='data/meta/master/security_master.parquet',
-        help='S3 key for export'
+        help='Copy source parquet to working path, update from SEC/Nasdaq/OpenFIGI/yfinance'
     )
 
     args = parser.parse_args()
@@ -43,20 +51,16 @@ def main():
         console_output=True
     )
 
-    if args.export:
-        logger.info("Exporting SecurityMaster to S3...")
+    working_path = _get_working_path()
 
-        s3_client = S3Client().client
-        master = SecurityMaster(
-            s3_client=s3_client,
-            bucket_name=args.bucket,
-            s3_key=args.s3_key,
-            force_rebuild=args.force_rebuild
-        )
+    if args.build:
+        logger.info("Building working copy from source parquet...")
+        _copy_source_to_working(SOURCE_PATH, working_path)
+        master = SecurityMaster(local_path=working_path)
+        result = master.update()
+        master.save_local(working_path)
+        logger.info(f"Build complete: {result}")
 
-        result = master.export_to_s3(s3_client, args.bucket, args.s3_key)
-        logger.info(f"Export complete: {result}")
-        master.close()
     else:
         parser.print_help()
 

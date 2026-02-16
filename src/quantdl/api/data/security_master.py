@@ -35,7 +35,6 @@ class SecurityMaster:
             symbol=str(row["symbol"]),
             company=str(row["company"]),
             cik=str(row["cik"]) if row.get("cik") is not None else None,
-            cusip=str(row["cusip"]) if row.get("cusip") is not None else None,
             start_date=row["start_date"],  # type: ignore[arg-type]
             end_date=row["end_date"] if row.get("end_date") is not None else None,  # type: ignore[arg-type]
             exchange=str(row["exchange"]) if row.get("exchange") is not None else None,
@@ -69,7 +68,7 @@ class SecurityMaster:
                 pl.col("end_date").is_null() | (pl.col("end_date") >= as_of)
             )
 
-        for col in ["symbol", "security_id", "cik", "cusip"]:
+        for col in ["symbol", "security_id", "cik"]:
             if col not in df.columns:
                 continue
             matches = df.filter(pl.col(col).cast(pl.Utf8) == identifier)

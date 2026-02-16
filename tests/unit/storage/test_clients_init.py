@@ -18,6 +18,6 @@ class TestLazyImport:
     def test_exports(self):
         """__all__ contains expected exports."""
         from quantdl.storage.clients import __all__
-        assert "S3Client" in __all__
+        assert "StorageClient" in __all__
         assert "LocalStorageClient" in __all__
         assert "TicksClient" in __all__

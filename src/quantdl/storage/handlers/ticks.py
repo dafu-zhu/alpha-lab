@@ -31,8 +31,6 @@ class DailyTicksHandler(BaseHandler):
 
     def __init__(
         self,
-        s3_client,
-        bucket_name: str,
         data_publishers: DataPublishers,
         data_collectors: DataCollectors,
         security_master: SecurityMaster,
@@ -41,8 +39,6 @@ class DailyTicksHandler(BaseHandler):
         logger: logging.Logger,
     ):
         super().__init__(logger)
-        self.s3_client = s3_client
-        self.bucket_name = bucket_name
         self.publishers = data_publishers
         self.collectors = data_collectors
         self.security_master = security_master

@@ -14,9 +14,9 @@ from dotenv import load_dotenv
 
 from quantdl.utils.logger import setup_logger, console_log
 from quantdl.utils.calendar import TradingCalendar
-from quantdl.storage.clients import S3Client
+from quantdl.storage.clients import StorageClient
 from quantdl.storage.pipeline import DataCollectors, DataPublishers, Validator
-from quantdl.storage.utils import UploadConfig, CIKResolver, RateLimiter
+from quantdl.storage.utils import CIKResolver, RateLimiter
 from quantdl.collection.alpaca_ticks import Ticks
 from quantdl.master.security_master import SecurityMaster
 from quantdl.universe.manager import UniverseManager
@@ -29,13 +29,17 @@ class UploadApp:
     Orchestrates data upload workflows.
 
     Delegates actual upload logic to specialized handlers while managing
-    shared resources like S3 client and rate limiters.
+    shared resources like storage client and rate limiters.
     """
 
     def __init__(self, start_year: int = 2017):
         # Core infrastructure
-        self.config = UploadConfig()
-        self.client = S3Client().client
+        local_path = os.getenv('LOCAL_STORAGE_PATH')
+        if not local_path:
+            raise ValueError(
+                "LOCAL_STORAGE_PATH environment variable required"
+            )
+        self.client = StorageClient(local_path)
         self.logger = setup_logger(
             name="uploadapp",
             log_dir=Path("data/logs/upload"),
@@ -49,11 +53,8 @@ class UploadApp:
         # Data fetchers
         self.alpaca_ticks = Ticks()
 
-        # SecurityMaster: local → S3 (no WRDS)
-        self.security_master = SecurityMaster(
-            s3_client=self.client,
-            bucket_name='us-equity-datalake'
-        )
+        # SecurityMaster: local only
+        self.security_master = SecurityMaster()
 
         # Universe and CIK resolution
         self.universe_manager = UniverseManager(
@@ -83,8 +84,7 @@ class UploadApp:
         )
 
         self.data_publishers = DataPublishers(
-            s3_client=self.client,
-            upload_config=self.config,
+            storage_client=self.client,
             logger=self.logger,
             data_collectors=self.data_collectors,
             security_master=self.security_master,
@@ -99,8 +99,6 @@ class UploadApp:
     def _get_daily_ticks_handler(self):
         from quantdl.storage.handlers.ticks import DailyTicksHandler
         return DailyTicksHandler(
-            s3_client=self.client,
-            bucket_name=self.config.bucket,
             data_publishers=self.data_publishers,
             data_collectors=self.data_collectors,
             security_master=self.security_master,

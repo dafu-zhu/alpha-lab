@@ -24,7 +24,6 @@ def test_data_dir(tmp_path: Path) -> Generator[Path, None, None]:
         "symbol": ["AAPL", "MSFT", "GOOGL", "META"],
         "company": ["Apple Inc", "Microsoft Corp", "Alphabet Inc", "Meta Platforms"],
         "cik": ["0000320193", "0000789019", "0001652044", "0001326801"],
-        "cusip": ["037833100", "594918104", "02079K305", "30303M102"],
         "start_date": [
             date(2000, 1, 1),
             date(2000, 1, 1),

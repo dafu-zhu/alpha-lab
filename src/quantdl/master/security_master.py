@@ -1,32 +1,30 @@
-try:
-    import wrds
-    HAS_WRDS = True
-except ImportError:
-    HAS_WRDS = False
-
-import pandas as pd
 import polars as pl
 from dotenv import load_dotenv
 import os
 import time
+import json
 import requests
 import datetime as dt
-import threading
+import yaml
 from typing import List, Tuple, Optional, Dict, Set, Any
 from pathlib import Path
 import logging
-import io
 import pyarrow.parquet as pq
 
-from botocore.exceptions import ClientError
 from quantdl.utils.logger import setup_logger
 from quantdl.universe.current import fetch_all_stocks
-from quantdl.storage.utils import RateLimiter, NoSuchKeyError
+from quantdl.storage.utils import RateLimiter
 
 load_dotenv()
 
 # Default local path for security master parquet
 LOCAL_MASTER_PATH = Path("data/meta/master/security_master.parquet")
+
+# Default local path for prev_universe persistence
+LOCAL_PREV_UNIVERSE_PATH = Path("data/meta/master/prev_universe.json")
+
+# Morningstar→GICS mapping file
+GICS_MAPPING_PATH = Path("configs/morningstar_to_gics.yaml")
 
 # OpenFIGI rate limits (with API key: 25 req/6s, 100 jobs/req)
 OPENFIGI_RATE_LIMIT_NO_KEY = 25 / 60  # ~0.42 req/sec (no key)
@@ -52,7 +50,7 @@ class SymbolNormalizer:
         - ABC.D (2025+, active, security_id=2000)
         - Both normalize to "ABCD" but different security_id
         - Solution: Keep historical ABCD as-is, don't convert to ABC.D
-    
+
     Note:
         Nasdaq only covers currectly active stocks. If a stock is delisted, keep it in CRSP format as is. The symbol is for naming the storage folder. This is because the delisted stocks won't be updated, therefore they won't need to match the Nasdaq list.
 
@@ -187,508 +185,184 @@ class SecurityMaster:
     """
     Map stock symbols, CIKs across time horizon.
 
-    Loading sequence: Local parquet → S3 → WRDS (if available)
+    Loads from local parquet (built by scripts/build_security_master.py).
+    Updates via SEC/OpenFIGI/yfinance (no WRDS dependency).
     """
     # CRSP data coverage end date
     CRSP_LATEST_DATE = '2024-12-31'
 
-    def __init__(
-        self,
-        db: Optional[Any] = None,
-        s3_client: Optional[Any] = None,
-        bucket_name: str = 'us-equity-datalake',
-        s3_key: str = 'data/meta/master/security_master.parquet',
-        force_rebuild: bool = False,
-        local_path: Optional[Path] = None
-    ):
+    def __init__(self, local_path: Optional[Path] = None):
         """
-        Initialize SecurityMaster.
+        Initialize SecurityMaster from local parquet.
 
-        Loading sequence:
-        1. If force_rebuild: Build from WRDS (requires wrds package)
-        2. Try local parquet file (fastest)
-        3. Try S3
-        4. Fall back to WRDS (if available)
-
-        :param db: Optional WRDS connection (only used if wrds installed)
-        :param s3_client: Optional S3 client for lazy loading
-        :param bucket_name: S3 bucket name
-        :param s3_key: S3 key for security master
-        :param force_rebuild: If True, skip local/S3 and rebuild from WRDS
         :param local_path: Path to local parquet file (default: data/meta/master/security_master.parquet)
         """
-        # Setup logger first (needed for all paths)
         self.logger = setup_logger(
             name="master.SecurityMaster",
             log_dir=Path("data/logs/master"),
             level=logging.INFO
         )
 
-        # Cache for SEC CIK mapping (loaded on-demand, thread-safe)
-        self._sec_cik_cache: Optional[pl.DataFrame] = None
-        self._sec_cik_lock = threading.Lock()
-        self._from_s3 = False
-        self.db = db
-        self.cik_cusip = None
+        # Cache for GICS mapping (loaded on-demand)
+        self._gics_mapping: Optional[Dict] = None
 
         if local_path is None:
             local_path = LOCAL_MASTER_PATH
 
-        # 1. Force rebuild from WRDS
-        if force_rebuild:
-            self._build_from_wrds(db, s3_client, bucket_name, s3_key)
-            return
-
-        # 2. Try local parquet (FASTEST PATH)
-        if local_path.exists():
-            try:
-                self.master_tb = self._load_from_local(local_path)
-                self.logger.info(f"Loaded SecurityMaster from local ({len(self.master_tb)} rows)")
-                return
-            except Exception as e:
-                self.logger.info(f"Local load failed ({type(e).__name__}: {e}), trying S3")
-
-        # 3. Try S3
-        if s3_client:
-            try:
-                self.master_tb, metadata = self._load_from_s3(s3_client, bucket_name, s3_key)
-                self._from_s3 = True
-                self.logger.info(f"Loaded SecurityMaster from S3 ({len(self.master_tb)} rows)")
-                return
-            except Exception as e:
-                self.logger.info(f"S3 load failed ({type(e).__name__}: {e}), falling back to WRDS")
-
-        # 4. Fall back to WRDS
-        self._build_from_wrds(db, s3_client, bucket_name, s3_key)
-
-    def _build_from_wrds(self, db, s3_client, bucket_name, s3_key):
-        """Build SecurityMaster from WRDS CRSP data."""
-        if not HAS_WRDS:
-            raise ImportError(
-                "wrds package not installed and no local/S3 security master found. "
-                "Either install wrds (`pip install wrds`) or place security_master.parquet "
-                "at data/meta/master/security_master.parquet"
+        if not local_path.exists():
+            raise FileNotFoundError(
+                f"Security master not found at {local_path}. "
+                "Check that data/meta/master/security_master.parquet exists."
             )
 
-        from quantdl.utils.wrds import raw_sql_with_retry
-
-        if db is None:
-            username = os.getenv('WRDS_USERNAME')
-            password = os.getenv('WRDS_PASSWORD')
-            if not username or not password:
-                raise ValueError(
-                    "WRDS credentials not found. Set WRDS_USERNAME and WRDS_PASSWORD environment variables. "
-                    "Alternatively, place security_master.parquet at data/meta/master/security_master.parquet"
-                )
-            self.db = wrds.Connection(
-                wrds_username=username,
-                wrds_password=password
-            )
-        else:
-            self.db = db
-
-        self.cik_cusip = self.cik_cusip_mapping()
-        self.master_tb = self.master_table()
-        self._from_s3 = False
-
-        # Auto-export to S3 if client provided
-        if s3_client:
-            try:
-                self.export_to_s3(s3_client, bucket_name, s3_key)
-                self.logger.info("Auto-exported SecurityMaster to S3 for next time")
-            except Exception as e:
-                self.logger.warning(f"Auto-export to S3 failed: {e}")
+        self.master_tb = self._load_from_local(local_path)
+        self.logger.info(f"Loaded SecurityMaster ({len(self.master_tb)} rows)")
 
     @staticmethod
     def _load_from_local(path: Path) -> pl.DataFrame:
         """Load master_tb from local parquet file."""
         df = pl.read_parquet(str(path))
-        return SecurityMaster._ensure_gics_columns(df)
+        return SecurityMaster._ensure_schema(df)
 
     @staticmethod
-    def _ensure_gics_columns(df: pl.DataFrame) -> pl.DataFrame:
-        """Ensure GICS/exchange columns exist (add as null if missing)."""
+    def _ensure_schema(df: pl.DataFrame) -> pl.DataFrame:
+        """Ensure required columns exist and drop cusip if present."""
         for col in ("exchange", "sector", "industry", "subindustry"):
             if col not in df.columns:
                 df = df.with_columns(pl.lit(None).cast(pl.Utf8).alias(col))
+        if "cusip" in df.columns:
+            df = df.drop("cusip")
         return df
-    
-    def _fetch_sec_cik_mapping(self) -> pl.DataFrame:
+
+    def _fetch_sec_exchange_mapping(self) -> pl.DataFrame:
         """
-        Fetch SEC's official CIK-Ticker mapping as fallback for WRDS NULLs.
+        Fetch SEC company tickers with exchange info.
 
-        Returns DataFrame with columns: [ticker, cik]
-        Note: This is a snapshot mapping (current tickers only), not historical.
-
-        Caches result to avoid repeated API calls. Thread-safe via double-checked locking.
+        Uses company_tickers_exchange.json which provides exchange field.
+        Returns DataFrame with columns: [ticker, cik, company, exchange]
         """
-        if self._sec_cik_cache is not None:
-            return self._sec_cik_cache
-
-        with self._sec_cik_lock:
-            # Double-check after acquiring lock
-            if self._sec_cik_cache is not None:
-                return self._sec_cik_cache
-
-            try:
-                url = "https://www.sec.gov/files/company_tickers.json"
-                headers = {'User-Agent': 'name@example.com'}  # SEC requires User-Agent
-
-                self.logger.info("Fetching SEC official CIK-Ticker mapping...")
-                response = requests.get(url, headers=headers, timeout=30)
-                response.raise_for_status()
-
-                data = response.json()
-
-                # Parse JSON structure: {0: {cik_str, ticker, title}, 1: {...}, ...}
-                records = []
-                for entry in data.values():
-                    # Normalize ticker to CRSP format (remove separators)
-                    ticker = str(entry.get('ticker', '')).replace('.', '').replace('-', '').upper()
-                    cik = str(entry.get('cik_str', '')).zfill(10)  # Zero-pad to 10 digits
-
-                    if ticker and cik != '0000000000':
-                        records.append({'ticker': ticker, 'cik': cik})
-
-                # Create DataFrame
-                sec_df = pl.DataFrame(records)
-
-                self.logger.info(f"Loaded {len(sec_df)} CIK mappings from SEC")
-                self._sec_cik_cache = sec_df
-                return sec_df
-
-            except Exception as e:
-                self.logger.error(f"Failed to fetch SEC CIK mapping: {e}", exc_info=True)
-                # Cache empty DataFrame on failure to prevent thundering herd retries
-                empty = pl.DataFrame({'ticker': [], 'cik': []}, schema={'ticker': pl.Utf8, 'cik': pl.Utf8})
-                self._sec_cik_cache = empty
-                return empty
-
-    def _fetch_sec_mapping_full(self) -> pl.DataFrame:
-        """
-        Fetch SEC mapping with company title for SecurityMaster updates.
-
-        Returns DataFrame with columns: [ticker, cik, title]
-        - ticker: CRSP format (separators removed)
-        - cik: Zero-padded 10-digit string
-        - title: Company name
-        """
-        url = "https://www.sec.gov/files/company_tickers.json"
+        url = "https://www.sec.gov/files/company_tickers_exchange.json"
         headers = {'User-Agent': os.getenv('SEC_USER_AGENT', 'name@example.com')}
 
-        self.logger.info("Fetching SEC company tickers for SecurityMaster update...")
+        self.logger.info("Fetching SEC company tickers with exchange info...")
         response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
 
         data = response.json()
+        # Columnar format: {"fields": ["cik", "name", "ticker", "exchange"], "data": [[...], ...]}
+        fields = data['fields']
+        cik_idx = fields.index('cik')
+        name_idx = fields.index('name')
+        ticker_idx = fields.index('ticker')
+        exchange_idx = fields.index('exchange')
 
         records = []
-        for entry in data.values():
+        for row in data['data']:
+            cik_raw = row[cik_idx]
+            ticker_raw = str(row[ticker_idx])
+            name = str(row[name_idx])
+            exchange = str(row[exchange_idx]) if row[exchange_idx] else None
+
             # Normalize ticker to CRSP format (remove separators)
-            ticker = str(entry.get('ticker', '')).replace('.', '').replace('-', '').upper()
-            cik = str(entry.get('cik_str', '')).zfill(10)
-            title = str(entry.get('title', ''))
+            ticker = ticker_raw.replace('.', '').replace('-', '').upper()
+            cik = str(cik_raw).zfill(10)
 
             if ticker and cik != '0000000000':
-                records.append({'ticker': ticker, 'cik': cik, 'title': title})
+                records.append({
+                    'ticker': ticker,
+                    'cik': cik,
+                    'company': name,
+                    'exchange': exchange,
+                })
 
-        self.logger.info(f"Loaded {len(records)} tickers from SEC")
-        return pl.DataFrame(records)
+        df = pl.DataFrame(records)
+        self.logger.info(f"Loaded {len(df)} tickers from SEC (with exchange)")
+        return df
 
-    def cik_cusip_mapping(self) -> pl.DataFrame:
+    def _fetch_yfinance_metadata(self, tickers: List[str]) -> Dict[str, Dict[str, str]]:
         """
-        All historical mappings, updated until Dec 31, 2024
+        Fetch sector/industry from yfinance for given tickers.
 
-        Strategy:
-        1. Use WRDS CIK mapping as primary source (historical, accurate when present)
-        2. For NULL CIKs, fallback to SEC's official CIK-Ticker mapping (current snapshot)
-        3. Keep NULL if both sources fail (non-SEC filers)
-
-        Schema: (permno, symbol, company, cik, cusip, start_date, end_date)
-
-        Note: CIK may be NULL for:
-        - Foreign companies (use Form 6-K, not 10-K)
-        - Small companies (below $10M threshold)
-        - OTC/Pink Sheet stocks
-        - Non-operating entities (shells, SPACs)
-
-        Requires: wrds package and active WRDS connection
+        :param tickers: List of ticker symbols (Nasdaq format preferred)
+        :return: {ticker_crsp: {"sector": ..., "industry": ...}} (Morningstar names)
         """
-        if not HAS_WRDS:
-            raise ImportError("cik_cusip_mapping() requires the wrds package")
+        try:
+            import yfinance as yf
+        except ImportError:
+            self.logger.warning("yfinance not installed, skipping classification lookup")
+            return {}
 
-        from quantdl.utils.wrds import raw_sql_with_retry
+        results: Dict[str, Dict[str, str]] = {}
+        total = len(tickers)
 
-        query = """
-        SELECT DISTINCT
-            a.kypermno,
-            a.ticker,
-            a.tsymbol,
-            a.comnam,
-            a.ncusip,
-            b.cik,
-            b.cikdate1,
-            b.cikdate2,
-            a.namedt,
-            a.nameenddt
-        FROM
-            crsp.s6z_nam AS a
-        LEFT JOIN
-            wrdssec_common.wciklink_cusip AS b
-            ON SUBSTR(a.ncusip, 1, 8) = SUBSTR(b.cusip, 1, 8)
-            AND (b.cik IS NULL OR a.namedt <= b.cikdate2)
-            AND (b.cik IS NULL OR a.nameenddt >= b.cikdate1)
-        WHERE
-            a.shrcd IN (10, 11)
-        ORDER BY
-            a.kypermno, a.namedt
+        self.logger.info(f"Fetching yfinance metadata for {total} tickers...")
+
+        for i, ticker in enumerate(tickers):
+            try:
+                info = yf.Ticker(ticker).info
+                sector = info.get('sector')
+                industry = info.get('industry')
+                if sector or industry:
+                    # Store with CRSP-normalized key
+                    crsp_key = ticker.replace('.', '').replace('-', '').upper()
+                    results[crsp_key] = {
+                        'sector': sector or '',
+                        'industry': industry or '',
+                    }
+                time.sleep(0.3)  # Rate limit
+            except Exception as e:
+                self.logger.debug(f"yfinance failed for {ticker}: {e}")
+
+            if (i + 1) % 25 == 0 or i + 1 == total:
+                self.logger.info(f"yfinance progress: {i + 1}/{total}")
+
+        self.logger.info(f"yfinance: got metadata for {len(results)}/{total} tickers")
+        return results
+
+    def _load_gics_mapping(self) -> Dict:
+        """Load Morningstar→GICS mapping from YAML (cached)."""
+        if self._gics_mapping is not None:
+            return self._gics_mapping
+
+        if not GICS_MAPPING_PATH.exists():
+            self.logger.warning(f"GICS mapping not found at {GICS_MAPPING_PATH}")
+            self._gics_mapping = {'sectors': {}, 'industries': {}}
+            return self._gics_mapping
+
+        with open(GICS_MAPPING_PATH, 'r', encoding='utf-8') as f:
+            self._gics_mapping = yaml.safe_load(f)
+
+        return self._gics_mapping
+
+    def _map_to_gics(self, ms_sector: str, ms_industry: str) -> Dict[str, Optional[str]]:
         """
+        Map Morningstar classification to GICS.
 
-        # Execute and load into a DataFrame
-        self.logger.info("Fetching CIK-CUSIP mapping from WRDS...")
-        map_df = raw_sql_with_retry(self.db, query)
-        map_df['namedt'] = pd.to_datetime(map_df['namedt'])
-        map_df['nameenddt'] = pd.to_datetime(map_df['nameenddt'])
-        map_df['cikdate1'] = pd.to_datetime(map_df['cikdate1'])
-        map_df['cikdate2'] = pd.to_datetime(map_df['cikdate2'])
-
-        # Calculate CIK validity period (prefer longer validity = more reliable)
-        # Use total_seconds() / 86400 to get days (workaround for timedelta.days)
-        map_df['cik_validity_days'] = (
-            (map_df['cikdate2'] - map_df['cikdate1']).apply(
-                lambda x: x.total_seconds() / 86400 if pd.notnull(x) else -1
-            )
-        )
-
-        # Filter to keep only the most reliable CIK when multiple CIKs exist for same period
-        # Strategy: Keep CIK with longest validity period (cikdate2 - cikdate1)
-        map_df = map_df.sort_values(
-            ['kypermno', 'tsymbol', 'namedt', 'nameenddt', 'cik_validity_days'],
-            ascending=[True, True, True, True, False]  # Longest validity first
-        )
-
-        # Keep first (most reliable) CIK for each (permno, symbol, namedt, nameenddt)
-        map_df = map_df.drop_duplicates(
-            subset=['kypermno', 'tsymbol', 'namedt', 'nameenddt'],
-            keep='first'
-        )
-
-        # Group by unique combinations to get period ranges
-        # Note: dropna=False keeps NULL CIKs (will be handled by SEC fallback later)
-        result = (
-            map_df.groupby(
-                ['kypermno', 'cik', 'ticker', 'tsymbol', 'comnam', 'ncusip'],
-                dropna=False
-            ).agg({
-                'namedt': 'min',
-                'nameenddt': 'max'
-            })
-            .reset_index()
-            .sort_values(['kypermno', 'namedt'])
-            .dropna(subset=['tsymbol'])
-        )
-
-        pl_map = pl.DataFrame(result).with_columns(
-            pl.col('kypermno').cast(pl.Int32).alias('permno'),
-            pl.col('tsymbol').alias('symbol'),
-            pl.col('comnam').alias('company'),
-            pl.col('ncusip').alias('cusip'),
-            pl.col('namedt').cast(pl.Date).alias('start_date'),
-            pl.col('nameenddt').cast(pl.Date).alias('end_date')
-        ).select(['permno', 'symbol', 'company', 'cik', 'cusip', 'start_date', 'end_date'])
-
-        # Count NULL CIKs before fallback
-        null_count_before = pl_map.filter(pl.col('cik').is_null()).height
-        total_count = pl_map.height
-
-        if null_count_before > 0:
-            self.logger.info(
-                f"Found {null_count_before}/{total_count} records with NULL CIK from WRDS "
-                f"({null_count_before/total_count*100:.1f}%), attempting SEC fallback..."
-            )
-
-            # Fetch SEC CIK mapping
-            sec_mapping = self._fetch_sec_cik_mapping()
-
-            if not sec_mapping.is_empty():
-                # For records with NULL CIK, try to match against SEC mapping by symbol
-                # Note: SEC mapping is current snapshot, so this is best-effort for historical data
-                pl_map = pl_map.join(
-                    sec_mapping,
-                    left_on='symbol',
-                    right_on='ticker',
-                    how='left',
-                    suffix='_sec'
-                ).with_columns([
-                    # Use WRDS CIK if available, otherwise SEC CIK
-                    pl.when(pl.col('cik').is_not_null())
-                    .then(pl.col('cik'))
-                    .otherwise(pl.col('cik_sec'))
-                    .alias('cik')
-                ]).drop('cik_sec')
-
-                # Count how many NULLs were filled
-                null_count_after = pl_map.filter(pl.col('cik').is_null()).height
-                filled = null_count_before - null_count_after
-
-                if filled > 0:
-                    self.logger.info(
-                        f"SEC fallback filled {filled}/{null_count_before} NULL CIKs "
-                        f"({filled/null_count_before*100:.1f}%)"
-                    )
-
-                self.logger.info(
-                    f"Final result: {null_count_after}/{total_count} records still have NULL CIK "
-                    f"({null_count_after/total_count*100:.1f}%) - these are non-SEC filers"
-                )
-
-                # Log details of symbols with NULL CIKs
-                null_cik_records = pl_map.filter(pl.col('cik').is_null()).select(['symbol', 'company']).unique()
-                if not null_cik_records.is_empty():
-                    # Group by unique symbol (may have multiple company names due to history)
-                    null_symbols_list = null_cik_records['symbol'].unique().to_list()
-
-                    self.logger.info(f"Symbols without CIK ({len(null_symbols_list)} unique): {sorted(null_symbols_list)[:50]}")
-
-                    if len(null_symbols_list) > 50:
-                        self.logger.info(f"... and {len(null_symbols_list) - 50} more (see detailed log below)")
-
-                    # Log detailed company information (first 20 examples)
-                    self.logger.info("Examples of non-SEC filers with company names:")
-                    for row in null_cik_records.head(20).iter_rows(named=True):
-                        self.logger.info(f"  {row['symbol']:10} - {row['company']}")
-
-                    if len(null_cik_records) > 20:
-                        self.logger.info(f"  ... and {len(null_cik_records) - 20} more records")
-            else:
-                self.logger.warning("SEC fallback unavailable, keeping WRDS CIKs only")
-
-                # Still log NULL symbols even if SEC fallback failed
-                null_cik_records = pl_map.filter(pl.col('cik').is_null()).select(['symbol', 'company']).unique()
-                if not null_cik_records.is_empty():
-                    null_symbols_list = null_cik_records['symbol'].unique().to_list()
-                    self.logger.warning(f"Symbols without CIK ({len(null_symbols_list)} unique): {sorted(null_symbols_list)[:30]}")
-        else:
-            self.logger.info("All records have CIK from WRDS, no fallback needed")
-
-        return pl_map
-    
-    def security_map(self) -> pl.DataFrame:
+        :param ms_sector: Morningstar sector name (e.g., "Technology")
+        :param ms_industry: Morningstar industry name (e.g., "Semiconductors")
+        :return: {"sector": ..., "industry": ..., "subindustry": ...}
         """
-        Maps security_id based on BUSINESS continuity.
+        mapping = self._load_gics_mapping()
 
-        Rules:
-        1. If PERMNO changes → new security_id
-        2. If PERMNO stays same:
-           - If BOTH symbol AND CIK change (checking against adjacent period) → new security_id
-           - Otherwise (only one or neither changes) → same security_id
+        # Try industry-level mapping first (most precise)
+        if ms_industry and ms_industry in mapping.get('industries', {}):
+            ind = mapping['industries'][ms_industry]
+            return {
+                'sector': ind.get('gics_sector'),
+                'industry': ind.get('gics_industry_group'),
+                'subindustry': ind.get('gics_sub_industry'),
+            }
 
-        Note: Handles overlapping CIK periods by grouping records first.
+        # Fall back to sector-level mapping
+        if ms_sector and ms_sector in mapping.get('sectors', {}):
+            return {
+                'sector': mapping['sectors'][ms_sector],
+                'industry': None,
+                'subindustry': None,
+            }
 
-        Schema: (security_id, permno, symbol, cik, start_date, end_date)
-        """
-        # When loaded from S3, master_tb already contains the security_map result
-        if self.cik_cusip is None:
-            return self.master_tb
+        return {'sector': None, 'industry': None, 'subindustry': None}
 
-        # Step 1: Group by (permno, symbol) to collect ALL CIKs for each symbol period
-        # This handles the case where the same symbol has multiple overlapping CIK records
-        period_groups = (
-            self.cik_cusip
-            .group_by(['permno', 'symbol'])
-            .agg([
-                pl.col('cik').unique().alias('ciks'),  # ALL CIKs for this symbol
-                pl.col('start_date').min().alias('start_date'),  # Earliest start
-                pl.col('end_date').max().alias('end_date'),  # Latest end
-                pl.col('company').first().alias('company'),
-                pl.col('cusip').first().alias('cusip')
-            ])
-            .sort(['permno', 'start_date'])
-        )
-
-        # Step 2: Track previous period's data within each PERMNO
-        period_groups = period_groups.with_columns([
-            pl.col('permno').shift(1).alias('prev_permno'),
-            pl.col('symbol').shift(1).alias('prev_symbol'),
-            pl.col('ciks').shift(1).alias('prev_ciks'),
-            pl.col('end_date').shift(1).alias('prev_end_date'),
-        ])
-
-        # Step 3: Determine if this period represents a new business
-        # We need to check if ANY CIK from current period overlaps with ANY CIK from previous period
-        def has_cik_overlap(row):
-            """Check if any CIK from current period exists in previous period's CIKs"""
-            if row['prev_ciks'] is None or row['ciks'] is None:
-                return False
-            curr_ciks = set(row['ciks'])
-            prev_ciks = set(row['prev_ciks'])
-            return len(curr_ciks & prev_ciks) > 0  # True if intersection is non-empty
-
-        # Convert to pandas temporarily for complex logic
-        pdf = period_groups.to_pandas()
-
-        # Check CIK overlap
-        pdf['cik_overlap'] = pdf.apply(has_cik_overlap, axis=1)
-
-        # Determine new_business flag
-        pdf['new_business'] = (
-            pdf['prev_permno'].isna() |  # First row
-            (pdf['permno'] != pdf['prev_permno']) |  # PERMNO changed
-            (
-                (pdf['permno'] == pdf['prev_permno']) &  # PERMNO same
-                (pdf['symbol'] != pdf['prev_symbol']) &  # Symbol changed
-                (~pdf['cik_overlap'])  # No CIK overlap (all CIKs different)
-            )
-        )
-
-        # Assign security_ids
-        pdf['security_id'] = (pdf['new_business'].cumsum() + 1000)
-
-        # Step 4: Join security_id back to original cik_cusip data
-        # This preserves the original start_date and end_date for each row
-        security_assignments = pl.from_pandas(
-            pdf[['permno', 'symbol', 'security_id']]
-        )
-
-        # Join back to original data based on (permno, symbol)
-        result = self.cik_cusip.join(
-            security_assignments,
-            on=['permno', 'symbol'],
-            how='left'
-        ).select([
-            'security_id',
-            'permno',
-            'symbol',
-            'company',
-            'cik',
-            'cusip',
-            'start_date',
-            'end_date',
-        ]).with_columns([
-            pl.col('security_id').cast(pl.Int64)
-        ])
-
-        # Log some statistics
-        n_securities = result['security_id'].n_unique()
-        n_permnos = result['permno'].n_unique()
-        self.logger.info(f"Created {n_securities} security_ids from {n_permnos} PERMNOs")
-
-        return result
-
-    def master_table(self) -> pl.DataFrame:
-        """
-        Create comprehensive table with security_id as master key, tracking business continuity.
-
-        Schema: (security_id, permno, symbol, company, cik, cusip, start_date, end_date)
-        """
-        security_map = self.security_map()
-
-        result = security_map.select([
-            'security_id', 'permno', 'symbol', 'company', 'cik', 'cusip', 'start_date', 'end_date'
-        ])
-
-        return result
-    
     def auto_resolve(self, symbol: str, day: str) -> int:
         """
         Smart resolve unmatched symbol and query day.
@@ -772,7 +446,7 @@ class SecurityMaster:
             # Try to fetch the info
             cik = self.sid_to_info(sid, day, info='cik')
             company = self.sid_to_info(sid, day, info='company')
-            
+
             self.logger.info(f"auto_resolve triggered for symbol='{symbol}' ({company}) on date='{day}', sid={sid}, cik={cik}")
         except Exception as e:
             # If it fails, log the specific error so you know WHY it crashed
@@ -787,13 +461,13 @@ class SecurityMaster:
         :param auto_resolve: If the security has name change, resolve symbol to the nearest security
         """
         date_check = dt.datetime.strptime(day, '%Y-%m-%d').date()
-            
+
         match = self.master_tb.filter(
             pl.col('symbol').eq(symbol),
             pl.col('start_date').le(date_check),
             pl.col('end_date').ge(date_check)
         )
-        
+
         if match.is_empty():
             if not auto_resolve:
                 raise ValueError(f"Symbol {symbol} not found in day {day}")
@@ -810,15 +484,14 @@ class SecurityMaster:
             )
 
         return result
-    
+
     def get_symbol_history(self, sid: int) -> List[Tuple[str, str, str]]:
         """
         Full list of symbol usage history for a given security_id
 
         Example: [('META', '2022-06-09', '2024-12-31'), ('FB', '2012-05-18', '2022-06-08')]
         """
-        mtb = self.master_table()
-        sid_df = mtb.filter(
+        sid_df = self.master_tb.filter(
             pl.col('security_id').eq(sid)
         ).group_by('symbol').agg(
             pl.col('start_date').min(),
@@ -829,7 +502,7 @@ class SecurityMaster:
         isoformat_hist = [(sym, start.isoformat(), end.isoformat()) for sym, start, end in hist]
 
         return isoformat_hist
-    
+
     def sid_to_info(self, sid: int, day: str, info: str):
 
         date_obj = dt.datetime.strptime(day, "%Y-%m-%d").date()
@@ -844,180 +517,35 @@ class SecurityMaster:
         )
         return result
 
-    def export_to_s3(
-        self,
-        s3_client: Any,
-        bucket_name: str = 'us-equity-datalake',
-        s3_key: str = 'data/meta/master/security_master.parquet'
-    ) -> Dict[str, str]:
+    def save_local(self, path: Optional[Path] = None) -> None:
         """
-        Export master_tb to S3 with embedded metadata.
+        Persist master_tb as parquet to local filesystem.
 
-        Metadata (Parquet custom_metadata):
-        - crsp_end_date: 2024-12-31
-        - export_timestamp: ISO8601 UTC
-        - version: 1.0
-        - row_count: Number of rows
-
-        :param s3_client: Boto3 S3 client
-        :param bucket_name: S3 bucket name
-        :param s3_key: S3 key for export
-        :return: Dict with status and timestamp
+        :param path: Target path (default: LOCAL_MASTER_PATH)
         """
-        # Convert to Arrow table
-        table = self.master_tb.to_arrow()
+        if path is None:
+            path = LOCAL_MASTER_PATH
+        path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Embed metadata
+        # Exclude cusip if somehow present
+        out_df = self.master_tb
+        if "cusip" in out_df.columns:
+            out_df = out_df.drop("cusip")
+
+        # Convert to Arrow table with metadata
+        table = out_df.to_arrow()
         metadata = {
             b'crsp_end_date': self.CRSP_LATEST_DATE.encode(),
             b'export_timestamp': dt.datetime.utcnow().isoformat().encode(),
             b'version': b'1.0',
-            b'row_count': str(len(self.master_tb)).encode()
+            b'row_count': str(len(out_df)).encode()
         }
         existing_meta = table.schema.metadata or {}
         combined_meta = {**existing_meta, **metadata}
         table = table.replace_schema_metadata(combined_meta)
 
-        # Write to buffer and upload
-        buffer = io.BytesIO()
-        pq.write_table(table, buffer)
-        buffer.seek(0)
-
-        s3_client.upload_fileobj(
-            buffer,
-            bucket_name,
-            s3_key
-        )
-
-        export_ts = dt.datetime.utcnow().isoformat()
-        self.logger.info(f"Exported SecurityMaster to s3://{bucket_name}/{s3_key} ({len(self.master_tb)} rows)")
-        return {'status': 'success', 'export_timestamp': export_ts}
-
-    def _load_from_s3(
-        self,
-        s3_client: Any,
-        bucket_name: str,
-        s3_key: str
-    ) -> Tuple[pl.DataFrame, Dict[str, str]]:
-        """
-        Load master_tb from S3 with metadata extraction.
-
-        :param s3_client: Boto3 S3 client
-        :param bucket_name: S3 bucket name
-        :param s3_key: S3 key
-        :return: Tuple of (master_tb DataFrame, metadata dict)
-        :raises: Exception if load fails
-        """
-        # Download from S3
-        response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
-
-        # Read Parquet with metadata
-        buffer = io.BytesIO(response['Body'].read())
-        table = pq.read_table(buffer)
-
-        # Extract custom metadata
-        metadata = {}
-        if table.schema.metadata:
-            metadata = {
-                k.decode(): v.decode()
-                for k, v in table.schema.metadata.items()
-            }
-
-        # Convert to Polars (from_arrow on Table always returns DataFrame)
-        df = pl.from_arrow(table)
-        assert isinstance(df, pl.DataFrame)
-        df = SecurityMaster._ensure_gics_columns(df)
-
-        self.logger.debug(f"Loaded SecurityMaster from S3: {len(df)} rows, metadata: {metadata}")
-        return df, metadata
-
-    def update_from_sec(
-        self,
-        s3_client: Optional[Any] = None,
-        bucket_name: str = 'us-equity-datalake'
-    ) -> Dict[str, Any]:
-        """
-        Update master_tb from SEC company_tickers.json (WRDS-free updates).
-
-        1. For existing securities with stale end_date: extend to today if still in SEC
-        2. For new securities in SEC but not in master_tb: add with new security_id
-
-        :param s3_client: Optional S3 client to export updated master_tb
-        :param bucket_name: S3 bucket name for export
-        :return: Dict with counts {'extended': N, 'added': N, 'unchanged': N} or 'error' on failure
-        """
-        try:
-            sec_df = self._fetch_sec_mapping_full()
-        except Exception as e:
-            self.logger.error(f"Failed to fetch SEC data: {e}")
-            return {'extended': 0, 'added': 0, 'unchanged': 0, 'error': str(e)}
-
-        today = dt.date.today()
-        stats = {'extended': 0, 'added': 0, 'unchanged': 0}
-
-        # Create lookup set for SEC securities: (symbol, cik)
-        sec_set = set(zip(sec_df['ticker'].to_list(), sec_df['cik'].to_list()))
-
-        # 1. Extend end_date for existing securities still in SEC list
-        # Build updated rows list
-        updated_rows = []
-        for row in self.master_tb.iter_rows(named=True):
-            key = (row['symbol'], row['cik'])
-            if key in sec_set and row['end_date'] < today:
-                # Extend end_date to today
-                updated_row = dict(row)
-                updated_row['end_date'] = today
-                updated_rows.append(updated_row)
-                stats['extended'] += 1
-            else:
-                updated_rows.append(dict(row))
-                stats['unchanged'] += 1
-
-        # Rebuild master_tb with updated end_dates
-        if stats['extended'] > 0:
-            self.master_tb = pl.DataFrame(updated_rows)
-
-        # 2. Add new securities not in master_tb
-        existing_keys = set(zip(
-            self.master_tb['symbol'].to_list(),
-            self.master_tb['cik'].to_list()
-        ))
-        max_sid: int = self.master_tb['security_id'].max() or 1000  # type: ignore[assignment]
-
-        new_rows = []
-        for row in sec_df.iter_rows(named=True):
-            key = (row['ticker'], row['cik'])
-            if key not in existing_keys:
-                max_sid += 1
-                new_rows.append({
-                    'security_id': max_sid,
-                    'symbol': row['ticker'],
-                    'company': row['title'],
-                    'permno': None,
-                    'cik': row['cik'],
-                    'cusip': None,
-                    'start_date': today,
-                    'end_date': today
-                })
-                stats['added'] += 1
-
-        if new_rows:
-            new_df = pl.DataFrame(new_rows).cast({
-                'security_id': pl.Int64,
-                'start_date': pl.Date,
-                'end_date': pl.Date
-            })
-            self.master_tb = pl.concat([self.master_tb, new_df], how='diagonal')
-
-        # 3. Export to S3 if changes made
-        if s3_client and (stats['extended'] > 0 or stats['added'] > 0):
-            self.export_to_s3(s3_client, bucket_name)
-            self.logger.info(
-                f"SecurityMaster updated: {stats['extended']} extended, "
-                f"{stats['added']} added, {stats['unchanged']} unchanged"
-            )
-
-        return stats
+        pq.write_table(table, str(path))
+        self.logger.info(f"Saved SecurityMaster to {path} ({len(out_df)} rows)")
 
     def _fetch_openfigi_mapping(
         self,
@@ -1025,7 +553,7 @@ class SecurityMaster:
         rate_limiter: Optional[RateLimiter] = None
     ) -> Dict[str, Optional[str]]:
         """
-        Batch lookup ticker → shareClassFIGI via OpenFIGI API.
+        Batch lookup ticker -> shareClassFIGI via OpenFIGI API.
 
         API: POST https://api.openfigi.com/v3/mapping
         With API key: 25 req/6s, 100 jobs per request
@@ -1033,7 +561,7 @@ class SecurityMaster:
 
         :param tickers: List of ticker symbols
         :param rate_limiter: Optional RateLimiter instance
-        :return: Dict mapping ticker → shareClassFIGI (None if not found)
+        :return: Dict mapping ticker -> shareClassFIGI (None if not found)
         """
         url = "https://api.openfigi.com/v3/mapping"
         headers = {"Content-Type": "application/json"}
@@ -1153,12 +681,12 @@ class SecurityMaster:
 
         :param disappeared: Tickers that were in prev but not in current
         :param appeared: Tickers that are in current but not in prev
-        :param figi_mapping: Dict mapping ticker → shareClassFIGI
+        :param figi_mapping: Dict mapping ticker -> shareClassFIGI
         :return: List of (old_ticker, new_ticker, figi) tuples for detected rebrands
         """
         rebrands = []
 
-        # Build reverse lookup: FIGI → disappeared ticker
+        # Build reverse lookup: FIGI -> disappeared ticker
         figi_to_old: Dict[str, str] = {}
         for ticker in disappeared:
             figi = figi_mapping.get(ticker)
@@ -1171,88 +699,74 @@ class SecurityMaster:
             if figi and figi in figi_to_old:
                 old_ticker = figi_to_old[figi]
                 rebrands.append((old_ticker, ticker, figi))
-                self.logger.info(f"Detected rebrand: {old_ticker} → {ticker} (FIGI: {figi})")
+                self.logger.info(f"Detected rebrand: {old_ticker} -> {ticker} (FIGI: {figi})")
 
         return rebrands
 
-    def _load_prev_universe(
-        self,
-        s3_client: Any,
-        bucket_name: str
-    ) -> Tuple[Set[str], Optional[str]]:
+    def _load_prev_universe(self) -> Tuple[Set[str], Optional[str]]:
         """
-        Load previous universe from S3 metadata.
+        Load previous universe from local JSON file.
 
         :return: Tuple of (prev_universe set, prev_date string or None)
         """
-        s3_key = "data/meta/master/prev_universe.json"
-
         try:
-            response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
-            import json
-            data = json.loads(response['Body'].read().decode('utf-8'))
-            prev_universe = set(data.get('tickers', []))
-            prev_date = data.get('date')
-            self.logger.info(f"Loaded prev_universe: {len(prev_universe)} tickers from {prev_date}")
-            return prev_universe, prev_date
-        except (ClientError, NoSuchKeyError) as e:
-            if e.response.get('Error', {}).get('Code') == 'NoSuchKey':
+            if LOCAL_PREV_UNIVERSE_PATH.exists():
+                data = json.loads(LOCAL_PREV_UNIVERSE_PATH.read_text(encoding='utf-8'))
+                prev_universe = set(data.get('tickers', []))
+                prev_date = data.get('date')
+                self.logger.info(f"Loaded prev_universe: {len(prev_universe)} tickers from {prev_date}")
+                return prev_universe, prev_date
+            else:
                 self.logger.info("No prev_universe found, will bootstrap from current Nasdaq list")
                 return set(), None
-            self.logger.warning(f"Failed to load prev_universe: {e}, bootstrapping")
-            return set(), None
         except Exception as e:
             self.logger.warning(f"Failed to load prev_universe: {e}, bootstrapping")
             return set(), None
 
     def _save_prev_universe(
         self,
-        s3_client: Any,
-        bucket_name: str,
         universe: Set[str],
         date: str
     ) -> None:
         """
-        Save current universe to S3 for next run.
+        Save current universe to local file for next run.
 
         :param universe: Set of ticker symbols
         :param date: Date string (YYYY-MM-DD)
         """
-        s3_key = "data/meta/master/prev_universe.json"
-
-        import json
+        LOCAL_PREV_UNIVERSE_PATH.parent.mkdir(parents=True, exist_ok=True)
         data = {
             'tickers': sorted(list(universe)),
             'date': date
         }
-
-        body = json.dumps(data).encode('utf-8')
-        s3_client.put_object(
-            Bucket=bucket_name,
-            Key=s3_key,
-            Body=body,
-            ContentType='application/json'
+        LOCAL_PREV_UNIVERSE_PATH.write_text(
+            json.dumps(data, indent=2),
+            encoding='utf-8'
         )
         self.logger.info(f"Saved prev_universe: {len(universe)} tickers for {date}")
 
-    def update_no_wrds(
+    def update(
         self,
-        s3_client: Any,
-        bucket_name: str = 'us-equity-datalake',
         grace_period_days: int = 14
     ) -> Dict[str, int]:
         """
-        Update master_tb using Nasdaq + OpenFIGI (no WRDS required).
+        Update master_tb using SEC + Nasdaq + OpenFIGI + yfinance.
 
-        Algorithm:
-        1. EXTEND: Ticker in both prev and current → update end_date to today
-        2. REBRAND: Old ticker disappeared, new appeared, same shareClassFIGI
-           → Close old row, create new row with SAME security_id
-        3. NEW IPO: New ticker with new FIGI → create row with NEW security_id
-        4. DELIST: Ticker in prev but not current (for 14+ days) → freeze end_date
+        Merged algorithm (replaces update_from_sec + update_no_wrds):
+        1. Fetch SEC company_tickers_exchange.json → sec_df (ticker, cik, company, exchange)
+        2. Fetch Nasdaq FTP universe → current_nasdaq
+        3. Load prev_universe.json
+        4. If no prev_universe → bootstrap: save current, extend existing, return
+        5. Diff: still_active, disappeared, appeared
+        6. OpenFIGI for disappeared + appeared → rebrand detection
+        7. For truly new IPOs: yfinance → Morningstar → GICS
+        8. Apply updates:
+           - EXTEND: still_active → end_date=today, fill null exchange/cik/company from SEC
+           - REBRAND: same FIGI → close old, create new with same security_id
+           - NEW IPO: new FIGI → new security_id + SEC metadata + GICS
+           - DELIST: grace period passed → freeze end_date
+        9. Save prev_universe + parquet
 
-        :param s3_client: S3 client for persistence
-        :param bucket_name: S3 bucket name
         :param grace_period_days: Days before treating missing ticker as delisted
         :return: Dict with counts {'extended', 'rebranded', 'added', 'delisted', 'unchanged'}
         """
@@ -1267,84 +781,109 @@ class SecurityMaster:
             'unchanged': 0
         }
 
-        # 1. Load current Nasdaq universe
+        # 1. Fetch SEC data with exchange info
+        try:
+            sec_df = self._fetch_sec_exchange_mapping()
+        except Exception as e:
+            self.logger.error(f"Failed to fetch SEC data: {e}")
+            sec_df = pl.DataFrame({
+                'ticker': [], 'cik': [], 'company': [], 'exchange': []
+            }, schema={'ticker': pl.Utf8, 'cik': pl.Utf8, 'company': pl.Utf8, 'exchange': pl.Utf8})
+
+        # Build SEC lookup: {ticker_norm: {cik, company, exchange}}
+        sec_lookup: Dict[str, Dict[str, Optional[str]]] = {}
+        for row in sec_df.iter_rows(named=True):
+            sec_lookup[row['ticker']] = {
+                'cik': row['cik'],
+                'company': row['company'],
+                'exchange': row['exchange'],
+            }
+
+        # 2. Fetch current Nasdaq universe
         current_nasdaq = self._fetch_nasdaq_universe()
         if not current_nasdaq:
             self.logger.error("Failed to fetch Nasdaq universe, aborting update")
             return stats
 
-        # 2. Load previous universe
-        prev_universe, prev_date = self._load_prev_universe(s3_client, bucket_name)
+        # 3. Load previous universe
+        prev_universe, prev_date = self._load_prev_universe()
 
-        # Bootstrap: if no prev_universe, use current as baseline
-        if not prev_universe:
-            self.logger.info("Bootstrapping: using current Nasdaq list as prev_universe")
-            self._save_prev_universe(s3_client, bucket_name, current_nasdaq, today_str)
-            # Just extend end_dates for existing securities
-            return self._extend_existing_securities(current_nasdaq, today, s3_client, bucket_name)
-
-        # 3. Compute changes
-        # Normalize to CRSP format for comparison
+        # Normalize helper
         def normalize(ticker):
             return ticker.replace('.', '').replace('-', '').upper()
 
+        # 4. Bootstrap: if no prev_universe, extend existing + enrich from SEC
+        if not prev_universe:
+            self.logger.info("Bootstrapping: using current Nasdaq list as prev_universe")
+            self._save_prev_universe(current_nasdaq, today_str)
+            return self._bootstrap_extend(current_nasdaq, today, sec_lookup)
+
+        # 5. Compute changes
         current_normalized = {normalize(t): t for t in current_nasdaq}
         prev_normalized = {normalize(t): t for t in prev_universe}
 
         current_set = set(current_normalized.keys())
         prev_set = set(prev_normalized.keys())
 
-        still_active = current_set & prev_set  # In both
-        disappeared = prev_set - current_set    # In prev, not in current
-        appeared = current_set - prev_set       # In current, not in prev
+        still_active = current_set & prev_set
+        disappeared = prev_set - current_set
+        appeared = current_set - prev_set
 
         self.logger.info(
             f"Universe changes: {len(still_active)} active, "
             f"{len(disappeared)} disappeared, {len(appeared)} appeared"
         )
 
-        # 4. Fetch OpenFIGI mappings for disappeared + appeared tickers
+        # 6. Fetch OpenFIGI mappings for disappeared + appeared tickers
         tickers_to_lookup = list(disappeared | appeared)
         figi_mapping: Dict[str, Optional[str]] = {}
         if tickers_to_lookup:
-            # Convert back to original format for lookup
-            # t is guaranteed to be in one of the dicts since it came from their keys
             original_tickers: List[str] = [
                 prev_normalized.get(t) or current_normalized[t]
                 for t in tickers_to_lookup
             ]
             figi_results = self._fetch_openfigi_mapping(original_tickers)
-            # Store with normalized keys
             for t in tickers_to_lookup:
                 orig = prev_normalized.get(t) or current_normalized[t]
                 figi_mapping[t] = figi_results.get(orig)
 
-        # 5. Detect rebrands
+        # 7. Detect rebrands
         rebrands = self._detect_rebrands(disappeared, appeared, figi_mapping)
         rebrand_old = {r[0] for r in rebrands}
         rebrand_new = {r[1] for r in rebrands}
 
-        # 6. Process updates
+        # 8. For truly new IPOs, fetch yfinance metadata
+        new_ipos = appeared - rebrand_new
+        yf_metadata: Dict[str, Dict[str, str]] = {}
+        if new_ipos:
+            # Use Nasdaq-format tickers for yfinance
+            yf_tickers = [current_normalized[t] for t in new_ipos]
+            yf_metadata = self._fetch_yfinance_metadata(yf_tickers)
+
+        # 9. Process updates
         updated_rows = []
-        existing_keys = set()  # (symbol_normalized, cik)
 
         for row in self.master_tb.iter_rows(named=True):
             row_dict = dict(row)
             symbol_norm = normalize(row['symbol'])
-            existing_keys.add((symbol_norm, row['cik']))
 
             if symbol_norm in still_active:
-                # EXTEND: still active, update end_date
+                # EXTEND: still active, update end_date + fill nulls from SEC
                 row_dict['end_date'] = today
+                sec_info = sec_lookup.get(symbol_norm)
+                if sec_info:
+                    if not row_dict.get('exchange'):
+                        row_dict['exchange'] = sec_info.get('exchange')
+                    if not row_dict.get('cik'):
+                        row_dict['cik'] = sec_info.get('cik')
+                    if not row_dict.get('company') or row_dict['company'] == '':
+                        row_dict['company'] = sec_info.get('company')
                 stats['extended'] += 1
 
             elif symbol_norm in rebrand_old:
-                # REBRAND (old ticker): close this row
-                # Find the rebrand tuple
+                # REBRAND (old ticker): freeze end_date
                 for old, new, figi in rebrands:
                     if old == symbol_norm:
-                        # Don't extend end_date (freeze it)
-                        # The new ticker row will be added separately
                         break
                 stats['rebranded'] += 1
 
@@ -1354,23 +893,21 @@ class SecurityMaster:
                     prev_dt = dt.datetime.strptime(prev_date, '%Y-%m-%d').date()
                     days_missing = (today - prev_dt).days
                     if days_missing < grace_period_days:
-                        # Still in grace period, extend end_date
                         row_dict['end_date'] = today
                         stats['extended'] += 1
                     else:
-                        # Grace period passed, mark as delisted (freeze end_date)
                         stats['delisted'] += 1
                 else:
-                    # No prev_date, can't determine grace period
                     stats['unchanged'] += 1
             else:
                 stats['unchanged'] += 1
 
+            # Drop cusip from row if present
+            row_dict.pop('cusip', None)
             updated_rows.append(row_dict)
 
-        # 7. Add rebrand new rows (same security_id as old)
+        # 10. Add rebrand new rows (same security_id as old)
         for old_norm, new_norm, figi in rebrands:
-            # Find old row's security_id
             old_row = self.master_tb.filter(
                 pl.col('symbol').str.replace_all(r'[.\-]', '').str.to_uppercase() == old_norm
             ).head(1)
@@ -1381,45 +918,69 @@ class SecurityMaster:
 
             old_security_id = old_row['security_id'][0]
             new_ticker = current_normalized[new_norm]
+            sec_info = sec_lookup.get(new_norm, {})
 
-            # Create new row with same security_id
+            # Get GICS for rebranded ticker from yfinance
+            yf_rebrand = self._fetch_yfinance_metadata([new_ticker])
+            gics = {'sector': None, 'industry': None, 'subindustry': None}
+            yf_key = normalize(new_ticker)
+            if yf_key in yf_rebrand:
+                gics = self._map_to_gics(
+                    yf_rebrand[yf_key].get('sector', ''),
+                    yf_rebrand[yf_key].get('industry', ''),
+                )
+
             new_row = {
                 'security_id': old_security_id,
                 'permno': old_row['permno'][0] if 'permno' in old_row.columns else None,
                 'symbol': new_ticker,
-                'company': old_row['company'][0] if 'company' in old_row.columns else '',
-                'cik': old_row['cik'][0] if 'cik' in old_row.columns else None,
-                'cusip': old_row['cusip'][0] if 'cusip' in old_row.columns else None,
+                'company': sec_info.get('company') or (old_row['company'][0] if 'company' in old_row.columns else ''),
+                'cik': sec_info.get('cik') or (old_row['cik'][0] if 'cik' in old_row.columns else None),
                 'share_class_figi': figi,
                 'start_date': today,
-                'end_date': today
+                'end_date': today,
+                'exchange': sec_info.get('exchange') or (old_row['exchange'][0] if 'exchange' in old_row.columns else None),
+                'sector': gics.get('sector') or (old_row['sector'][0] if 'sector' in old_row.columns else None),
+                'industry': gics.get('industry') or (old_row['industry'][0] if 'industry' in old_row.columns else None),
+                'subindustry': gics.get('subindustry') or (old_row['subindustry'][0] if 'subindustry' in old_row.columns else None),
             }
             updated_rows.append(new_row)
 
-        # 8. Add truly new IPOs (new FIGI, not a rebrand)
+        # 11. Add truly new IPOs
         max_sid: int = self.master_tb['security_id'].max() or 1000  # type: ignore[assignment]
-        new_ipos = appeared - rebrand_new
 
         for ticker_norm in new_ipos:
             ticker = current_normalized[ticker_norm]
             figi = figi_mapping.get(ticker_norm)
+            sec_info = sec_lookup.get(ticker_norm, {})
+
+            # Map yfinance → GICS
+            gics = {'sector': None, 'industry': None, 'subindustry': None}
+            if ticker_norm in yf_metadata:
+                gics = self._map_to_gics(
+                    yf_metadata[ticker_norm].get('sector', ''),
+                    yf_metadata[ticker_norm].get('industry', ''),
+                )
 
             max_sid += 1
             new_row = {
                 'security_id': max_sid,
                 'permno': None,
                 'symbol': ticker,
-                'company': '',
-                'cik': None,
-                'cusip': None,
+                'company': sec_info.get('company', ''),
+                'cik': sec_info.get('cik'),
                 'share_class_figi': figi,
                 'start_date': today,
-                'end_date': today
+                'end_date': today,
+                'exchange': sec_info.get('exchange'),
+                'sector': gics.get('sector'),
+                'industry': gics.get('industry'),
+                'subindustry': gics.get('subindustry'),
             }
             updated_rows.append(new_row)
             stats['added'] += 1
 
-        # 9. Rebuild master_tb
+        # 12. Rebuild master_tb
         if updated_rows:
             self.master_tb = pl.DataFrame(updated_rows).cast({
                 'security_id': pl.Int64,
@@ -1433,15 +994,14 @@ class SecurityMaster:
                     pl.lit(None).cast(pl.Utf8).alias('share_class_figi')
                 )
 
-        # 10. Save updated prev_universe
-        self._save_prev_universe(s3_client, bucket_name, current_nasdaq, today_str)
+        # 13. Save updated prev_universe
+        self._save_prev_universe(current_nasdaq, today_str)
 
-        # 11. Export to S3
+        # 14. Log results (caller is responsible for save_local)
         changes_made = stats['extended'] + stats['rebranded'] + stats['added'] + stats['delisted']
         if changes_made > 0:
-            self.export_to_s3(s3_client, bucket_name)
             self.logger.info(
-                f"SecurityMaster updated (no WRDS): "
+                f"SecurityMaster updated: "
                 f"{stats['extended']} extended, {stats['rebranded']} rebranded, "
                 f"{stats['added']} new IPOs, {stats['delisted']} delisted, "
                 f"{stats['unchanged']} unchanged"
@@ -1449,16 +1009,15 @@ class SecurityMaster:
 
         return stats
 
-    def _extend_existing_securities(
+    def _bootstrap_extend(
         self,
         current_nasdaq: Set[str],
         today: dt.date,
-        s3_client: Any,
-        bucket_name: str
+        sec_lookup: Dict[str, Dict[str, Optional[str]]],
     ) -> Dict[str, int]:
         """
-        Helper to extend end_dates for securities in current Nasdaq list.
-        Used during bootstrap when no prev_universe exists.
+        Bootstrap helper: extend end_dates and enrich from SEC for active tickers.
+        Used when no prev_universe exists.
         """
         stats = {'extended': 0, 'rebranded': 0, 'added': 0, 'delisted': 0, 'unchanged': 0}
 
@@ -1470,10 +1029,20 @@ class SecurityMaster:
         updated_rows = []
         for row in self.master_tb.iter_rows(named=True):
             row_dict = dict(row)
+            row_dict.pop('cusip', None)
             symbol_norm = normalize(row['symbol'])
 
             if symbol_norm in current_normalized:
                 row_dict['end_date'] = today
+                # Enrich from SEC if null
+                sec_info = sec_lookup.get(symbol_norm)
+                if sec_info:
+                    if not row_dict.get('exchange'):
+                        row_dict['exchange'] = sec_info.get('exchange')
+                    if not row_dict.get('cik'):
+                        row_dict['cik'] = sec_info.get('cik')
+                    if not row_dict.get('company') or row_dict['company'] == '':
+                        row_dict['company'] = sec_info.get('company')
                 stats['extended'] += 1
             else:
                 stats['unchanged'] += 1
@@ -1488,83 +1057,10 @@ class SecurityMaster:
             })
 
         if stats['extended'] > 0:
-            self.export_to_s3(s3_client, bucket_name)
             self.logger.info(f"Bootstrap: extended {stats['extended']} securities to {today}")
 
         return stats
 
-    def overwrite_from_crsp(
-        self,
-        db: Any,
-        s3_client: Any,
-        bucket_name: str = 'us-equity-datalake'
-    ) -> Dict[str, int]:
-        """
-        Rebuild master_tb from CRSP data with shareClassFIGI (one-time overwrite).
-
-        1. Fetch fresh data from WRDS CRSP
-        2. Add shareClassFIGI column via OpenFIGI
-        3. Export to S3, replacing existing master_tb
-
-        Requires: wrds package
-
-        :param db: WRDS database connection
-        :param s3_client: S3 client
-        :param bucket_name: S3 bucket name
-        :return: Dict with stats {'rows', 'figi_mapped'}
-        """
-        if not HAS_WRDS:
-            raise ImportError("overwrite_from_crsp() requires the wrds package")
-
-        self.logger.info("Rebuilding SecurityMaster from CRSP with OpenFIGI...")
-
-        # Store old db connection
-        old_db = self.db
-        self.db = db
-
-        # Rebuild from CRSP
-        self.cik_cusip = self.cik_cusip_mapping()
-        self.master_tb = self.master_table()
-
-        # Restore db
-        self.db = old_db
-
-        # Get unique symbols
-        symbols = self.master_tb['symbol'].unique().to_list()
-        self.logger.info(f"Fetching OpenFIGI mappings for {len(symbols)} unique symbols...")
-
-        # Fetch FIGI mappings
-        figi_mapping = self._fetch_openfigi_mapping(symbols)
-
-        # Add share_class_figi column
-        self.master_tb = self.master_tb.with_columns(
-            pl.col('symbol').map_elements(
-                lambda s: figi_mapping.get(s),
-                return_dtype=pl.Utf8
-            ).alias('share_class_figi')
-        )
-
-        # Export to S3
-        self.export_to_s3(s3_client, bucket_name)
-
-        figi_count = sum(1 for v in figi_mapping.values() if v is not None)
-        stats = {
-            'rows': len(self.master_tb),
-            'figi_mapped': figi_count
-        }
-
-        self.logger.info(
-            f"CRSP rebuild complete: {stats['rows']} rows, "
-            f"{stats['figi_mapped']}/{len(symbols)} FIGIs mapped"
-        )
-
-        return stats
-
     def close(self):
-        """Close WRDS connection if present."""
-        if hasattr(self, 'db') and self.db is not None:
-            try:
-                self.db.close()
-            except Exception:
-                pass
-    
+        """No-op (kept for interface compat)."""
+        pass

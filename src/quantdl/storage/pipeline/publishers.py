@@ -1,7 +1,7 @@
 """
-Data publishing functionality for uploading market data to S3.
+Data publishing functionality for uploading market data to local storage.
 
-This module handles publishing collected data to S3 storage:
+This module handles publishing collected data to local storage:
 - Daily ticks (Parquet files per security_id)
 - Fundamental data (Parquet files per security_id)
 """
@@ -12,11 +12,9 @@ import datetime as dt
 import logging
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Any, cast
+from typing import Dict, List, Optional, Any
 import requests
 import polars as pl
-from boto3.s3.transfer import TransferConfig
-from botocore.exceptions import ClientError
 from quantdl.storage.utils import NoSuchKeyError
 from dotenv import load_dotenv
 
@@ -25,37 +23,30 @@ load_dotenv()
 
 class DataPublishers:
     """
-    Handles publishing market data to S3 storage.
+    Handles publishing market data to local storage.
     """
 
     def __init__(
         self,
-        s3_client,
-        upload_config,
+        storage_client,
         logger: logging.Logger,
         data_collectors,
         security_master,
-        bucket_name: Optional[str] = None,
         alpaca_start_year: int = 2025
     ):
         """
         Initialize data publishers.
 
-        :param s3_client: Boto3 S3 client instance
-        :param upload_config: UploadConfig instance with transfer settings
+        :param storage_client: LocalStorageClient instance
         :param logger: Logger instance
         :param data_collectors: Data collectors instance
         :param security_master: SecurityMaster instance for symbol→security_id resolution
-        :param bucket_name: S3 bucket name (defaults to environment variable or 'us-equity-datalake')
         """
-        self.s3_client = s3_client
-        self.upload_config = upload_config
+        self.storage_client = storage_client
         self.logger = logger
         self.data_collectors = data_collectors
         self.security_master = security_master
         self.alpaca_start_year = alpaca_start_year
-        # Allow bucket_name to be passed as parameter or from environment variable
-        self.bucket_name = bucket_name or os.getenv('S3_BUCKET_NAME', 'us-equity-datalake')
 
     def upload_fileobj(
         self,
@@ -63,23 +54,8 @@ class DataPublishers:
         key: str,
         metadata: Optional[Dict[str, str]] = None
     ) -> None:
-        """Upload file object to S3 or local storage with proper configuration."""
-        storage_backend = os.getenv('STORAGE_BACKEND', 's3').lower()
-        local_path = os.getenv('LOCAL_STORAGE_PATH', '')
-
-        if storage_backend == 'local':
-            self._upload_local(data, key, metadata, local_path)
-        else:
-            self._upload_s3(data, key, metadata)
-
-    def _upload_local(
-        self,
-        data: io.BytesIO,
-        key: str,
-        metadata: Optional[Dict[str, str]],
-        local_path: str
-    ) -> None:
-        """Write file to local storage with metadata."""
+        """Upload file object to local storage."""
+        local_path = self.storage_client.base_path
         file_path = Path(local_path) / key
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -92,52 +68,6 @@ class DataPublishers:
             metadata_file = file_path.parent / f'.{file_path.name}.metadata.json'
             metadata_file.write_text(json.dumps(metadata, indent=2))
 
-    def _upload_s3(
-        self,
-        data: io.BytesIO,
-        key: str,
-        metadata: Optional[Dict[str, str]]
-    ) -> None:
-        """Upload file object to S3 with proper configuration."""
-        # Define transfer config
-        cfg = cast(Dict[str, Any], self.upload_config.transfer or {})
-        transfer_config = TransferConfig(
-            multipart_threshold=int(cfg.get('multipart_threshold', 10485760)),
-            max_concurrency=int(cfg.get('max_concurrency', 5)),
-            multipart_chunksize=int(cfg.get('multipart_chunksize', 10485760)),
-            num_download_attempts=int(cfg.get('num_download_attempts', 5)),
-            max_io_queue=int(cfg.get('max_io_queue', 100)),
-            io_chunksize=int(cfg.get('io_chunksize', 262144)),
-            use_threads=(str(cfg.get('use_threads', True)).lower() == "true")
-        )
-
-        # Determine content type
-        content_type_map = {
-            '.parquet': 'application/x-parquet',
-            '.json': 'application/json',
-            '.csv': 'text/csv',
-            '.txt': 'text/plain'
-        }
-        file_ext = Path(key).suffix
-        content_type = content_type_map.get(file_ext, 'application/octet-stream')
-
-        # Build ExtraArgs
-        extra_args = {
-            'ContentType': content_type,
-            'ServerSideEncryption': 'AES256',
-            'StorageClass': 'INTELLIGENT_TIERING',
-            'Metadata': metadata or {}
-        }
-
-        # Upload
-        self.s3_client.upload_fileobj(
-            Fileobj=data,
-            Bucket=self.bucket_name,
-            Key=key,
-            Config=transfer_config,
-            ExtraArgs=extra_args
-        )
-
     def publish_daily_ticks(
         self,
         sym: str,
@@ -146,7 +76,7 @@ class DataPublishers:
         df: pl.DataFrame,
     ) -> Dict[str, Optional[str]]:
         """
-        Publish daily ticks for a single symbol to S3.
+        Publish daily ticks for a single symbol to local storage.
 
         Single file per security_id with append-merge logic:
         read existing → remove year overlap → concat → write.
@@ -167,8 +97,8 @@ class DataPublishers:
 
             # Read existing data and append-merge
             try:
-                response = self.s3_client.get_object(
-                    Bucket=self.bucket_name,
+                response = self.storage_client.get_object(
+                    Bucket='',
                     Key=s3_key
                 )
                 existing_df = pl.read_parquet(response['Body'])
@@ -178,11 +108,8 @@ class DataPublishers:
                     ~pl.col('timestamp').str.starts_with(str(year))
                 )
                 combined_df = pl.concat([existing_df, df]).sort('timestamp')
-            except (ClientError, NoSuchKeyError) as e:
-                if e.response['Error']['Code'] == 'NoSuchKey':
-                    combined_df = df
-                else:
-                    raise
+            except NoSuchKeyError:
+                combined_df = df
 
             buffer = io.BytesIO()
             combined_df.write_parquet(buffer)
@@ -221,15 +148,15 @@ class DataPublishers:
 
     def get_fundamental_metadata(self, security_id: int) -> Optional[Dict[str, str]]:
         """
-        Get metadata for existing fundamental data from S3.
+        Get metadata for existing fundamental data.
 
         :param security_id: Security ID
         :return: Metadata dict or None if file doesn't exist
         """
         s3_key = f"data/raw/fundamental/{security_id}/fundamental.parquet"
         try:
-            response = self.s3_client.head_object(
-                Bucket=self.bucket_name,
+            response = self.storage_client.head_object(
+                Bucket='',
                 Key=s3_key
             )
             return response.get('Metadata', {})
@@ -248,7 +175,7 @@ class DataPublishers:
         config_path: Optional[Path] = None
     ) -> Dict[str, Optional[str]]:
         """
-        Publish fundamental data for a single symbol for a date range to S3.
+        Publish fundamental data for a single symbol for a date range to local storage.
 
         Storage: data/raw/fundamental/{security_id}/fundamental.parquet
 
@@ -352,7 +279,7 @@ class DataPublishers:
         source: str
     ) -> Dict[str, Optional[str]]:
         """
-        Publish monthly top 3000 symbols to S3 as a newline-delimited text file.
+        Publish monthly top 3000 symbols as a newline-delimited text file.
 
         Storage: data/meta/universe/{YYYY}/{MM}/top3000.txt
         """

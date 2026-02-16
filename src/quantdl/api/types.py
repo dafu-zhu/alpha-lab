@@ -12,7 +12,6 @@ class SecurityInfo:
     symbol: str
     company: str
     cik: str | None
-    cusip: str | None
     start_date: date
     end_date: date | None
     exchange: str | None = None

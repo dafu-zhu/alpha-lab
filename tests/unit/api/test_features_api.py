@@ -43,13 +43,13 @@ class TestFeaturesAPI:
             if ident == "AAPL":
                 return SecurityInfo(
                     security_id="100", symbol="AAPL", company="Apple",
-                    cik=None, cusip=None,
+                    cik=None,
                     start_date=date(2000, 1, 1), end_date=None,
                 )
             if ident == "MSFT":
                 return SecurityInfo(
                     security_id="200", symbol="MSFT", company="Microsoft",
-                    cik=None, cusip=None,
+                    cik=None,
                     start_date=date(2000, 1, 1), end_date=None,
                 )
             return None
@@ -145,13 +145,13 @@ class TestQueryAPI:
             if ident == "AAPL":
                 return SecurityInfo(
                     security_id="100", symbol="AAPL", company="Apple",
-                    cik=None, cusip=None,
+                    cik=None,
                     start_date=date(2000, 1, 1), end_date=None,
                 )
             if ident == "MSFT":
                 return SecurityInfo(
                     security_id="200", symbol="MSFT", company="Microsoft",
-                    cik=None, cusip=None,
+                    cik=None,
                     start_date=date(2000, 1, 1), end_date=None,
                 )
             return None

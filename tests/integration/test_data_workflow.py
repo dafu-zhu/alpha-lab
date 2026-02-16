@@ -18,14 +18,6 @@ class TestDataCollectionWorkflow:
     """
 
     @pytest.fixture
-    def mock_s3_client(self):
-        """Create a mock S3 client for testing"""
-        mock = MagicMock()
-        mock.put_object.return_value = {'ETag': 'test-etag'}
-        mock.head_object.return_value = {}
-        return mock
-
-    @pytest.fixture
     def sample_tick_data(self):
         """Create sample tick data for testing"""
         return pl.DataFrame({
@@ -49,12 +41,12 @@ class TestDataCollectionWorkflow:
             'form': ['10-Q', '10-Q', '10-Q', '10-K']
         })
 
-    def test_tick_data_collection_workflow(self, sample_tick_data, mock_s3_client):
+    def test_tick_data_collection_workflow(self, sample_tick_data):
         """
         Test complete workflow for tick data collection:
         1. Fetch data from source (mocked)
         2. Process/validate data
-        3. Upload to S3 (mocked)
+        3. Write to local storage
         """
         # Step 1: Mock data fetch
         fetched_data = sample_tick_data
@@ -74,27 +66,19 @@ class TestDataCollectionWorkflow:
             assert row['close'] <= row['high']
             assert row['volume'] >= 0
 
-        # Step 4: Mock S3 upload (single file per security_id)
-        s3_key = 'data/raw/ticks/daily/12345/ticks.parquet'
+        # Step 4: Verify Parquet serialization (single file per security_id)
+        key = 'data/raw/ticks/daily/12345/ticks.parquet'
         parquet_buffer = io.BytesIO()
         fetched_data.write_parquet(parquet_buffer)
         buffer = parquet_buffer.getvalue()
+        assert len(buffer) > 0
 
-        mock_s3_client.put_object(
-            Bucket='test-bucket',
-            Key=s3_key,
-            Body=buffer
-        )
-
-        # Verify upload was called
-        mock_s3_client.put_object.assert_called_once()
-
-    def test_fundamental_data_collection_workflow(self, sample_fundamental_data, mock_s3_client):
+    def test_fundamental_data_collection_workflow(self, sample_fundamental_data):
         """
         Test complete workflow for fundamental data collection:
         1. Fetch from SEC EDGAR (mocked)
         2. Process into long format
-        3. Upload to S3
+        3. Validate structure
         """
         # Step 1: Mock data fetch (already in long format)
         raw_data = sample_fundamental_data
@@ -109,27 +93,20 @@ class TestDataCollectionWorkflow:
         concepts = raw_data['concept'].unique().to_list()
         assert 'rev' in concepts
 
-        # Step 4: Mock S3 upload (security_id-based path)
-        s3_key = 'data/raw/fundamental/12345/fundamental.parquet'
+        # Step 4: Verify Parquet serialization (security_id-based path)
+        key = 'data/raw/fundamental/12345/fundamental.parquet'
         parquet_buffer = io.BytesIO()
         raw_data.write_parquet(parquet_buffer)
         buffer = parquet_buffer.getvalue()
+        assert len(buffer) > 0
 
-        mock_s3_client.put_object(
-            Bucket='test-bucket',
-            Key=s3_key,
-            Body=buffer
-        )
-
-        mock_s3_client.put_object.assert_called_once()
-
-    def test_multi_symbol_batch_workflow(self, mock_s3_client):
+    def test_multi_symbol_batch_workflow(self):
         """
         Test batch processing workflow for multiple symbols:
         1. Load symbol universe
         2. Batch fetch data
         3. Process in parallel
-        4. Upload results
+        4. Verify results
         """
         # Step 1: Mock symbol universe
         symbols = ['AAPL', 'MSFT', 'GOOGL']
@@ -161,7 +138,7 @@ class TestDataCollectionWorkflow:
         assert len(results) == len(symbols)
         assert all(r['status'] == 'success' for r in results)
 
-    def test_error_handling_workflow(self, mock_s3_client):
+    def test_error_handling_workflow(self):
         """
         Test error handling in data collection workflow:
         1. Simulate data fetch failure
@@ -236,8 +213,8 @@ class TestDataCollectionWorkflow:
 class TestDataStorageWorkflow:
     """Integration tests for data storage workflows"""
 
-    def test_s3_key_generation(self):
-        """Test S3 key generation for different data types"""
+    def test_storage_key_generation(self):
+        """Test storage key generation for different data types"""
         # Daily ticks (single file per security_id)
         daily_key = "data/raw/ticks/daily/12345/ticks.parquet"
         assert '12345' in daily_key
@@ -303,7 +280,7 @@ class TestDataStorageWorkflow:
         upload_results = []
         for security_id, data in files_to_upload:
             # Single file per security_id
-            s3_key = f"data/raw/ticks/daily/{security_id}/ticks.parquet"
+            key = f"data/raw/ticks/daily/{security_id}/ticks.parquet"
             parquet_buffer = io.BytesIO()
             data.write_parquet(parquet_buffer)
             buffer = parquet_buffer.getvalue()
@@ -311,7 +288,7 @@ class TestDataStorageWorkflow:
             # Simulate successful upload
             upload_results.append({
                 'security_id': security_id,
-                'key': s3_key,
+                'key': key,
                 'size': len(buffer),
                 'status': 'success'
             })

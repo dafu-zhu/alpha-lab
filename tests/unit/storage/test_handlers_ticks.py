@@ -17,8 +17,6 @@ from quantdl.storage.handlers.ticks import DailyTicksHandler
 def daily_deps():
     """Mocked dependencies for DailyTicksHandler."""
     return {
-        's3_client': Mock(),
-        'bucket_name': 'test-bucket',
         'data_publishers': Mock(),
         'data_collectors': Mock(),
         'security_master': Mock(),
@@ -38,8 +36,8 @@ class TestDailyTicksHandler:
         return DailyTicksHandler(**daily_deps)
 
     def test_init(self, handler, daily_deps):
-        assert handler.s3_client is daily_deps['s3_client']
-        assert handler.bucket_name == 'test-bucket'
+        assert handler.publishers is daily_deps['data_publishers']
+        assert handler.collectors is daily_deps['data_collectors']
 
     @patch('quantdl.storage.handlers.ticks.tqdm')
     def test_upload_year_with_data(self, mock_tqdm, handler, daily_deps):

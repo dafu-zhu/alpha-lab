@@ -1,0 +1,633 @@
+# Morningstar/yfinance Industry → GICS Classification Mapping
+# Source: yfinance SECTOR_INDUSTRY_MAPPING (Morningstar classification)
+# Target: GICS (Global Industry Classification Standard, March 2023 revision)
+#
+# 11 Morningstar sectors → 11 GICS sectors
+# 145 Morningstar industries → GICS sector / industry_group / sub_industry
+#
+# Cross-sector mappings (Morningstar sector ≠ GICS sector):
+#   Coking Coal: Basic Materials → Energy
+#   Packaging & Containers: Consumer Cyclical → Materials
+#   Education & Training Services: Consumer Defensive → Consumer Discretionary
+#   Pharmaceutical Retailers: Healthcare → Consumer Staples
+#   Rental & Leasing Services: Industrials → Financials
+#   Consumer Electronics: Technology → Consumer Discretionary
+#   Solar: Technology → Utilities
+#   REIT—Mortgage: Real Estate → Financials
+
+sectors:
+  Basic Materials: Materials
+  Communication Services: Communication Services
+  Consumer Cyclical: Consumer Discretionary
+  Consumer Defensive: Consumer Staples
+  Energy: Energy
+  Financial Services: Financials
+  Healthcare: Health Care
+  Industrials: Industrials
+  Real Estate: Real Estate
+  Technology: Information Technology
+  Utilities: Utilities
+
+industries:
+
+  # Basic Materials (14)
+  Agricultural Inputs:
+    gics_sector: Materials
+    gics_industry_group: Materials
+    gics_sub_industry: Fertilizers & Agricultural Chemicals
+  Aluminum:
+    gics_sector: Materials
+    gics_industry_group: Materials
+    gics_sub_industry: Aluminum
+  Building Materials:
+    gics_sector: Materials
+    gics_industry_group: Materials
+    gics_sub_industry: Construction Materials
+  Chemicals:
+    gics_sector: Materials
+    gics_industry_group: Materials
+    gics_sub_industry: Commodity Chemicals
+  Coking Coal:
+    gics_sector: Energy
+    gics_industry_group: Energy
+    gics_sub_industry: Coal & Consumable Fuels
+  Copper:
+    gics_sector: Materials
+    gics_industry_group: Materials
+    gics_sub_industry: Copper
+  Gold:
+    gics_sector: Materials
+    gics_industry_group: Materials
+    gics_sub_industry: Gold
+  Lumber & Wood Production:
+    gics_sector: Materials
+    gics_industry_group: Materials
+    gics_sub_industry: Forest Products
+  Other Industrial Metals & Mining:
+    gics_sector: Materials
+    gics_industry_group: Materials
+    gics_sub_industry: Diversified Metals & Mining
+  Other Precious Metals & Mining:
+    gics_sector: Materials
+    gics_industry_group: Materials
+    gics_sub_industry: Precious Metals & Minerals
+  Paper & Paper Products:
+    gics_sector: Materials
+    gics_industry_group: Materials
+    gics_sub_industry: Paper Products
+  Silver:
+    gics_sector: Materials
+    gics_industry_group: Materials
+    gics_sub_industry: Silver
+  Specialty Chemicals:
+    gics_sector: Materials
+    gics_industry_group: Materials
+    gics_sub_industry: Specialty Chemicals
+  Steel:
+    gics_sector: Materials
+    gics_industry_group: Materials
+    gics_sub_industry: Steel
+
+  # Communication Services (7)
+  Advertising Agencies:
+    gics_sector: Communication Services
+    gics_industry_group: Media & Entertainment
+    gics_sub_industry: Advertising
+  Broadcasting:
+    gics_sector: Communication Services
+    gics_industry_group: Media & Entertainment
+    gics_sub_industry: Broadcasting
+  Electronic Gaming & Multimedia:
+    gics_sector: Communication Services
+    gics_industry_group: Media & Entertainment
+    gics_sub_industry: Interactive Home Entertainment
+  Entertainment:
+    gics_sector: Communication Services
+    gics_industry_group: Media & Entertainment
+    gics_sub_industry: Movies & Entertainment
+  Internet Content & Information:
+    gics_sector: Communication Services
+    gics_industry_group: Media & Entertainment
+    gics_sub_industry: Interactive Media & Services
+  Publishing:
+    gics_sector: Communication Services
+    gics_industry_group: Media & Entertainment
+    gics_sub_industry: Publishing
+  Telecom Services:
+    gics_sector: Communication Services
+    gics_industry_group: Telecommunication Services
+    gics_sub_industry: Integrated Telecommunication Services
+
+  # Consumer Cyclical (23)
+  Apparel Manufacturing:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Consumer Durables & Apparel
+    gics_sub_industry: Apparel, Accessories & Luxury Goods
+  Apparel Retail:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Consumer Discretionary Distribution & Retail
+    gics_sub_industry: Apparel Retail
+  Auto & Truck Dealerships:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Consumer Discretionary Distribution & Retail
+    gics_sub_industry: Automotive Retail
+  Auto Manufacturers:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Automobiles & Components
+    gics_sub_industry: Automobile Manufacturers
+  Auto Parts:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Automobiles & Components
+    gics_sub_industry: Automotive Parts & Equipment
+  Department Stores:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Consumer Discretionary Distribution & Retail
+    gics_sub_industry: Broadline Retail
+  Footwear & Accessories:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Consumer Durables & Apparel
+    gics_sub_industry: Footwear
+  "Furnishings, Fixtures & Appliances":
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Consumer Durables & Apparel
+    gics_sub_industry: Home Furnishings
+  Gambling:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Consumer Services
+    gics_sub_industry: Casinos & Gaming
+  Home Improvement Retail:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Consumer Discretionary Distribution & Retail
+    gics_sub_industry: Home Improvement Retail
+  Internet Retail:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Consumer Discretionary Distribution & Retail
+    gics_sub_industry: Broadline Retail
+  Leisure:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Consumer Durables & Apparel
+    gics_sub_industry: Leisure Products
+  Lodging:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Consumer Services
+    gics_sub_industry: "Hotels, Resorts & Cruise Lines"
+  Luxury Goods:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Consumer Durables & Apparel
+    gics_sub_industry: "Apparel, Accessories & Luxury Goods"
+  Packaging & Containers:
+    gics_sector: Materials
+    gics_industry_group: Materials
+    gics_sub_industry: "Metal, Glass & Plastic Containers"
+  Personal Services:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Consumer Services
+    gics_sub_industry: Specialized Consumer Services
+  Recreational Vehicles:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Automobiles & Components
+    gics_sub_industry: Automobile Manufacturers
+  Residential Construction:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Consumer Durables & Apparel
+    gics_sub_industry: Homebuilding
+  Resorts & Casinos:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Consumer Services
+    gics_sub_industry: "Hotels, Resorts & Cruise Lines"
+  Restaurants:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Consumer Services
+    gics_sub_industry: Restaurants
+  Specialty Retail:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Consumer Discretionary Distribution & Retail
+    gics_sub_industry: Other Specialty Retail
+  Textile Manufacturing:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Consumer Durables & Apparel
+    gics_sub_industry: Textiles
+  Travel Services:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Consumer Services
+    gics_sub_industry: "Hotels, Resorts & Cruise Lines"
+
+  # Consumer Defensive (12)
+  "Beverages\u2014Brewers":
+    gics_sector: Consumer Staples
+    gics_industry_group: "Food, Beverage & Tobacco"
+    gics_sub_industry: Brewers
+  "Beverages\u2014Non-Alcoholic":
+    gics_sector: Consumer Staples
+    gics_industry_group: "Food, Beverage & Tobacco"
+    gics_sub_industry: Soft Drinks
+  "Beverages\u2014Wineries & Distilleries":
+    gics_sector: Consumer Staples
+    gics_industry_group: "Food, Beverage & Tobacco"
+    gics_sub_industry: Distillers & Vintners
+  Confectioners:
+    gics_sector: Consumer Staples
+    gics_industry_group: "Food, Beverage & Tobacco"
+    gics_sub_industry: Packaged Foods & Meats
+  Discount Stores:
+    gics_sector: Consumer Staples
+    gics_industry_group: Consumer Staples Distribution & Retail
+    gics_sub_industry: Consumer Staples Merchandise Retail
+  Education & Training Services:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Consumer Services
+    gics_sub_industry: Education Services
+  Farm Products:
+    gics_sector: Consumer Staples
+    gics_industry_group: "Food, Beverage & Tobacco"
+    gics_sub_industry: Agricultural Products & Services
+  Food Distribution:
+    gics_sector: Consumer Staples
+    gics_industry_group: Consumer Staples Distribution & Retail
+    gics_sub_industry: Food Distributors
+  Grocery Stores:
+    gics_sector: Consumer Staples
+    gics_industry_group: Consumer Staples Distribution & Retail
+    gics_sub_industry: Food Retail
+  Household & Personal Products:
+    gics_sector: Consumer Staples
+    gics_industry_group: Household & Personal Products
+    gics_sub_industry: Household Products
+  Packaged Foods:
+    gics_sector: Consumer Staples
+    gics_industry_group: "Food, Beverage & Tobacco"
+    gics_sub_industry: Packaged Foods & Meats
+  Tobacco:
+    gics_sector: Consumer Staples
+    gics_industry_group: "Food, Beverage & Tobacco"
+    gics_sub_industry: Tobacco
+
+  # Energy (8)
+  Oil & Gas Drilling:
+    gics_sector: Energy
+    gics_industry_group: Energy
+    gics_sub_industry: Oil & Gas Drilling
+  Oil & Gas E&P:
+    gics_sector: Energy
+    gics_industry_group: Energy
+    gics_sub_industry: Oil & Gas Exploration & Production
+  Oil & Gas Equipment & Services:
+    gics_sector: Energy
+    gics_industry_group: Energy
+    gics_sub_industry: Oil & Gas Equipment & Services
+  Oil & Gas Integrated:
+    gics_sector: Energy
+    gics_industry_group: Energy
+    gics_sub_industry: Integrated Oil & Gas
+  Oil & Gas Midstream:
+    gics_sector: Energy
+    gics_industry_group: Energy
+    gics_sub_industry: Oil & Gas Storage & Transportation
+  Oil & Gas Refining & Marketing:
+    gics_sector: Energy
+    gics_industry_group: Energy
+    gics_sub_industry: Oil & Gas Refining & Marketing
+  Thermal Coal:
+    gics_sector: Energy
+    gics_industry_group: Energy
+    gics_sub_industry: Coal & Consumable Fuels
+  Uranium:
+    gics_sector: Energy
+    gics_industry_group: Energy
+    gics_sub_industry: Coal & Consumable Fuels
+
+  # Financial Services (15)
+  Asset Management:
+    gics_sector: Financials
+    gics_industry_group: Financial Services
+    gics_sub_industry: Asset Management & Custody Banks
+  "Banks\u2014Diversified":
+    gics_sector: Financials
+    gics_industry_group: Banks
+    gics_sub_industry: Diversified Banks
+  "Banks\u2014Regional":
+    gics_sector: Financials
+    gics_industry_group: Banks
+    gics_sub_industry: Regional Banks
+  Capital Markets:
+    gics_sector: Financials
+    gics_industry_group: Financial Services
+    gics_sub_industry: Investment Banking & Brokerage
+  Credit Services:
+    gics_sector: Financials
+    gics_industry_group: Financial Services
+    gics_sub_industry: Consumer Finance
+  Financial Conglomerates:
+    gics_sector: Financials
+    gics_industry_group: Financial Services
+    gics_sub_industry: Multi-Sector Holdings
+  Financial Data & Stock Exchanges:
+    gics_sector: Financials
+    gics_industry_group: Financial Services
+    gics_sub_industry: Financial Exchanges & Data
+  Insurance Brokers:
+    gics_sector: Financials
+    gics_industry_group: Insurance
+    gics_sub_industry: Insurance Brokers
+  "Insurance\u2014Diversified":
+    gics_sector: Financials
+    gics_industry_group: Insurance
+    gics_sub_industry: Multi-line Insurance
+  "Insurance\u2014Life":
+    gics_sector: Financials
+    gics_industry_group: Insurance
+    gics_sub_industry: Life & Health Insurance
+  "Insurance\u2014Property & Casualty":
+    gics_sector: Financials
+    gics_industry_group: Insurance
+    gics_sub_industry: Property & Casualty Insurance
+  "Insurance\u2014Reinsurance":
+    gics_sector: Financials
+    gics_industry_group: Insurance
+    gics_sub_industry: Reinsurance
+  "Insurance\u2014Specialty":
+    gics_sector: Financials
+    gics_industry_group: Insurance
+    gics_sub_industry: Property & Casualty Insurance
+  Mortgage Finance:
+    gics_sector: Financials
+    gics_industry_group: Financial Services
+    gics_sub_industry: Commercial & Residential Mortgage Finance
+  Shell Companies:
+    gics_sector: Financials
+    gics_industry_group: Financial Services
+    gics_sub_industry: Specialized Finance
+
+  # Healthcare (11)
+  Biotechnology:
+    gics_sector: Health Care
+    gics_industry_group: "Pharmaceuticals, Biotechnology & Life Sciences"
+    gics_sub_industry: Biotechnology
+  Diagnostics & Research:
+    gics_sector: Health Care
+    gics_industry_group: "Pharmaceuticals, Biotechnology & Life Sciences"
+    gics_sub_industry: Life Sciences Tools & Services
+  "Drug Manufacturers\u2014General":
+    gics_sector: Health Care
+    gics_industry_group: "Pharmaceuticals, Biotechnology & Life Sciences"
+    gics_sub_industry: Pharmaceuticals
+  "Drug Manufacturers\u2014Specialty & Generic":
+    gics_sector: Health Care
+    gics_industry_group: "Pharmaceuticals, Biotechnology & Life Sciences"
+    gics_sub_industry: Pharmaceuticals
+  Health Information Services:
+    gics_sector: Health Care
+    gics_industry_group: Health Care Equipment & Services
+    gics_sub_industry: Health Care Technology
+  Healthcare Plans:
+    gics_sector: Health Care
+    gics_industry_group: Health Care Equipment & Services
+    gics_sub_industry: Managed Health Care
+  Medical Care Facilities:
+    gics_sector: Health Care
+    gics_industry_group: Health Care Equipment & Services
+    gics_sub_industry: Health Care Facilities
+  Medical Devices:
+    gics_sector: Health Care
+    gics_industry_group: Health Care Equipment & Services
+    gics_sub_industry: Health Care Equipment
+  Medical Distribution:
+    gics_sector: Health Care
+    gics_industry_group: Health Care Equipment & Services
+    gics_sub_industry: Health Care Distributors
+  Medical Instruments & Supplies:
+    gics_sector: Health Care
+    gics_industry_group: Health Care Equipment & Services
+    gics_sub_industry: Health Care Supplies
+  Pharmaceutical Retailers:
+    gics_sector: Consumer Staples
+    gics_industry_group: Consumer Staples Distribution & Retail
+    gics_sub_industry: Drug Retail
+
+  # Industrials (25)
+  Aerospace & Defense:
+    gics_sector: Industrials
+    gics_industry_group: Capital Goods
+    gics_sub_industry: Aerospace & Defense
+  Airlines:
+    gics_sector: Industrials
+    gics_industry_group: Transportation
+    gics_sub_industry: Passenger Airlines
+  Airports & Air Services:
+    gics_sector: Industrials
+    gics_industry_group: Transportation
+    gics_sub_industry: Airport Services
+  Building Products & Equipment:
+    gics_sector: Industrials
+    gics_industry_group: Capital Goods
+    gics_sub_industry: Building Products
+  Business Equipment & Supplies:
+    gics_sector: Industrials
+    gics_industry_group: Commercial & Professional Services
+    gics_sub_industry: Office Services & Supplies
+  Conglomerates:
+    gics_sector: Industrials
+    gics_industry_group: Capital Goods
+    gics_sub_industry: Industrial Conglomerates
+  Consulting Services:
+    gics_sector: Industrials
+    gics_industry_group: Commercial & Professional Services
+    gics_sub_industry: Research & Consulting Services
+  Electrical Equipment & Parts:
+    gics_sector: Industrials
+    gics_industry_group: Capital Goods
+    gics_sub_industry: Electrical Components & Equipment
+  Engineering & Construction:
+    gics_sector: Industrials
+    gics_industry_group: Capital Goods
+    gics_sub_industry: Construction & Engineering
+  Farm & Heavy Construction Machinery:
+    gics_sector: Industrials
+    gics_industry_group: Capital Goods
+    gics_sub_industry: Construction Machinery & Heavy Transportation Equipment
+  Industrial Distribution:
+    gics_sector: Industrials
+    gics_industry_group: Capital Goods
+    gics_sub_industry: Trading Companies & Distributors
+  Infrastructure Operations:
+    gics_sector: Industrials
+    gics_industry_group: Transportation
+    gics_sub_industry: Marine Ports & Services
+  Integrated Freight & Logistics:
+    gics_sector: Industrials
+    gics_industry_group: Transportation
+    gics_sub_industry: Air Freight & Logistics
+  Marine Shipping:
+    gics_sector: Industrials
+    gics_industry_group: Transportation
+    gics_sub_industry: Marine Transportation
+  Metal Fabrication:
+    gics_sector: Industrials
+    gics_industry_group: Capital Goods
+    gics_sub_industry: Industrial Machinery & Supplies & Components
+  Pollution & Treatment Controls:
+    gics_sector: Industrials
+    gics_industry_group: Commercial & Professional Services
+    gics_sub_industry: Environmental & Facilities Services
+  Railroads:
+    gics_sector: Industrials
+    gics_industry_group: Transportation
+    gics_sub_industry: Rail Transportation
+  Rental & Leasing Services:
+    gics_sector: Financials
+    gics_industry_group: Financial Services
+    gics_sub_industry: Specialized Finance
+  Security & Protection Services:
+    gics_sector: Industrials
+    gics_industry_group: Commercial & Professional Services
+    gics_sub_industry: Security & Alarm Services
+  Specialty Business Services:
+    gics_sector: Industrials
+    gics_industry_group: Commercial & Professional Services
+    gics_sub_industry: Diversified Support Services
+  Specialty Industrial Machinery:
+    gics_sector: Industrials
+    gics_industry_group: Capital Goods
+    gics_sub_industry: Industrial Machinery & Supplies & Components
+  Staffing & Employment Services:
+    gics_sector: Industrials
+    gics_industry_group: Commercial & Professional Services
+    gics_sub_industry: Human Resource & Employment Services
+  Tools & Accessories:
+    gics_sector: Industrials
+    gics_industry_group: Capital Goods
+    gics_sub_industry: Industrial Machinery & Supplies & Components
+  Trucking:
+    gics_sector: Industrials
+    gics_industry_group: Transportation
+    gics_sub_industry: Cargo Ground Transportation
+  Waste Management:
+    gics_sector: Industrials
+    gics_industry_group: Commercial & Professional Services
+    gics_sub_industry: Environmental & Facilities Services
+
+  # Real Estate (12)
+  "Real Estate\u2014Development":
+    gics_sector: Real Estate
+    gics_industry_group: Real Estate Management & Development
+    gics_sub_industry: Real Estate Development
+  Real Estate Services:
+    gics_sector: Real Estate
+    gics_industry_group: Real Estate Management & Development
+    gics_sub_industry: Real Estate Services
+  "Real Estate\u2014Diversified":
+    gics_sector: Real Estate
+    gics_industry_group: Real Estate Management & Development
+    gics_sub_industry: Diversified Real Estate Activities
+  "REIT\u2014Diversified":
+    gics_sector: Real Estate
+    gics_industry_group: Equity Real Estate Investment Trusts (REITs)
+    gics_sub_industry: Diversified REITs
+  "REIT\u2014Healthcare Facilities":
+    gics_sector: Real Estate
+    gics_industry_group: Equity Real Estate Investment Trusts (REITs)
+    gics_sub_industry: Health Care REITs
+  "REIT\u2014Hotel & Motel":
+    gics_sector: Real Estate
+    gics_industry_group: Equity Real Estate Investment Trusts (REITs)
+    gics_sub_industry: Hotel & Resort REITs
+  "REIT\u2014Industrial":
+    gics_sector: Real Estate
+    gics_industry_group: Equity Real Estate Investment Trusts (REITs)
+    gics_sub_industry: Industrial REITs
+  "REIT\u2014Mortgage":
+    gics_sector: Financials
+    gics_industry_group: Financial Services
+    gics_sub_industry: Mortgage REITs
+  "REIT\u2014Office":
+    gics_sector: Real Estate
+    gics_industry_group: Equity Real Estate Investment Trusts (REITs)
+    gics_sub_industry: Office REITs
+  "REIT\u2014Residential":
+    gics_sector: Real Estate
+    gics_industry_group: Equity Real Estate Investment Trusts (REITs)
+    gics_sub_industry: Multi-Family Residential REITs
+  "REIT\u2014Retail":
+    gics_sector: Real Estate
+    gics_industry_group: Equity Real Estate Investment Trusts (REITs)
+    gics_sub_industry: Retail REITs
+  "REIT\u2014Specialty":
+    gics_sector: Real Estate
+    gics_industry_group: Equity Real Estate Investment Trusts (REITs)
+    gics_sub_industry: Other Specialized REITs
+
+  # Technology (12)
+  Communication Equipment:
+    gics_sector: Information Technology
+    gics_industry_group: Technology Hardware & Equipment
+    gics_sub_industry: Communications Equipment
+  Computer Hardware:
+    gics_sector: Information Technology
+    gics_industry_group: Technology Hardware & Equipment
+    gics_sub_industry: "Technology Hardware, Storage & Peripherals"
+  Consumer Electronics:
+    gics_sector: Consumer Discretionary
+    gics_industry_group: Consumer Durables & Apparel
+    gics_sub_industry: Consumer Electronics
+  Electronic Components:
+    gics_sector: Information Technology
+    gics_industry_group: Technology Hardware & Equipment
+    gics_sub_industry: Electronic Manufacturing Services
+  Electronics & Computer Distribution:
+    gics_sector: Information Technology
+    gics_industry_group: Technology Hardware & Equipment
+    gics_sub_industry: Technology Distributors
+  Information Technology Services:
+    gics_sector: Information Technology
+    gics_industry_group: Software & Services
+    gics_sub_industry: IT Consulting & Other Services
+  Scientific & Technical Instruments:
+    gics_sector: Information Technology
+    gics_industry_group: Technology Hardware & Equipment
+    gics_sub_industry: Electronic Equipment & Instruments
+  Semiconductor Equipment & Materials:
+    gics_sector: Information Technology
+    gics_industry_group: Semiconductors & Semiconductor Equipment
+    gics_sub_industry: Semiconductor Materials & Equipment
+  Semiconductors:
+    gics_sector: Information Technology
+    gics_industry_group: Semiconductors & Semiconductor Equipment
+    gics_sub_industry: Semiconductors
+  "Software\u2014Application":
+    gics_sector: Information Technology
+    gics_industry_group: Software & Services
+    gics_sub_industry: Application Software
+  "Software\u2014Infrastructure":
+    gics_sector: Information Technology
+    gics_industry_group: Software & Services
+    gics_sub_industry: Systems Software
+  Solar:
+    gics_sector: Utilities
+    gics_industry_group: Utilities
+    gics_sub_industry: Renewable Electricity
+
+  # Utilities (6)
+  "Utilities\u2014Diversified":
+    gics_sector: Utilities
+    gics_industry_group: Utilities
+    gics_sub_industry: Multi-Utilities
+  "Utilities\u2014Independent Power Producers":
+    gics_sector: Utilities
+    gics_industry_group: Utilities
+    gics_sub_industry: Independent Power Producers & Energy Traders
+  "Utilities\u2014Regulated Electric":
+    gics_sector: Utilities
+    gics_industry_group: Utilities
+    gics_sub_industry: Electric Utilities
+  "Utilities\u2014Regulated Gas":
+    gics_sector: Utilities
+    gics_industry_group: Utilities
+    gics_sub_industry: Gas Utilities
+  "Utilities\u2014Regulated Water":
+    gics_sector: Utilities
+    gics_industry_group: Utilities
+    gics_sub_industry: Water Utilities
+  "Utilities\u2014Renewable":
+    gics_sector: Utilities
+    gics_industry_group: Utilities
+    gics_sub_industry: Renewable Electricity

@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "arelle-release>=2.36.0",
-    "boto3>=1.42.14",
+
     "dotenv>=0.9.9",
     "lxml>=6.0.2",
     "polars>=1.36.1",
@@ -22,7 +22,7 @@ dependencies = [
 
 [project.scripts]
 quantdl-storage = "quantdl.storage.cli:main"
-quantdl-export-security-master = "quantdl.master.cli:main"
+qdl-master = "quantdl.master.cli:main"
 
 [tool.uv]
 package = true

@@ -78,7 +78,7 @@ class TestCIKResolver:
         security_master = Mock()
         security_master.get_security_id.return_value = "sid_1"
         security_master.master_tb = self._make_master_tb("sid_1", 320193)
-        security_master._fetch_sec_cik_mapping.return_value = pl.DataFrame(
+        security_master._fetch_sec_exchange_mapping.return_value = pl.DataFrame(
             {"ticker": ["AAPL"], "cik": ["0000320193"]}
         )
 
@@ -94,7 +94,7 @@ class TestCIKResolver:
         security_master = Mock()
         security_master.get_security_id.return_value = "sid_1"
         security_master.master_tb = self._make_master_tb("sid_1", 320193)
-        security_master._fetch_sec_cik_mapping.side_effect = RuntimeError("sec down")
+        security_master._fetch_sec_exchange_mapping.side_effect = RuntimeError("sec down")
 
         logger = Mock()
         resolver = CIKResolver(security_master=security_master, logger=logger)

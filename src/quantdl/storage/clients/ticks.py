@@ -12,7 +12,6 @@ import datetime as dt
 from typing import Optional, Dict, Tuple
 import polars as pl
 import logging
-from botocore.exceptions import ClientError
 from quantdl.storage.utils import NoSuchKeyError
 
 from quantdl.master.security_master import SecurityMaster
@@ -32,13 +31,11 @@ class TicksClient:
 
     def __init__(
         self,
-        s3_client,
-        bucket_name: str,
+        storage_client,
         security_master: SecurityMaster,
         logger: Optional[logging.Logger] = None
     ):
-        self.s3_client = s3_client
-        self.bucket_name = bucket_name
+        self.storage_client = storage_client
         self.security_master = security_master
         self.logger = logger or logging.getLogger(__name__)
 
@@ -104,12 +101,12 @@ class TicksClient:
         end_date: Optional[str] = None
     ) -> pl.DataFrame:
         """Fetch data from single ticks.parquet file."""
-        s3_key = f"data/raw/ticks/daily/{security_id}/ticks.parquet"
+        key = f"data/raw/ticks/daily/{security_id}/ticks.parquet"
 
         try:
-            response = self.s3_client.get_object(
-                Bucket=self.bucket_name,
-                Key=s3_key
+            response = self.storage_client.get_object(
+                Bucket='',
+                Key=key
             )
             df = pl.read_parquet(response['Body'])
 
@@ -118,14 +115,11 @@ class TicksClient:
 
             return df
 
-        except (ClientError, NoSuchKeyError) as e:
-            if e.response['Error']['Code'] == 'NoSuchKey':
-                raise ValueError(
-                    f"No data found for security_id={security_id}. "
-                    f"Check if data has been uploaded."
-                )
-            else:
-                raise
+        except NoSuchKeyError:
+            raise ValueError(
+                f"No data found for security_id={security_id}. "
+                f"Check if data has been uploaded."
+            )
 
     def _apply_date_filter(
         self,

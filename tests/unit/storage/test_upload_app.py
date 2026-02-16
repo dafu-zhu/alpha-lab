@@ -9,7 +9,7 @@ import datetime as dt
 import logging
 import os
 import polars as pl
-from botocore.exceptions import ClientError
+from quantdl.storage.utils import NoSuchKeyError
 
 
 def _make_app():
@@ -19,14 +19,9 @@ def _make_app():
     app = UploadApp.__new__(UploadApp)
     app.logger = Mock()
 
-    # Mock S3 client - simulate no progress file exists
+    # Mock storage client - simulate no progress file exists
     app.client = Mock()
-    error_response = {'Error': {'Code': 'NoSuchKey', 'Message': 'Not Found'}}
-    app.client.get_object.side_effect = ClientError(error_response, 'GetObject')
-
-    # Mock config
-    app.config = Mock()
-    app.config.bucket = 'test-bucket'
+    app.client.get_object.side_effect = NoSuchKeyError('bucket', 'key')
 
     # Mock dependencies
     app.validator = Mock()
@@ -61,16 +56,15 @@ class TestUploadAppInitialization:
     @patch('quantdl.storage.app.Ticks')
     @patch('quantdl.storage.app.Validator')
     @patch('quantdl.storage.app.setup_logger')
-    @patch('quantdl.storage.app.S3Client')
-    @patch('quantdl.storage.app.UploadConfig')
+    @patch('quantdl.storage.app.StorageClient')
     @patch.dict('os.environ', {
         'ALPACA_API_KEY': 'test_key',
-        'ALPACA_API_SECRET': 'test_secret'
+        'ALPACA_API_SECRET': 'test_secret',
+        'LOCAL_STORAGE_PATH': '/tmp/test-storage'
     })
     def test_initialization(
         self,
-        mock_config,
-        mock_s3_client,
+        mock_storage_client,
         mock_logger,
         mock_validator,
         mock_ticks,
@@ -85,20 +79,15 @@ class TestUploadAppInitialization:
         """Test UploadApp constructor wiring and defaults."""
         from quantdl.storage.app import UploadApp
 
-        mock_config_instance = Mock()
-        mock_config.return_value = mock_config_instance
-
-        mock_s3_instance = Mock()
-        mock_s3_instance.client = Mock()
-        mock_s3_client.return_value = mock_s3_instance
+        mock_storage_instance = Mock()
+        mock_storage_client.return_value = mock_storage_instance
 
         mock_logger_instance = Mock()
         mock_logger.return_value = mock_logger_instance
 
         app = UploadApp(start_year=2017)
 
-        assert app.config == mock_config_instance
-        assert app.client == mock_s3_instance.client
+        assert app.client == mock_storage_instance
         assert app.logger == mock_logger_instance
         assert app.validator == mock_validator.return_value
         assert app.alpaca_ticks == mock_ticks.return_value
@@ -309,8 +298,6 @@ class TestUploadAppHandlerFactories:
 
         MockHandler.assert_called_once()
         call_kwargs = MockHandler.call_args[1]
-        assert call_kwargs['s3_client'] == app.client
-        assert call_kwargs['bucket_name'] == 'test-bucket'
         assert call_kwargs['data_publishers'] == app.data_publishers
         assert call_kwargs['logger'] == app.logger
 

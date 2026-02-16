@@ -6,13 +6,15 @@ import polars as pl
 import datetime as dt
 from io import BytesIO
 
+from quantdl.storage.utils import NoSuchKeyError
+
 
 class TestTicksClient:
     """Tests for TicksClient class."""
 
     @pytest.fixture
-    def mock_s3_client(self):
-        """Create mock S3 client."""
+    def mock_storage_client(self):
+        """Create mock storage client."""
         return Mock()
 
     @pytest.fixture
@@ -23,27 +25,24 @@ class TestTicksClient:
         return mock
 
     @pytest.fixture
-    def ticks_client(self, mock_s3_client, mock_security_master):
+    def ticks_client(self, mock_storage_client, mock_security_master):
         """Create TicksClient with mocked dependencies."""
         from quantdl.storage.clients.ticks import TicksClient
         return TicksClient(
-            s3_client=mock_s3_client,
-            bucket_name='test-bucket',
+            storage_client=mock_storage_client,
             security_master=mock_security_master
         )
 
-    def test_init_sets_attributes(self, mock_s3_client, mock_security_master):
+    def test_init_sets_attributes(self, mock_storage_client, mock_security_master):
         """Test that __init__ sets all attributes correctly."""
         from quantdl.storage.clients.ticks import TicksClient
 
         client = TicksClient(
-            s3_client=mock_s3_client,
-            bucket_name='my-bucket',
+            storage_client=mock_storage_client,
             security_master=mock_security_master
         )
 
-        assert client.s3_client is mock_s3_client
-        assert client.bucket_name == 'my-bucket'
+        assert client.storage_client is mock_storage_client
         assert client.security_master is mock_security_master
         assert client._cache == {}
 
@@ -145,7 +144,7 @@ class TestTicksClient:
             mock_resolve.assert_called_once_with('AAPL', 2024)
             mock_fetch.assert_called_once_with(123, None, None)
 
-    def test_get_daily_ticks_history_uses_end_date_year(self, ticks_client, mock_s3_client):
+    def test_get_daily_ticks_history_uses_end_date_year(self, ticks_client, mock_storage_client):
         """Test that get_daily_ticks_history uses end_date year for resolution."""
         # Create parquet data in memory
         df = pl.DataFrame({
@@ -156,7 +155,7 @@ class TestTicksClient:
         df.write_parquet(buffer)
         buffer.seek(0)
 
-        mock_s3_client.get_object.return_value = {'Body': buffer}
+        mock_storage_client.get_object.return_value = {'Body': buffer}
 
         with patch.object(ticks_client, '_resolve_symbol') as mock_resolve:
             mock_resolve.return_value = 123
@@ -165,7 +164,7 @@ class TestTicksClient:
 
             mock_resolve.assert_called_once_with('AAPL', 2023)
 
-    def test_fetch_by_security_id_reads_single_file(self, ticks_client, mock_s3_client):
+    def test_fetch_by_security_id_reads_single_file(self, ticks_client, mock_storage_client):
         """Test _fetch_by_security_id reads single ticks.parquet file."""
         df = pl.DataFrame({
             'timestamp': ['2024-01-15', '2024-06-15'],
@@ -175,12 +174,12 @@ class TestTicksClient:
         df.write_parquet(buffer)
         buffer.seek(0)
 
-        mock_s3_client.get_object.return_value = {'Body': buffer}
+        mock_storage_client.get_object.return_value = {'Body': buffer}
 
         result = ticks_client._fetch_by_security_id(123)
 
-        mock_s3_client.get_object.assert_called_once_with(
-            Bucket='test-bucket',
+        mock_storage_client.get_object.assert_called_once_with(
+            Bucket='',
             Key='data/raw/ticks/daily/123/ticks.parquet'
         )
         assert len(result) == 2
@@ -190,8 +189,8 @@ class TestTicksClientErrors:
     """Tests for TicksClient error handling."""
 
     @pytest.fixture
-    def mock_s3_client(self):
-        """Create mock S3 client."""
+    def mock_storage_client(self):
+        """Create mock storage client."""
         return Mock()
 
     @pytest.fixture
@@ -202,31 +201,24 @@ class TestTicksClientErrors:
         return mock
 
     @pytest.fixture
-    def ticks_client(self, mock_s3_client, mock_security_master):
+    def ticks_client(self, mock_storage_client, mock_security_master):
         """Create TicksClient with mocked dependencies."""
         from quantdl.storage.clients.ticks import TicksClient
         return TicksClient(
-            s3_client=mock_s3_client,
-            bucket_name='test-bucket',
+            storage_client=mock_storage_client,
             security_master=mock_security_master
         )
 
-    def test_fetch_by_security_id_raises_on_no_such_key(self, ticks_client, mock_s3_client):
+    def test_fetch_by_security_id_raises_on_no_such_key(self, ticks_client, mock_storage_client):
         """Test that _fetch_by_security_id raises ValueError on missing data."""
-        from botocore.exceptions import ClientError
-
-        error_response = {'Error': {'Code': 'NoSuchKey', 'Message': 'Not found'}}
-        mock_s3_client.get_object.side_effect = ClientError(error_response, 'GetObject')
+        mock_storage_client.get_object.side_effect = NoSuchKeyError('bucket', 'key')
 
         with pytest.raises(ValueError, match="No data found"):
             ticks_client._fetch_by_security_id(123)
 
-    def test_get_daily_ticks_history_raises_on_missing(self, ticks_client, mock_s3_client):
+    def test_get_daily_ticks_history_raises_on_missing(self, ticks_client, mock_storage_client):
         """Test that get_daily_ticks_history raises ValueError on missing data."""
-        from botocore.exceptions import ClientError
-
-        error_response = {'Error': {'Code': 'NoSuchKey', 'Message': 'Not found'}}
-        mock_s3_client.get_object.side_effect = ClientError(error_response, 'GetObject')
+        mock_storage_client.get_object.side_effect = NoSuchKeyError('bucket', 'key')
 
         with pytest.raises(ValueError, match="No data found"):
             ticks_client.get_daily_ticks_history('AAPL')

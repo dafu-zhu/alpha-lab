@@ -31,19 +31,3 @@ class TestGetHistUniverseLocal:
 
         with pytest.raises(FileNotFoundError, match="No security master found"):
             historical.get_hist_universe_local(2024)
-
-
-class TestCrspWithoutWrds:
-    def test_crsp_raises_import_error(self):
-        """get_hist_universe_crsp raises ImportError without wrds."""
-        from quantdl.universe.historical import get_hist_universe_crsp, HAS_WRDS
-        if not HAS_WRDS:
-            with pytest.raises(ImportError, match="wrds package"):
-                get_hist_universe_crsp(2024)
-
-    def test_nasdaq_raises_import_error(self):
-        """get_hist_universe_nasdaq raises ImportError without wrds."""
-        from quantdl.universe.historical import get_hist_universe_nasdaq, HAS_WRDS
-        if not HAS_WRDS:
-            with pytest.raises(ImportError, match="wrds package"):
-                get_hist_universe_nasdaq(2024)

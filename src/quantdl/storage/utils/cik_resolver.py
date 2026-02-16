@@ -58,7 +58,7 @@ class CIKResolver:
         # For 2025+, prefer SEC official mapping (current snapshot)
         if (year is not None and year >= 2025) or date_year >= 2025:
             try:
-                sec_map = self.security_master._fetch_sec_cik_mapping()
+                sec_map = self.security_master._fetch_sec_exchange_mapping()
                 sec_match = sec_map.filter(pl.col('ticker') == crsp_symbol).select('cik').head(1)
                 if not sec_match.is_empty():
                     return sec_match.item()

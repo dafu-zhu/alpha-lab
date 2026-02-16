@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-US Equity Data Lake: Self-hosted, automated market data infrastructure for US equities using official/authoritative sources. Data stored in flat-file structure on AWS S3.
+US Equity Data Lake: Self-hosted, automated market data infrastructure for US equities using official/authoritative sources. Data stored in flat-file structure on local filesystem.
 
 **Data Coverage:**
 - Daily ticks (OHLCV): Alpaca API (2017+)
@@ -19,10 +19,8 @@ uv sync
 
 # Required .env variables (see .env.example):
 # ALPACA_API_KEY, ALPACA_API_SECRET (for ticks)
-# AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY (for S3)
 # SEC_USER_AGENT (for EDGAR API, e.g., your_name@example.com)
-# STORAGE_BACKEND=s3|local (default: s3)
-# LOCAL_STORAGE_PATH=/path/to/data (required if STORAGE_BACKEND=local)
+# LOCAL_STORAGE_PATH=/path/to/data (required)
 ```
 
 **No linting/formatting tools configured.** Style enforcement is manual.
@@ -51,9 +49,8 @@ uv run quantdl-storage --run-top-3000
 uv run quantdl-storage --run-daily-ticks --overwrite --daily-chunk-size 100 --daily-sleep-time 0.5
 uv run quantdl-storage --run-fundamental --max-workers 25
 
-# Security master export
-uv run quantdl-export-security-master --export
-uv run quantdl-export-security-master --export --force-rebuild  # skip S3 cache
+# Security master operations
+uv run qdl-master --build    # Copy source parquet → working + update from SEC/Nasdaq/OpenFIGI/yfinance
 ```
 
 ## Architecture
@@ -67,10 +64,9 @@ uv run quantdl-export-security-master --export --force-rebuild  # skip S3 cache
 
 **2. Storage Layer** (`src/quantdl/storage/`)
 - `pipeline/collectors.py`: Collects data from sources, handles rate limiting
-- `pipeline/publishers.py`: Publishes collected data to S3 in Parquet format
+- `pipeline/publishers.py`: Publishes collected data to local storage in Parquet format
 - `pipeline/validation.py`: Validates uploaded data completeness
-- `clients/s3.py`: S3 client wrapper with retry logic
-- `clients/local.py`: `LocalStorageClient` — duck-typed boto3 S3 client for local filesystem (metadata in sidecar `.{filename}.metadata.json`)
+- `clients/local.py`: `LocalStorageClient` (aliased as `StorageClient`) — duck-typed boto3 S3 client for local filesystem (metadata in sidecar `.{filename}.metadata.json`)
 - `clients/ticks.py`: `TicksClient` — symbol-based query API with transparent security_id resolution
 - `handlers/ticks.py`: `DailyTicksHandler` — orchestrates daily tick uploads per year
 - `handlers/fundamental.py`: `FundamentalHandler` — orchestrates fundamental uploads with CIK resolution
@@ -80,14 +76,20 @@ uv run quantdl-export-security-master --export --force-rebuild  # skip S3 cache
 
 **3. Universe Management** (`src/quantdl/universe/`)
 - `current.py`: Fetches current stock universe from Nasdaq Trader
-- `historical.py`: Historical universe from local security master (CRSP functions available if wrds installed)
+- `historical.py`: Historical universe from local security master parquet
 - `manager.py`: Manages universe state, handles symbol changes
 
 **4. Security Master** (`src/quantdl/master/`)
 - `security_master.py`: Tracks stocks across symbol changes, mergers, delistings
-  - Loading sequence: Local parquet → S3 → WRDS (if wrds installed)
-  - Local parquet at `data/meta/master/security_master.parquet` (checked into repo)
+  - Loads from local parquet only (no WRDS dependency at runtime)
+  - Source parquet at `data/meta/master/security_master.parquet` (git-tracked)
+  - Working copy at `$LOCAL_STORAGE_PATH/data/meta/master/security_master.parquet`
+  - Constructor: `SecurityMaster(local_path=None)` — raises FileNotFoundError if missing
+  - Single `update()` method: SEC exchange mapping → Nasdaq universe → OpenFIGI rebrand detection → yfinance GICS classification
+  - Schema: security_id, permno, symbol, company, cik, start_date, end_date, exchange, sector, industry, subindustry
 - Contains `SymbolNormalizer` for deterministic ticker format conversion
+- `configs/morningstar_to_gics.yaml`: Maps yfinance (Morningstar) sector/industry → GICS classification
+- `scripts/build_security_master.py` (gitignored): Standalone WRDS build with Compustat GICS
 
 **5. Feature Pipeline** (`src/quantdl/features/`)
 - `registry.py`: Central field registry (FieldSpec, ALL_FIELDS, VALID_FIELD_NAMES, get_build_order)
@@ -105,28 +107,30 @@ uv run quantdl-export-security-master --export --force-rebuild  # skip S3 cache
 ### Data Flow
 
 ```
-Data Sources → Collection → Validation → S3 Storage
+Data Sources → Collection → Validation → Local Storage
 ```
 
 **Upload Flow:**
 1. `UploadApp` fetches universe from Nasdaq FTP (current) or local security master (historical)
 2. `DataCollectors` fetch data from sources (Alpaca, SEC)
-3. `DataPublishers` write Parquet files to S3
+3. `DataPublishers` write Parquet files to local storage
 4. `Validator` checks completeness
 
 ### Storage Paths
 
 ```
-data/
-├── meta/
-│   ├── master/
-│   │   ├── calendar_master.parquet
-│   │   └── security_master.parquet
-│   └── universe/{YYYY}/{MM}/top3000.txt
-├── raw/
-│   ├── ticks/daily/{security_id}/ticks.parquet
-│   └── fundamental/{security_id}/fundamental.parquet
-└── features/{field}.arrow                          ← Arrow IPC wide tables
+$LOCAL_STORAGE_PATH/
+├── data/
+│   ├── meta/
+│   │   ├── master/
+│   │   │   ├── calendar_master.parquet
+│   │   │   ├── security_master.parquet
+│   │   │   └── prev_universe.json
+│   │   └── universe/{YYYY}/{MM}/top3000.txt
+│   ├── raw/
+│   │   ├── ticks/daily/{security_id}/ticks.parquet
+│   │   └── fundamental/{security_id}/fundamental.parquet
+│   └── features/{field}.arrow                          ← Arrow IPC wide tables
 ```
 
 **Storage Strategy:**
@@ -146,7 +150,7 @@ data/
 **2. CIK for SEC Collection**
 - CIK codes still required for SEC EDGAR API calls (collection layer)
 - `CIKResolver` maps tickers to CIKs using SEC company tickers JSON
-- CIK stored in S3 object metadata alongside symbol
+- CIK stored in local metadata alongside symbol
 
 **3. Symbol Normalization**
 - `SymbolNormalizer` converts between symbol formats (e.g., BRKB → BRK.B)
@@ -163,7 +167,7 @@ data/
 ```
 tests/
 ├── unit/          # Fast, isolated tests (mocked external calls)
-├── integration/   # Tests with real S3/SEC (slower)
+├── integration/   # Tests with real storage/SEC (slower)
 └── conftest.py    # Shared fixtures, auto-marks unit/integration
 ```
 
@@ -185,11 +189,6 @@ tests/
 - Maps standardized field names to XBRL tags (SEC EDGAR)
 - Used by `fundamental.py` to extract XBRL concepts
 - Multiple candidate tags per concept (handles deprecated tags)
-
-**configs/storage.yaml**
-- S3 client tuning: region, pool connections, timeouts, retry config
-- Transfer config: multipart thresholds, concurrency
-- Security master: S3 key (`data/meta/master/security_master.parquet`), auto-export, staleness threshold
 
 **DURATION_CONCEPTS (fundamental.py)**
 - Duration concepts (income statement): rev, net_inc, cfo, etc.
@@ -242,6 +241,9 @@ Secrets documented in `.github/SECRETS.md`.
 
 ## Utility Scripts
 
+**Note:** `scripts/` is gitignored. These are one-time/utility scripts not needed at runtime.
+
+- `scripts/build_security_master.py`: Standalone WRDS build → source parquet (Compustat GICS, exchange codes)
 - `scripts/xbrl_tag_factory.py`: XBRL tag harvesting, outputs `configs/mapping_suggestions.yaml`
 - `scripts/generate_monthly_top3000.py`: Top 3000 universe per month (liquidity-ranked)
 - `scripts/test_local_storage.py`: Tests `LocalStorageClient` filesystem backend
@@ -252,7 +254,6 @@ Secrets documented in `.github/SECRETS.md`.
 
 Key libraries:
 - **polars**: DataFrame processing (faster than pandas for large datasets)
-- **boto3**: AWS S3 client
 - **requests**: HTTP client for Alpaca, SEC EDGAR
 - **pytest**: Testing framework
 - **pyarrow**: Parquet I/O
@@ -261,6 +262,5 @@ Key libraries:
 
 - Daily ticks: ~1.2 GB for 5000 symbols × 15 years
 - Fundamentals: ~7.5 GB for 5000 symbols × 15 years
-- S3 costs: ~$7/month storage + API request costs
-- Use threading for I/O-bound operations (S3 reads/writes)
+- Use threading for I/O-bound operations (local reads/writes)
 - Rate limiting: Alpaca API (200 symbols/batch), SEC EDGAR (10 req/sec limit)
