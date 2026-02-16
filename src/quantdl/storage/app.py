@@ -124,7 +124,7 @@ class UploadApp:
         from quantdl.storage.handlers.features import FeaturesHandler
         from quantdl.features.builder import FeatureBuilder
         feature_builder = FeatureBuilder(
-            data_path=".",
+            data_path=str(self.client.base_path),
             security_master=self.security_master,
             logger=self.logger,
         )

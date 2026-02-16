@@ -81,6 +81,22 @@ class TradingCalendar:
 
         return [d.strftime('%Y-%m-%d') for d in df['timestamp'].to_list()]
 
+    def get_trading_days(self, start: dt.date, end: dt.date) -> List[dt.date]:
+        """
+        Get sorted list of trading days in a date range.
+
+        :param start: Start date (inclusive)
+        :param end: End date (inclusive)
+        :return: Sorted list of trading day dates
+        """
+        df = (
+            pl.scan_parquet(self.calendar_path)
+            .filter(pl.col('timestamp').is_between(start, end))
+            .select('timestamp')
+            .collect()
+        )
+        return sorted(df['timestamp'].to_list())
+
     def is_trading_day(self, date: dt.date) -> bool:
         """
         Check if a given date is a trading day.
