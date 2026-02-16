@@ -95,7 +95,7 @@ This project is under active development toward a full local WorldQuant BRAIN ex
 
 - [x] **Data engine** — 66 data fields from Alpaca + SEC EDGAR, survivorship-bias-free
 - [x] **Alpha engine** — 68 operators, WQ-style expression parser, auto-field loading
-- [ ] **Backtest engine** — Simulate and evaluate alphas against WQ BRAIN submission criteria: Sharpe > 1.25, Fitness > 1, 1% < Turnover < 70%, sub-universe Sharpe > 0.51, weight well-distributed over instruments ([how to improve Sharpe](https://support.worldquantbrain.com/hc/en-us/articles/20251383456663-How-to-improve-Sharpe))
+- [ ] **Backtest engine** — Simulate and evaluate alphas against WQ BRAIN submission criteria: Sharpe > 1.25, Fitness > 1, 1% < Turnover < 70%, sub-universe Sharpe >= 0.75 * sqrt(sub_size / alpha_size) * alpha_Sharpe, weight well-distributed over instruments ([Sharpe](https://support.worldquantbrain.com/hc/en-us/articles/20251383456663-How-to-improve-Sharpe), [sub-universe cutoff](https://support.worldquantbrain.com/hc/en-us/articles/6568644868375-How-do-I-resolve-this-error-Sub-universe-Sharpe-NaN-is-not-above-cutoff))
 - [ ] **WQ field translation** — Auto-translate local expressions to WQ BRAIN field names for direct copy-paste submission
 - [ ] **More operators** — Expand operator coverage toward full WQ BRAIN parity
 - [ ] **More data fields** — Short interest, analyst estimates, ETF holdings, options-derived
