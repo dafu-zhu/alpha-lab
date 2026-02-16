@@ -165,7 +165,7 @@ This project is under active development toward a full local WorldQuant BRAIN ex
 - [x] **Alpha engine** — 80+ operators, WQ-style expression parser, auto-field loading
 - [ ] **Backtest engine** — Simulate alpha PnL, Sharpe, turnover, drawdown, and fitness metrics ([WQ reference](https://platform.worldquantbrain.com/learn/documentation/interpret-results/alpha-submission))
 - [ ] **Alpha diagnostics** — Decay analysis, correlation matrix, self-correlation
-- [ ] **WQ field mapping API** — Programmatic mapping between local field names and WQ BRAIN field IDs
+- [ ] **WQ field translation** — Auto-translate local alpha expressions to WQ BRAIN field names for direct copy-paste submission
 - [ ] **More data fields** — Short interest, analyst estimates, ETF holdings, options-derived
 - [ ] **Multi-region support** — Extend beyond US equities
 
