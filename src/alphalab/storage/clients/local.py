@@ -67,7 +67,7 @@ class LocalStorageClient:
 
         :param base_path: Root directory for all storage operations
         """
-        self.base_path = Path(base_path)
+        self.base_path = Path(os.path.expanduser(base_path))
         self.base_path.mkdir(parents=True, exist_ok=True)
 
     def _key_to_path(self, key: str) -> Path:
