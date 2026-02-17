@@ -67,6 +67,8 @@ Or pick what you need: `--ticks`, `--fundamental`, `--top-3000`, `--features`. S
 ### Research
 
 ```python
+from alphalab.api import AlphaLabClient, dsl
+
 client = AlphaLabClient(data_path="/path/to/your/data")
 
 # Look up any symbol (resolves across ticker changes)
@@ -77,6 +79,9 @@ client.get("close", symbols=["AAPL", "MSFT"], start="2024-01-01")
 
 # Alpha expressions — same syntax as WorldQuant BRAIN
 client.query("rank(-ts_delta(close, 5))")
+
+# Standalone DSL for custom data
+result = dsl.compute("rank(x - y)", x=my_close_df, y=my_vwap_df)
 ```
 
 ## Documentation
