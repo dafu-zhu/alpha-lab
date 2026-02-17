@@ -38,20 +38,20 @@ uv run pytest -n auto               # Parallel execution
 ### Data Operations
 ```bash
 # Build security master + calendar
-alab --master
+uv run alab --master
 
 # Full backfill (master + all data types)
-alab --all --start 2017 --end 2025
+uv run alab --all --start 2017 --end 2025
 
 # Download specific data types
-alab --ticks
-alab --fundamental
-alab --top-3000
-alab --features
+uv run alab --ticks
+uv run alab --fundamental
+uv run alab --top-3000
+uv run alab --features
 
 # With options
-alab --ticks --overwrite --daily-chunk-size 100 --daily-sleep-time 0.5
-alab --fundamental --max-workers 25
+uv run alab --ticks --overwrite --daily-chunk-size 100 --daily-sleep-time 0.5
+uv run alab --fundamental --max-workers 25
 ```
 
 ## Architecture

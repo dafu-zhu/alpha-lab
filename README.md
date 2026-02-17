@@ -58,8 +58,8 @@ Please find more about the environment variables in [`.env.example`](.env.exampl
 ### Build & Download
 
 ```bash
-alab --master                         # Build security master + calendar
-alab --all --start 2017 --end 2025    # Download everything (~45 min first run)
+uv run alab --master                         # Build security master + calendar
+uv run alab --all --start 2017 --end 2025    # Download everything (~45 min first run)
 ```
 
 Or pick what you need: `--ticks`, `--fundamental`, `--top-3000`, `--features`. See the [CLI reference](docs/CLI.md) for all options.

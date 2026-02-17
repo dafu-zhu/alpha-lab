@@ -1,7 +1,7 @@
 # CLI Reference
 
 ```
-alab [OPTIONS]
+uv run alab [OPTIONS]
 ```
 
 ## Commands
@@ -30,20 +30,20 @@ alab [OPTIONS]
 
 ```bash
 # Full setup from scratch
-alab --master
-alab --all --start 2017 --end 2025
+uv run alab --master
+uv run alab --all --start 2017 --end 2025
 
 # Update only prices for current year
-alab --ticks --start 2025 --end 2025
+uv run alab --ticks --start 2025 --end 2025
 
 # Rebuild feature tables after new data
-alab --features
+uv run alab --features
 
 # Force re-download fundamentals
-alab --fundamental --overwrite
+uv run alab --fundamental --overwrite
 
 # Slower API calls (if rate limited)
-alab --ticks --daily-chunk-size 50 --daily-sleep-time 1.0
+uv run alab --ticks --daily-chunk-size 50 --daily-sleep-time 1.0
 ```
 
 ## Environment Variables
