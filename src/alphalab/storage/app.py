@@ -34,7 +34,7 @@ class UploadApp:
 
     def __init__(self, start_year: int = 2017):
         # Core infrastructure
-        local_path = os.getenv('LOCAL_STORAGE_PATH')
+        local_path = os.path.expanduser(os.getenv('LOCAL_STORAGE_PATH', ''))
         if not local_path:
             raise ValueError(
                 "LOCAL_STORAGE_PATH environment variable required"

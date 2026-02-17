@@ -23,7 +23,7 @@ _SOURCE_MASTER_PATH = Path(__file__).resolve().parent.parent / "data" / "securit
 
 # Default local path for security master parquet
 # Prefer working copy under LOCAL_STORAGE_PATH, fall back to bundled source
-_storage_base = os.getenv("LOCAL_STORAGE_PATH", "")
+_storage_base = os.path.expanduser(os.getenv("LOCAL_STORAGE_PATH", ""))
 if _storage_base:
     LOCAL_MASTER_PATH = Path(os.path.expanduser(_storage_base)) / "data" / "meta" / "master" / "security_master.parquet"
 else:
