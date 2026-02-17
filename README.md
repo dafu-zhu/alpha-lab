@@ -25,6 +25,10 @@ trade_when(regime, 2*fundamental + timing, -1)
 
 You can find more about the API in the [API reference](docs/API.md), and the full expression syntax in the [expression guide](docs/ALPHA-GUIDE.md).
 
+## Architecture
+
+![AlphaLab API Architecture](assets/image/dsl-architecture.svg)
+
 ## Features
 
 - **68 operators** across time-series, cross-sectional, group, arithmetic, logical, and transformational categories — aligned with [WQ BRAIN conventions](https://platform.worldquantbrain.com/learn/documentation/discover-brain/operators-702). Full reference in [docs/OPERATORS.md](docs/OPERATORS.md).
