@@ -388,15 +388,14 @@ def _evaluate(
     # Normalize indentation for multi-line strings
     expr = textwrap.dedent(expr).strip()
 
-    # Use exec mode if expression has assignments or semicolons
-    has_assignment = "=" in expr and "==" not in expr.replace("!=", "").replace("<=", "").replace(">=", "")
-    has_semicolon = ";" in expr
-    mode = "exec" if (has_assignment or has_semicolon) else "eval"
-
+    # Try eval mode first (single expression), fall back to exec mode (statements)
     try:
-        tree = ast.parse(expr, mode=mode)
-    except SyntaxError as e:
-        raise AlphaParseError(f"Invalid expression syntax: {e}") from e
+        tree = ast.parse(expr, mode="eval")
+    except SyntaxError:
+        try:
+            tree = ast.parse(expr, mode="exec")
+        except SyntaxError as e:
+            raise AlphaParseError(f"Invalid expression syntax: {e}") from e
 
     eval_vars: dict[str, Any] = dict(variables)
     if ops is not None:

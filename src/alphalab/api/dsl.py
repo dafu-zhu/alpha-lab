@@ -7,15 +7,10 @@ Example:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import polars as pl
 
 from alphalab.api import operators
 from alphalab.alpha.parser import _evaluate
-
-if TYPE_CHECKING:
-    pass
 
 
 def compute(expr: str, **variables: pl.DataFrame) -> pl.DataFrame:
