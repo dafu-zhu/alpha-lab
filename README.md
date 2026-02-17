@@ -58,8 +58,8 @@ Please find more about the environment variables in [`.env.example`](.env.exampl
 ### Build & Download
 
 ```bash
-uv run al --master                         # Build security master + calendar
-uv run al --all --start 2017 --end 2025    # Download everything (~45 min first run)
+alab --master                         # Build security master + calendar
+alab --all --start 2017 --end 2025    # Download everything (~45 min first run)
 ```
 
 Or pick what you need: `--ticks`, `--fundamental`, `--top-3000`, `--features`. See the [CLI reference](docs/CLI.md) for all options.
@@ -85,7 +85,7 @@ client.query("rank(-ts_delta(close, 5))")
 - [Operators](docs/OPERATORS.md) — Full reference for all 68 operators with signatures
 - [Data Fields](docs/FIELDS.md) — 66 fields with categories and XBRL mappings
 - [Expression Guide](docs/ALPHA-GUIDE.md) — How to write alpha expressions and multi-line queries
-- [CLI Reference](docs/CLI.md) — All `al` command options
+- [CLI Reference](docs/CLI.md) — All `alab` command options
 - [Storage Layout](docs/STORAGE.md) — Directory structure and design decisions
 - [Backtest Criteria](docs/BACKTEST.md) — WQ BRAIN submission requirements (planned)
 - [Testing](tests/README.md) — Test structure, markers, and fixtures

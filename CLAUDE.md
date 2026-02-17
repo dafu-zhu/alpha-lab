@@ -37,20 +37,21 @@ uv run pytest -n auto               # Parallel execution
 
 ### Data Operations
 ```bash
-# Full backfill upload
-uv run al-storage --run-all --start-year 2009 --end-year 2025
+# Build security master + calendar
+alab --master
 
-# Upload specific data types
-uv run al-storage --run-fundamental
-uv run al-storage --run-daily-ticks
-uv run al-storage --run-top-3000
+# Full backfill (master + all data types)
+alab --all --start 2017 --end 2025
+
+# Download specific data types
+alab --ticks
+alab --fundamental
+alab --top-3000
+alab --features
 
 # With options
-uv run al-storage --run-daily-ticks --overwrite --daily-chunk-size 100 --daily-sleep-time 0.5
-uv run al-storage --run-fundamental --max-workers 25
-
-# Security master operations
-uv run al-master --build    # Copy source parquet → working + update from SEC/Nasdaq/OpenFIGI/yfinance
+alab --ticks --overwrite --daily-chunk-size 100 --daily-sleep-time 0.5
+alab --fundamental --max-workers 25
 ```
 
 ## Architecture
@@ -101,8 +102,11 @@ uv run al-master --build    # Copy source parquet → working + update from SEC/
 
 **6. Upload App** (`src/alphalab/storage/`)
 - `app.py`: `UploadApp` orchestrates full backfill uploads
-- `cli.py`: CLI entry point (`al-storage`)
 - `handlers/features.py`: `FeaturesHandler` — builds feature wide tables
+
+**7. Unified CLI** (`src/alphalab/cli.py`)
+- Entry point: `alab` command
+- Commands: `--master`, `--all`, `--ticks`, `--fundamental`, `--top-3000`, `--features`
 
 ### Data Flow
 
