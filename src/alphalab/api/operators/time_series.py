@@ -5,12 +5,163 @@ All operators preserve the wide table structure:
 - Operations applied column-wise to symbol columns
 """
 
+import math
+
 import polars as pl
 
 
 def _get_value_cols(df: pl.DataFrame) -> list[str]:
     """Get value columns (all except first which is date)."""
     return df.columns[1:]
+
+
+# =============================================================================
+# Module-level helper functions (extracted for testability)
+# =============================================================================
+
+
+def _arg_max_fn(s: pl.Series, d: int) -> float | None:
+    """Find days since max in rolling window.
+
+    Args:
+        s: Series of values
+        d: Window size
+
+    Returns:
+        Days since max (0 = today, d-1 = oldest), None if window incomplete
+    """
+    if len(s) < d:
+        return None
+    idx = s.arg_max()
+    if idx is None:
+        return None
+    # Convert to "days since": 0 = today (newest), d-1 = oldest
+    return float((d - 1) - idx)
+
+
+def _arg_min_fn(s: pl.Series, d: int) -> float | None:
+    """Find days since min in rolling window.
+
+    Args:
+        s: Series of values
+        d: Window size
+
+    Returns:
+        Days since min (0 = today, d-1 = oldest), None if window incomplete
+    """
+    if len(s) < d:
+        return None
+    idx = s.arg_min()
+    if idx is None:
+        return None
+    # Convert to "days since": 0 = today (newest), d-1 = oldest
+    return float((d - 1) - idx)
+
+
+def _find_last_diff(s: pl.Series) -> float | None:
+    """Find last value different from current in series.
+
+    Args:
+        s: Series of values
+
+    Returns:
+        Last different value, None if not found or series too short
+    """
+    if len(s) < 2:
+        return None
+    current = s[-1]
+    for i in range(len(s) - 2, -1, -1):
+        if s[i] != current and s[i] is not None:
+            return float(s[i])
+    return None
+
+
+def _inv_norm(p: float) -> float:
+    """Approximate inverse normal CDF (Abramowitz and Stegun approximation).
+
+    Args:
+        p: Probability value in (0, 1)
+
+    Returns:
+        Inverse normal CDF value
+    """
+    if p <= 0:
+        return float("-inf")
+    if p >= 1:
+        return float("inf")
+    # Abramowitz and Stegun approximation
+    a = [
+        -3.969683028665376e01,
+        2.209460984245205e02,
+        -2.759285104469687e02,
+        1.383577518672690e02,
+        -3.066479806614716e01,
+        2.506628277459239e00,
+    ]
+    b = [
+        -5.447609879822406e01,
+        1.615858368580409e02,
+        -1.556989798598866e02,
+        6.680131188771972e01,
+        -1.328068155288572e01,
+    ]
+    c = [
+        -7.784894002430293e-03,
+        -3.223964580411365e-01,
+        -2.400758277161838e00,
+        -2.549732539343734e00,
+        4.374664141464968e00,
+        2.938163982698783e00,
+    ]
+    d_coef = [
+        7.784695709041462e-03,
+        3.224671290700398e-01,
+        2.445134137142996e00,
+        3.754408661907416e00,
+    ]
+    p_low = 0.02425
+    p_high = 1 - p_low
+    if p < p_low:
+        q = math.sqrt(-2 * math.log(p))
+        return (
+            ((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]
+        ) / ((((d_coef[0] * q + d_coef[1]) * q + d_coef[2]) * q + d_coef[3]) * q + 1)
+    elif p <= p_high:
+        q = p - 0.5
+        r = q * q
+        return (
+            ((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]
+        ) * q / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1)
+    else:
+        q = math.sqrt(-2 * math.log(1 - p))
+        return -(
+            ((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]
+        ) / ((((d_coef[0] * q + d_coef[1]) * q + d_coef[2]) * q + d_coef[3]) * q + 1)
+
+
+def _ts_quantile_transform(s: pl.Series, driver: str) -> float | None:
+    """Transform series values using quantile transform.
+
+    Args:
+        s: Series of values
+        driver: "gaussian" or "uniform"
+
+    Returns:
+        Transformed value, None if current is None, 0.0 if single value
+    """
+    vals = s.to_list()
+    current = vals[-1]
+    if current is None:
+        return None
+    sorted_vals = sorted([v for v in vals if v is not None])
+    if len(sorted_vals) <= 1:
+        return 0.0
+    idx = sorted_vals.index(current)
+    rank_pct = (idx + 0.5) / len(sorted_vals)
+    if driver == "gaussian":
+        return _inv_norm(rank_pct)
+    else:  # uniform
+        return rank_pct * 2 - 1
 
 
 def ts_mean(x: pl.DataFrame, d: int) -> pl.DataFrame:
@@ -259,18 +410,9 @@ def ts_arg_max(x: pl.DataFrame, d: int) -> pl.DataFrame:
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
 
-    def arg_max_fn(s: pl.Series) -> float | None:
-        if len(s) < d:
-            return None
-        idx = s.arg_max()
-        if idx is None:
-            return None
-        # Convert to "days since": 0 = today (newest), d-1 = oldest
-        return float((d - 1) - idx)
-
     return x.select(
         pl.col(date_col),
-        *[pl.col(c).rolling_map(arg_max_fn, window_size=d).alias(c) for c in value_cols],
+        *[pl.col(c).rolling_map(lambda s: _arg_max_fn(s, d), window_size=d).alias(c) for c in value_cols],
     )
 
 
@@ -279,18 +421,9 @@ def ts_arg_min(x: pl.DataFrame, d: int) -> pl.DataFrame:
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
 
-    def arg_min_fn(s: pl.Series) -> float | None:
-        if len(s) < d:
-            return None
-        idx = s.arg_min()
-        if idx is None:
-            return None
-        # Convert to "days since": 0 = today (newest), d-1 = oldest
-        return float((d - 1) - idx)
-
     return x.select(
         pl.col(date_col),
-        *[pl.col(c).rolling_map(arg_min_fn, window_size=d).alias(c) for c in value_cols],
+        *[pl.col(c).rolling_map(lambda s: _arg_min_fn(s, d), window_size=d).alias(c) for c in value_cols],
     )
 
 
@@ -322,18 +455,9 @@ def last_diff_value(x: pl.DataFrame, d: int) -> pl.DataFrame:
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
 
-    def find_last_diff(s: pl.Series) -> float | None:
-        if len(s) < 2:
-            return None
-        current = s[-1]
-        for i in range(len(s) - 2, -1, -1):
-            if s[i] != current and s[i] is not None:
-                return float(s[i])
-        return None
-
     return x.select(
         pl.col(date_col),
-        *[pl.col(c).rolling_map(find_last_diff, window_size=d).alias(c) for c in value_cols],
+        *[pl.col(c).rolling_map(_find_last_diff, window_size=d).alias(c) for c in value_cols],
     )
 
 
@@ -522,84 +646,12 @@ def ts_covariance(x: pl.DataFrame, y: pl.DataFrame, d: int) -> pl.DataFrame:
 
 def ts_quantile(x: pl.DataFrame, d: int, driver: str = "gaussian") -> pl.DataFrame:
     """Rolling quantile transform: ts_rank + inverse CDF (partial windows allowed)."""
-    import math
-
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
 
-    def inv_norm(p: float) -> float:
-        """Approximate inverse normal CDF."""
-        if p <= 0:
-            return float("-inf")
-        if p >= 1:
-            return float("inf")
-        # Abramowitz and Stegun approximation
-        a = [
-            -3.969683028665376e01,
-            2.209460984245205e02,
-            -2.759285104469687e02,
-            1.383577518672690e02,
-            -3.066479806614716e01,
-            2.506628277459239e00,
-        ]
-        b = [
-            -5.447609879822406e01,
-            1.615858368580409e02,
-            -1.556989798598866e02,
-            6.680131188771972e01,
-            -1.328068155288572e01,
-        ]
-        c = [
-            -7.784894002430293e-03,
-            -3.223964580411365e-01,
-            -2.400758277161838e00,
-            -2.549732539343734e00,
-            4.374664141464968e00,
-            2.938163982698783e00,
-        ]
-        d_coef = [
-            7.784695709041462e-03,
-            3.224671290700398e-01,
-            2.445134137142996e00,
-            3.754408661907416e00,
-        ]
-        p_low = 0.02425
-        p_high = 1 - p_low
-        if p < p_low:
-            q = math.sqrt(-2 * math.log(p))
-            return (
-                ((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]
-            ) / ((((d_coef[0] * q + d_coef[1]) * q + d_coef[2]) * q + d_coef[3]) * q + 1)
-        elif p <= p_high:
-            q = p - 0.5
-            r = q * q
-            return (
-                ((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]
-            ) * q / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1)
-        else:
-            q = math.sqrt(-2 * math.log(1 - p))
-            return -(
-                ((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]
-            ) / ((((d_coef[0] * q + d_coef[1]) * q + d_coef[2]) * q + d_coef[3]) * q + 1)
-
-    def quantile_transform(s: pl.Series) -> float | None:
-        vals = s.to_list()
-        current = vals[-1]
-        if current is None:
-            return None
-        sorted_vals = sorted([v for v in vals if v is not None])
-        if len(sorted_vals) <= 1:
-            return 0.0
-        idx = sorted_vals.index(current)
-        rank_pct = (idx + 0.5) / len(sorted_vals)
-        if driver == "gaussian":
-            return inv_norm(rank_pct)
-        else:  # uniform
-            return rank_pct * 2 - 1
-
     return x.select(
         pl.col(date_col),
-        *[pl.col(c).rolling_map(quantile_transform, window_size=d, min_samples=1).alias(c) for c in value_cols],
+        *[pl.col(c).rolling_map(lambda s: _ts_quantile_transform(s, driver), window_size=d, min_samples=1).alias(c) for c in value_cols],
     )
 
 
@@ -627,8 +679,6 @@ def ts_regression(
         8 or "stderr_beta": std error of beta
         9 or "stderr_alpha": std error of alpha
     """
-    import math
-
     # Map string rettype to int
     rettype_map = {
         "resid": 0, "residual": 0,

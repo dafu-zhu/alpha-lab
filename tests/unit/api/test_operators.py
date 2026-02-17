@@ -2190,3 +2190,510 @@ class TestCrossSectionalEdgeCases:
         df = pl.DataFrame(data)
         result = rank(df, rate=2)
         assert result.columns == df.columns
+
+
+class TestBucketRankCoverage:
+    """Additional tests for cross_sectional bucket_rank inner function."""
+
+    def test_bucket_rank_all_null(self) -> None:
+        """Test bucket rank with all null values."""
+        import math
+        n_symbols = 40
+        data = {"Date": [date(2024, 1, 1)]}
+        for i in range(n_symbols):
+            data[f"S{i:03d}"] = [None]
+        df = pl.DataFrame(data)
+        result = rank(df, rate=2)
+        # All values should remain null/NaN
+        for col in df.columns[1:]:
+            val = result[col][0]
+            assert val is None or math.isnan(val)
+
+    def test_bucket_rank_with_mixed_null(self) -> None:
+        """Test bucket rank with mix of valid and null values (>32 symbols)."""
+        import math
+        n_symbols = 40
+        data = {"Date": [date(2024, 1, 1)]}
+        for i in range(n_symbols):
+            # Half valid, half null
+            data[f"S{i:03d}"] = [float(i)] if i % 2 == 0 else [None]
+        df = pl.DataFrame(data)
+        result = rank(df, rate=2)
+        # Valid values should be ranked
+        for i in range(n_symbols):
+            col = f"S{i:03d}"
+            val = result[col][0]
+            if i % 2 == 0:  # valid
+                assert val is not None and not math.isnan(val)
+                assert 0.0 <= val <= 1.0
+            else:  # null
+                assert val is None or math.isnan(val)
+
+    def test_bucket_rank_multiple_rows(self) -> None:
+        """Test bucket rank across multiple rows."""
+        n_symbols = 35  # Just above 32 threshold
+        data = {"Date": [date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3)]}
+        for i in range(n_symbols):
+            data[f"S{i:03d}"] = [float(i), float(n_symbols - i - 1), float(i * 2)]
+        df = pl.DataFrame(data)
+        result = rank(df, rate=1)  # Different rate
+        assert result.shape == df.shape
+        # Each row should have values in [0, 1]
+        for row_idx in range(3):
+            for col in df.columns[1:]:
+                val = result[col][row_idx]
+                assert 0.0 <= val <= 1.0
+
+
+class TestTsQuantileInvNormCoverage:
+    """Tests to cover all branches of ts_quantile's inv_norm function."""
+
+    def test_ts_quantile_extreme_low_rank(self) -> None:
+        """Test ts_quantile with very low rank values (triggers p < p_low branch)."""
+        from alphalab.api.operators import ts_quantile
+        from datetime import timedelta
+        # Create 101 rows using multiple months
+        base_date = date(2024, 1, 1)
+        dates = [base_date + timedelta(days=i) for i in range(101)]
+        df = pl.DataFrame({
+            "Date": dates,
+            "A": [0.0] + [float(i) for i in range(1, 101)],  # A has lowest value at start
+        })
+        result = ts_quantile(df, d=100, driver="gaussian")
+        # The smallest value should give a very negative result
+        assert result["A"][-1] is not None
+
+    def test_ts_quantile_extreme_high_rank(self) -> None:
+        """Test ts_quantile with very high rank values (triggers p > p_high branch)."""
+        from alphalab.api.operators import ts_quantile
+        from datetime import timedelta
+        # Create 101 rows using multiple months
+        base_date = date(2024, 1, 1)
+        dates = [base_date + timedelta(days=i) for i in range(101)]
+        df = pl.DataFrame({
+            "Date": dates,
+            "A": [float(i) for i in range(1, 101)] + [1000.0],  # A has highest value at end
+        })
+        result = ts_quantile(df, d=100, driver="gaussian")
+        # The highest value should give a very positive result
+        assert result["A"][-1] is not None
+        assert result["A"][-1] > 0  # Should be positive
+
+    def test_ts_quantile_middle_rank(self) -> None:
+        """Test ts_quantile with middle rank (triggers p <= p_high branch)."""
+        from alphalab.api.operators import ts_quantile
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, i) for i in range(1, 11)],
+            "A": [float(i) for i in range(1, 11)],  # Linear values
+        })
+        result = ts_quantile(df, d=10, driver="gaussian")
+        # Middle values should be close to 0
+        assert result["A"][-1] is not None
+
+    def test_ts_quantile_uniform_all_same(self) -> None:
+        """Test ts_quantile uniform driver with all same values returns expected value."""
+        from alphalab.api.operators import ts_quantile
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, i) for i in range(1, 6)],
+            "A": [5.0, 5.0, 5.0, 5.0, 5.0],
+        })
+        result = ts_quantile(df, d=3, driver="uniform")
+        # With all same values, rank_pct will be 0.5/3 = 0.166..., uniform => 0.166*2-1 ≈ -0.666
+        assert result["A"][-1] is not None
+
+    def test_ts_quantile_null_current(self) -> None:
+        """Test ts_quantile with null current value."""
+        from alphalab.api.operators import ts_quantile
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, i) for i in range(1, 6)],
+            "A": [1.0, 2.0, 3.0, 4.0, None],
+        })
+        result = ts_quantile(df, d=3, driver="gaussian")
+        # Current null should return null
+        assert result["A"][-1] is None
+
+
+class TestTimeSeriesArgMinMaxCoverage:
+    """Tests for ts_arg_max and ts_arg_min edge cases."""
+
+    def test_ts_arg_max_all_null_in_window(self) -> None:
+        """Test ts_arg_max when all values in window are null."""
+        from alphalab.api.operators import ts_arg_max
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, i) for i in range(1, 6)],
+            "A": [1.0, None, None, None, None],
+        })
+        result = ts_arg_max(df, d=3)
+        # Window [None, None, None] should return None
+        assert result["A"][-1] is None
+
+    def test_ts_arg_min_all_null_in_window(self) -> None:
+        """Test ts_arg_min when all values in window are null."""
+        from alphalab.api.operators import ts_arg_min
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, i) for i in range(1, 6)],
+            "A": [1.0, None, None, None, None],
+        })
+        result = ts_arg_min(df, d=3)
+        # Window [None, None, None] should return None
+        assert result["A"][-1] is None
+
+    def test_ts_arg_max_window_smaller_than_d(self) -> None:
+        """Test ts_arg_max at start when window < d."""
+        from alphalab.api.operators import ts_arg_max
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, i) for i in range(1, 6)],
+            "A": [5.0, 3.0, 4.0, 2.0, 1.0],
+        })
+        result = ts_arg_max(df, d=10)  # d=10 but only 5 rows
+        # First few rows should have None
+        assert result["A"][0] is None
+
+    def test_ts_arg_min_window_smaller_than_d(self) -> None:
+        """Test ts_arg_min at start when window < d."""
+        from alphalab.api.operators import ts_arg_min
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, i) for i in range(1, 6)],
+            "A": [5.0, 3.0, 4.0, 2.0, 1.0],
+        })
+        result = ts_arg_min(df, d=10)  # d=10 but only 5 rows
+        # First few rows should have None
+        assert result["A"][0] is None
+
+
+class TestLastDiffValueCoverage:
+    """Tests for last_diff_value edge cases."""
+
+    def test_last_diff_value_single_element(self) -> None:
+        """Test last_diff_value with window of 1."""
+        from alphalab.api.operators import last_diff_value
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, i) for i in range(1, 6)],
+            "A": [1.0, 2.0, 3.0, 4.0, 5.0],
+        })
+        result = last_diff_value(df, d=1)
+        # Window of 1 means no previous value, should be None
+        assert result["A"][-1] is None
+
+    def test_last_diff_value_with_nulls(self) -> None:
+        """Test last_diff_value with null values in sequence."""
+        from alphalab.api.operators import last_diff_value
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, i) for i in range(1, 6)],
+            "A": [1.0, None, None, None, 1.0],  # Current same as first
+        })
+        result = last_diff_value(df, d=5)
+        # Should return None since no different non-null value exists
+        assert result["A"][-1] is None
+
+    def test_last_diff_value_finds_different(self) -> None:
+        """Test last_diff_value finds the last different value."""
+        from alphalab.api.operators import last_diff_value
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, i) for i in range(1, 6)],
+            "A": [1.0, 2.0, 3.0, 5.0, 5.0],  # Last different is 3.0
+        })
+        result = last_diff_value(df, d=5)
+        assert result["A"][-1] == 3.0
+
+
+class TestQuantileDriversCoverage:
+    """Additional tests for cross_sectional quantile driver coverage."""
+
+    def test_quantile_uniform_small_dataset(self) -> None:
+        """Test cross-sectional quantile with uniform driver and small dataset."""
+        from alphalab.api.operators import quantile
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, 1)],
+            "A": [1.0],
+            "B": [2.0],
+            "C": [3.0],
+        })
+        result = quantile(df, driver="uniform", sigma=1.0)
+        # Uniform driver should produce values in [-sigma, sigma]
+        for col in ["A", "B", "C"]:
+            assert -1.0 <= result[col][0] <= 1.0
+
+    def test_quantile_cauchy_small_dataset(self) -> None:
+        """Test cross-sectional quantile with cauchy driver."""
+        from alphalab.api.operators import quantile
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, 1)],
+            "A": [1.0],
+            "B": [2.0],
+            "C": [3.0],
+        })
+        result = quantile(df, driver="cauchy", sigma=1.0)
+        # Cauchy driver produces values
+        assert result["A"][0] is not None
+        assert result["B"][0] is not None
+        assert result["C"][0] is not None
+
+    def test_quantile_n_valid_one(self) -> None:
+        """Test cross-sectional quantile with single valid value."""
+        import math
+        from alphalab.api.operators import quantile
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, 1)],
+            "A": [1.0],
+            "B": [None],
+            "C": [None],
+        })
+        result = quantile(df, driver="gaussian")
+        # Single valid value should return 0
+        assert result["A"][0] == 0.0
+        # Null values become NaN in polars
+        assert result["B"][0] is None or math.isnan(result["B"][0])
+        assert result["C"][0] is None or math.isnan(result["C"][0])
+
+
+class TestTimeSeriesModuleLevelHelpers:
+    """Direct tests for time_series module-level helper functions."""
+
+    def test_arg_max_fn_basic(self) -> None:
+        """Test _arg_max_fn with normal values."""
+        from alphalab.api.operators.time_series import _arg_max_fn
+        s = pl.Series([1.0, 5.0, 3.0, 2.0, 4.0])
+        # Max is at index 1 (value 5.0), days since = (5-1) - 1 = 3
+        result = _arg_max_fn(s, 5)
+        assert result == 3.0
+
+    def test_arg_max_fn_max_at_end(self) -> None:
+        """Test _arg_max_fn when max is at most recent position."""
+        from alphalab.api.operators.time_series import _arg_max_fn
+        s = pl.Series([1.0, 2.0, 3.0, 4.0, 5.0])
+        # Max is at index 4, days since = (5-1) - 4 = 0
+        result = _arg_max_fn(s, 5)
+        assert result == 0.0
+
+    def test_arg_max_fn_window_too_small(self) -> None:
+        """Test _arg_max_fn when series length < d."""
+        from alphalab.api.operators.time_series import _arg_max_fn
+        s = pl.Series([1.0, 2.0])
+        result = _arg_max_fn(s, 5)
+        assert result is None
+
+    def test_arg_min_fn_basic(self) -> None:
+        """Test _arg_min_fn with normal values."""
+        from alphalab.api.operators.time_series import _arg_min_fn
+        s = pl.Series([5.0, 1.0, 3.0, 2.0, 4.0])
+        # Min is at index 1 (value 1.0), days since = (5-1) - 1 = 3
+        result = _arg_min_fn(s, 5)
+        assert result == 3.0
+
+    def test_arg_min_fn_min_at_end(self) -> None:
+        """Test _arg_min_fn when min is at most recent position."""
+        from alphalab.api.operators.time_series import _arg_min_fn
+        s = pl.Series([5.0, 4.0, 3.0, 2.0, 1.0])
+        # Min is at index 4, days since = (5-1) - 4 = 0
+        result = _arg_min_fn(s, 5)
+        assert result == 0.0
+
+    def test_arg_min_fn_window_too_small(self) -> None:
+        """Test _arg_min_fn when series length < d."""
+        from alphalab.api.operators.time_series import _arg_min_fn
+        s = pl.Series([1.0, 2.0])
+        result = _arg_min_fn(s, 5)
+        assert result is None
+
+    def test_find_last_diff_basic(self) -> None:
+        """Test _find_last_diff finds the previous different value."""
+        from alphalab.api.operators.time_series import _find_last_diff
+        s = pl.Series([1.0, 2.0, 3.0, 3.0, 3.0])
+        # Current is 3.0, last different is 2.0 at index 1
+        result = _find_last_diff(s)
+        assert result == 2.0
+
+    def test_find_last_diff_all_same(self) -> None:
+        """Test _find_last_diff when all values are the same."""
+        from alphalab.api.operators.time_series import _find_last_diff
+        s = pl.Series([5.0, 5.0, 5.0, 5.0])
+        result = _find_last_diff(s)
+        assert result is None
+
+    def test_find_last_diff_single_element(self) -> None:
+        """Test _find_last_diff with single element."""
+        from alphalab.api.operators.time_series import _find_last_diff
+        s = pl.Series([5.0])
+        result = _find_last_diff(s)
+        assert result is None
+
+    def test_find_last_diff_with_none(self) -> None:
+        """Test _find_last_diff skips None values."""
+        from alphalab.api.operators.time_series import _find_last_diff
+        s = pl.Series([1.0, None, 3.0, 3.0])
+        # Current is 3.0, last different is 1.0 (skipping None)
+        result = _find_last_diff(s)
+        assert result == 1.0
+
+    def test_inv_norm_middle(self) -> None:
+        """Test _inv_norm for middle probability values."""
+        from alphalab.api.operators.time_series import _inv_norm
+        # p=0.5 should give approximately 0
+        result = _inv_norm(0.5)
+        assert abs(result) < 0.001
+
+    def test_inv_norm_low_tail(self) -> None:
+        """Test _inv_norm for low probability (p < 0.02425)."""
+        from alphalab.api.operators.time_series import _inv_norm
+        result = _inv_norm(0.01)
+        # Should be a large negative value
+        assert result < -2.0
+
+    def test_inv_norm_high_tail(self) -> None:
+        """Test _inv_norm for high probability (p > 0.97575)."""
+        from alphalab.api.operators.time_series import _inv_norm
+        result = _inv_norm(0.99)
+        # Should be a large positive value
+        assert result > 2.0
+
+    def test_inv_norm_boundary_zero(self) -> None:
+        """Test _inv_norm at p=0."""
+        from alphalab.api.operators.time_series import _inv_norm
+        result = _inv_norm(0)
+        assert result == float("-inf")
+
+    def test_inv_norm_boundary_one(self) -> None:
+        """Test _inv_norm at p=1."""
+        from alphalab.api.operators.time_series import _inv_norm
+        result = _inv_norm(1)
+        assert result == float("inf")
+
+    def test_ts_quantile_transform_gaussian(self) -> None:
+        """Test _ts_quantile_transform with gaussian driver."""
+        from alphalab.api.operators.time_series import _ts_quantile_transform
+        s = pl.Series([1.0, 2.0, 3.0, 4.0, 5.0])
+        result = _ts_quantile_transform(s, "gaussian")
+        # High value (5.0) should give positive result
+        assert result is not None
+        assert result > 0
+
+    def test_ts_quantile_transform_uniform(self) -> None:
+        """Test _ts_quantile_transform with uniform driver."""
+        from alphalab.api.operators.time_series import _ts_quantile_transform
+        s = pl.Series([1.0, 2.0, 3.0, 4.0, 5.0])
+        result = _ts_quantile_transform(s, "uniform")
+        # Uniform driver should produce values in [-1, 1]
+        assert result is not None
+        assert -1.0 <= result <= 1.0
+
+    def test_ts_quantile_transform_null_current(self) -> None:
+        """Test _ts_quantile_transform when current value is None."""
+        from alphalab.api.operators.time_series import _ts_quantile_transform
+        s = pl.Series([1.0, 2.0, 3.0, None])
+        result = _ts_quantile_transform(s, "gaussian")
+        assert result is None
+
+    def test_ts_quantile_transform_single_value(self) -> None:
+        """Test _ts_quantile_transform with single valid value."""
+        from alphalab.api.operators.time_series import _ts_quantile_transform
+        s = pl.Series([None, None, 5.0])
+        result = _ts_quantile_transform(s, "gaussian")
+        # Single value should return 0.0
+        assert result == 0.0
+
+
+class TestCrossSectionalModuleLevelHelpers:
+    """Direct tests for cross_sectional module-level helper functions."""
+
+    def test_bucket_rank_basic(self) -> None:
+        """Test _bucket_rank with normal values."""
+        import numpy as np
+        from alphalab.api.operators.cross_sectional import _bucket_rank
+        values = np.array([1.0, 5.0, 3.0, 2.0, 4.0])
+        result = _bucket_rank(values, rate=2)
+        # All values should be in [0, 1]
+        assert all(0 <= r <= 1 for r in result)
+
+    def test_bucket_rank_with_nan(self) -> None:
+        """Test _bucket_rank preserves NaN positions."""
+        import numpy as np
+        from alphalab.api.operators.cross_sectional import _bucket_rank
+        values = np.array([1.0, np.nan, 3.0, 2.0, np.nan])
+        result = _bucket_rank(values, rate=2)
+        # NaN positions should remain NaN
+        assert np.isnan(result[1])
+        assert np.isnan(result[4])
+        # Valid positions should have valid ranks
+        assert not np.isnan(result[0])
+        assert not np.isnan(result[2])
+        assert not np.isnan(result[3])
+
+    def test_bucket_rank_single_valid(self) -> None:
+        """Test _bucket_rank with single valid value."""
+        import numpy as np
+        from alphalab.api.operators.cross_sectional import _bucket_rank
+        values = np.array([np.nan, 5.0, np.nan])
+        result = _bucket_rank(values, rate=2)
+        # Single valid value gets rank 0
+        assert result[1] == 0.0
+        assert np.isnan(result[0])
+        assert np.isnan(result[2])
+
+    def test_bucket_rank_all_nan(self) -> None:
+        """Test _bucket_rank with all NaN."""
+        import numpy as np
+        from alphalab.api.operators.cross_sectional import _bucket_rank
+        values = np.array([np.nan, np.nan, np.nan])
+        result = _bucket_rank(values, rate=2)
+        assert all(np.isnan(r) for r in result)
+
+    def test_quantile_transform_gaussian(self) -> None:
+        """Test _quantile_transform with gaussian driver."""
+        import numpy as np
+        from alphalab.api.operators.cross_sectional import _quantile_transform
+        values = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+        result = _quantile_transform(values, driver="gaussian", sigma=1.0)
+        # Highest value should have highest (positive) score
+        assert result[4] > result[0]
+        # Middle value should be close to 0
+        assert abs(result[2]) < 0.5
+
+    def test_quantile_transform_uniform(self) -> None:
+        """Test _quantile_transform with uniform driver."""
+        import numpy as np
+        from alphalab.api.operators.cross_sectional import _quantile_transform
+        values = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+        result = _quantile_transform(values, driver="uniform", sigma=1.0)
+        # All values should be in [-sigma, sigma]
+        assert all(-1.0 <= r <= 1.0 for r in result)
+
+    def test_quantile_transform_cauchy(self) -> None:
+        """Test _quantile_transform with cauchy driver."""
+        import numpy as np
+        from alphalab.api.operators.cross_sectional import _quantile_transform
+        values = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+        result = _quantile_transform(values, driver="cauchy", sigma=1.0)
+        # Cauchy distribution has heavier tails
+        assert result[4] > result[0]
+
+    def test_quantile_transform_with_nan(self) -> None:
+        """Test _quantile_transform preserves NaN positions."""
+        import numpy as np
+        from alphalab.api.operators.cross_sectional import _quantile_transform
+        values = np.array([1.0, np.nan, 3.0, np.nan, 5.0])
+        result = _quantile_transform(values, driver="gaussian", sigma=1.0)
+        # NaN positions should remain NaN
+        assert np.isnan(result[1])
+        assert np.isnan(result[3])
+        # Valid positions should have valid values
+        assert not np.isnan(result[0])
+        assert not np.isnan(result[2])
+        assert not np.isnan(result[4])
+
+    def test_quantile_transform_single_valid(self) -> None:
+        """Test _quantile_transform with single valid value."""
+        import numpy as np
+        from alphalab.api.operators.cross_sectional import _quantile_transform
+        values = np.array([np.nan, 5.0, np.nan])
+        result = _quantile_transform(values, driver="gaussian", sigma=1.0)
+        # Single valid value should return 0
+        assert result[1] == 0.0
+
+    def test_quantile_transform_unknown_driver(self) -> None:
+        """Test _quantile_transform raises on unknown driver."""
+        import numpy as np
+        from alphalab.api.operators.cross_sectional import _quantile_transform
+        values = np.array([1.0, 2.0, 3.0])
+        with pytest.raises(ValueError, match="Unknown driver"):
+            _quantile_transform(values, driver="unknown", sigma=1.0)

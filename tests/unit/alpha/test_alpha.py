@@ -698,3 +698,190 @@ class TestParserEdgeCases:
         """Calling non-callable raises AlphaParseError."""
         with pytest.raises(AlphaParseError):
             alpha_eval("close()", {"close": simple_df}, ops=ops)
+
+
+class TestAlphaOperatorsCoverage:
+    """Tests for Alpha operators to improve core.py coverage."""
+
+    def test_pow_alpha_alpha(self) -> None:
+        """Test Alpha ** Alpha (power between two Alphas)."""
+        df1 = pl.DataFrame({
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "A": [2.0, 3.0, 4.0],
+        })
+        df2 = pl.DataFrame({
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "A": [2.0, 2.0, 2.0],
+        })
+        a1 = Alpha(df1)
+        a2 = Alpha(df2)
+        result = a1 ** a2
+        assert result.data["A"][0] == 4.0   # 2 ** 2
+        assert result.data["A"][1] == 9.0   # 3 ** 2
+        assert result.data["A"][2] == 16.0  # 4 ** 2
+
+    def test_lt_alpha_alpha(self) -> None:
+        """Test Alpha < Alpha."""
+        df1 = pl.DataFrame({
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "A": [10.0, 20.0, 30.0],
+        })
+        df2 = pl.DataFrame({
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "A": [15.0, 15.0, 15.0],
+        })
+        a1 = Alpha(df1)
+        a2 = Alpha(df2)
+        result = a1 < a2
+        assert result.data["A"][0] == 1.0  # 10 < 15
+        assert result.data["A"][1] == 0.0  # 20 < 15 is False
+        assert result.data["A"][2] == 0.0  # 30 < 15 is False
+
+    def test_le_alpha_alpha(self) -> None:
+        """Test Alpha <= Alpha."""
+        df1 = pl.DataFrame({
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "A": [10.0, 15.0, 30.0],
+        })
+        df2 = pl.DataFrame({
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "A": [15.0, 15.0, 15.0],
+        })
+        a1 = Alpha(df1)
+        a2 = Alpha(df2)
+        result = a1 <= a2
+        assert result.data["A"][0] == 1.0  # 10 <= 15
+        assert result.data["A"][1] == 1.0  # 15 <= 15
+        assert result.data["A"][2] == 0.0  # 30 <= 15 is False
+
+    def test_gt_alpha_alpha(self) -> None:
+        """Test Alpha > Alpha."""
+        df1 = pl.DataFrame({
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "A": [10.0, 20.0, 30.0],
+        })
+        df2 = pl.DataFrame({
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "A": [15.0, 15.0, 15.0],
+        })
+        a1 = Alpha(df1)
+        a2 = Alpha(df2)
+        result = a1 > a2
+        assert result.data["A"][0] == 0.0  # 10 > 15 is False
+        assert result.data["A"][1] == 1.0  # 20 > 15
+        assert result.data["A"][2] == 1.0  # 30 > 15
+
+    def test_ge_alpha_alpha(self) -> None:
+        """Test Alpha >= Alpha."""
+        df1 = pl.DataFrame({
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "A": [10.0, 15.0, 30.0],
+        })
+        df2 = pl.DataFrame({
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "A": [15.0, 15.0, 15.0],
+        })
+        a1 = Alpha(df1)
+        a2 = Alpha(df2)
+        result = a1 >= a2
+        assert result.data["A"][0] == 0.0  # 10 >= 15 is False
+        assert result.data["A"][1] == 1.0  # 15 >= 15
+        assert result.data["A"][2] == 1.0  # 30 >= 15
+
+    def test_eq_alpha_alpha(self) -> None:
+        """Test Alpha == Alpha."""
+        df1 = pl.DataFrame({
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "A": [10.0, 15.0, 30.0],
+        })
+        df2 = pl.DataFrame({
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "A": [15.0, 15.0, 15.0],
+        })
+        a1 = Alpha(df1)
+        a2 = Alpha(df2)
+        result = a1 == a2
+        assert result.data["A"][0] == 0.0  # 10 == 15 is False
+        assert result.data["A"][1] == 1.0  # 15 == 15
+        assert result.data["A"][2] == 0.0  # 30 == 15 is False
+
+    def test_ne_alpha_alpha(self) -> None:
+        """Test Alpha != Alpha."""
+        df1 = pl.DataFrame({
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "A": [10.0, 15.0, 30.0],
+        })
+        df2 = pl.DataFrame({
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "A": [15.0, 15.0, 15.0],
+        })
+        a1 = Alpha(df1)
+        a2 = Alpha(df2)
+        result = a1 != a2
+        assert result.data["A"][0] == 1.0  # 10 != 15
+        assert result.data["A"][1] == 0.0  # 15 != 15 is False
+        assert result.data["A"][2] == 1.0  # 30 != 15
+
+    def test_rpow_scalar(self) -> None:
+        """Test scalar ** Alpha (reverse power)."""
+        df = pl.DataFrame({
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "A": [2.0, 3.0, 4.0],
+        })
+        alpha = Alpha(df)
+        result = 2 ** alpha
+        assert result.data["A"][0] == 4.0   # 2 ** 2
+        assert result.data["A"][1] == 8.0   # 2 ** 3
+        assert result.data["A"][2] == 16.0  # 2 ** 4
+
+    def test_rlt_scalar(self) -> None:
+        """Test scalar < Alpha (reverse less than)."""
+        df = pl.DataFrame({
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "A": [10.0, 5.0, 15.0],
+        })
+        alpha = Alpha(df)
+        # 10 < A is equivalent to A > 10
+        result = 10 < alpha
+        assert result.data["A"][0] == 0.0  # 10 < 10 is False
+        assert result.data["A"][1] == 0.0  # 10 < 5 is False
+        assert result.data["A"][2] == 1.0  # 10 < 15
+
+    def test_rle_scalar(self) -> None:
+        """Test scalar <= Alpha (reverse less than or equal)."""
+        df = pl.DataFrame({
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "A": [10.0, 5.0, 15.0],
+        })
+        alpha = Alpha(df)
+        # 10 <= A is equivalent to A >= 10
+        result = 10 <= alpha
+        assert result.data["A"][0] == 1.0  # 10 <= 10
+        assert result.data["A"][1] == 0.0  # 10 <= 5 is False
+        assert result.data["A"][2] == 1.0  # 10 <= 15
+
+    def test_rgt_scalar(self) -> None:
+        """Test scalar > Alpha (reverse greater than)."""
+        df = pl.DataFrame({
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "A": [10.0, 5.0, 15.0],
+        })
+        alpha = Alpha(df)
+        # 10 > A is equivalent to A < 10
+        result = 10 > alpha
+        assert result.data["A"][0] == 0.0  # 10 > 10 is False
+        assert result.data["A"][1] == 1.0  # 10 > 5
+        assert result.data["A"][2] == 0.0  # 10 > 15 is False
+
+    def test_rge_scalar(self) -> None:
+        """Test scalar >= Alpha (reverse greater than or equal)."""
+        df = pl.DataFrame({
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
+            "A": [10.0, 5.0, 15.0],
+        })
+        alpha = Alpha(df)
+        # 10 >= A is equivalent to A <= 10
+        result = 10 >= alpha
+        assert result.data["A"][0] == 1.0  # 10 >= 10
+        assert result.data["A"][1] == 1.0  # 10 >= 5
+        assert result.data["A"][2] == 0.0  # 10 >= 15 is False

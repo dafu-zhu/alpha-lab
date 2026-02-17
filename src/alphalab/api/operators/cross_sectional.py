@@ -15,6 +15,95 @@ def _get_value_cols(df: pl.DataFrame) -> list[str]:
     return df.columns[1:]
 
 
+# Module-level RNG for reproducibility
+_bucket_rank_rng = np.random.default_rng(seed=42)
+
+
+def _bucket_rank(values: np.ndarray, rate: int) -> np.ndarray:
+    """Compute approximate rank using bucket-based method.
+
+    Args:
+        values: Array of values to rank
+        rate: Controls number of buckets (n_buckets ≈ n_valid / 2^rate)
+
+    Returns:
+        Array of rank values in [0, 1], NaN for invalid inputs
+    """
+    valid_mask = ~np.isnan(values)
+    n_valid = valid_mask.sum()
+
+    if n_valid <= 1:
+        result = np.zeros(len(values), dtype=np.float64)
+        result[~valid_mask] = np.nan
+        return result
+
+    # Number of buckets based on rate
+    n_buckets = max(2, int(n_valid / (2 ** rate)))
+
+    valid_vals = values[valid_mask]
+
+    # Random sample for pivot selection (unbiased quantile estimation)
+    sample_size = min(n_buckets, n_valid)
+    sample_idx = _bucket_rank_rng.choice(n_valid, size=sample_size, replace=False)
+    sorted_sample = np.sort(valid_vals[sample_idx])
+    thresholds = sorted_sample
+
+    # Assign each value to a bucket via searchsorted
+    bucket_indices = np.searchsorted(thresholds, valid_vals, side="right")
+
+    # Normalize to [0, 1]
+    result = np.zeros(len(values), dtype=np.float64)
+    result[valid_mask] = bucket_indices / n_buckets
+    result[~valid_mask] = np.nan
+
+    return result
+
+
+def _quantile_transform(values: np.ndarray, driver: str, sigma: float) -> np.ndarray:
+    """Apply quantile transformation to values.
+
+    Args:
+        values: Array of values to transform
+        driver: Distribution type: "gaussian", "uniform", "cauchy"
+        sigma: Scale parameter for the output
+
+    Returns:
+        Array of transformed values, NaN for invalid inputs
+    """
+    valid_mask = ~np.isnan(values)
+    n_valid = valid_mask.sum()
+
+    if n_valid <= 1:
+        result = np.zeros(len(values), dtype=np.float64)
+        result[~valid_mask] = np.nan
+        return result
+
+    valid_vals = values[valid_mask]
+
+    # Step 1: Rank to [0, 1]
+    ranks = stats.rankdata(valid_vals, method="ordinal")
+    ranks = (ranks - 1) / (n_valid - 1)  # [0, 1]
+
+    # Step 2: Shift to [1/N, 1-1/N]
+    shifted = 1 / n_valid + ranks * (1 - 2 / n_valid)
+
+    # Step 3: Apply inverse CDF
+    if driver == "gaussian":
+        transformed = stats.norm.ppf(shifted) * sigma
+    elif driver == "uniform":
+        transformed = (shifted - 0.5) * 2 * sigma  # [-sigma, sigma]
+    elif driver == "cauchy":
+        transformed = stats.cauchy.ppf(shifted) * sigma
+    else:
+        raise ValueError(f"Unknown driver: {driver}")
+
+    result = np.zeros(len(values), dtype=np.float64)
+    result[valid_mask] = transformed
+    result[~valid_mask] = np.nan
+
+    return result
+
+
 def rank(x: pl.DataFrame, rate: int = 2) -> pl.DataFrame:
     """Cross-sectional rank within each row (date).
 
@@ -61,51 +150,10 @@ def rank(x: pl.DataFrame, rate: int = 2) -> pl.DataFrame:
             .alias("value")
         )
     else:
-        # Bucket-based approximate ranking
-        # Logic:
-        # 1. Sample M random pivots from N values (M ≈ N/2^rate)
-        # 2. Sort only the sampled pivots to get bucket thresholds
-        # 3. Assign each value to bucket via binary search O(log M)
-        # 4. Normalize bucket index to [0, 1]
-        # Total: O(M log M + N log M) vs O(N log N) for full sort
-        # Random sampling gives unbiased quantile estimates
-        rng = np.random.default_rng(seed=42)  # Fixed seed for reproducibility
-
-        def bucket_rank(values: np.ndarray, rate: int) -> np.ndarray:
-            """Compute approximate rank using bucket-based method."""
-            valid_mask = ~np.isnan(values)
-            n_valid = valid_mask.sum()
-
-            if n_valid <= 1:
-                result = np.zeros(len(values), dtype=np.float64)
-                result[~valid_mask] = np.nan
-                return result
-
-            # Number of buckets based on rate
-            n_buckets = max(2, int(n_valid / (2 ** rate)))
-
-            valid_vals = values[valid_mask]
-
-            # Random sample for pivot selection (unbiased quantile estimation)
-            sample_size = min(n_buckets, n_valid)
-            sample_idx = rng.choice(n_valid, size=sample_size, replace=False)
-            sorted_sample = np.sort(valid_vals[sample_idx])
-            thresholds = sorted_sample
-
-            # Assign each value to a bucket via searchsorted
-            bucket_indices = np.searchsorted(thresholds, valid_vals, side="right")
-
-            # Normalize to [0, 1]
-            result = np.zeros(len(values), dtype=np.float64)
-            result[valid_mask] = bucket_indices / n_buckets
-            result[~valid_mask] = np.nan
-
-            return result
-
-        # Apply bucket ranking per date group
+        # Bucket-based approximate ranking using module-level function
         ranked = long.with_columns(
             pl.col("value")
-            .map_batches(lambda s: pl.Series(bucket_rank(s.to_numpy(), rate)), return_dtype=pl.Float64)
+            .map_batches(lambda s: pl.Series(_bucket_rank(s.to_numpy(), rate)), return_dtype=pl.Float64)
             .over(date_col)
             .alias("value")
         )
@@ -299,44 +347,10 @@ def quantile(
         value_name="value",
     )
 
-    def quantile_transform(values: np.ndarray) -> np.ndarray:
-        valid_mask = ~np.isnan(values)
-        n_valid = valid_mask.sum()
-
-        if n_valid <= 1:
-            result = np.zeros(len(values), dtype=np.float64)
-            result[~valid_mask] = np.nan
-            return result
-
-        valid_vals = values[valid_mask]
-
-        # Step 1: Rank to [0, 1]
-        ranks = stats.rankdata(valid_vals, method="ordinal")
-        ranks = (ranks - 1) / (n_valid - 1)  # [0, 1]
-
-        # Step 2: Shift to [1/N, 1-1/N]
-        shifted = 1 / n_valid + ranks * (1 - 2 / n_valid)
-
-        # Step 3: Apply inverse CDF
-        if driver == "gaussian":
-            transformed = stats.norm.ppf(shifted) * sigma
-        elif driver == "uniform":
-            transformed = (shifted - 0.5) * 2 * sigma  # [-sigma, sigma]
-        elif driver == "cauchy":
-            transformed = stats.cauchy.ppf(shifted) * sigma
-        else:
-            raise ValueError(f"Unknown driver: {driver}")
-
-        result = np.zeros(len(values), dtype=np.float64)
-        result[valid_mask] = transformed
-        result[~valid_mask] = np.nan
-
-        return result
-
-    # Apply transform per date group
+    # Apply transform per date group using module-level function
     transformed = long.with_columns(
         pl.col("value")
-        .map_batches(lambda s: pl.Series(quantile_transform(s.to_numpy())), return_dtype=pl.Float64)
+        .map_batches(lambda s: pl.Series(_quantile_transform(s.to_numpy(), driver, sigma)), return_dtype=pl.Float64)
         .over(date_col)
         .alias("value")
     )

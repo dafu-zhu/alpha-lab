@@ -504,3 +504,225 @@ class TestUniverseManagerEdgeCases:
 
         # Verify security_master was passed to get_hist_universe_local
         mock_get_hist.assert_called_once_with(2020, security_master=mock_sm)
+
+
+class TestUniverseManagerLocalPaths:
+    """Tests for local storage path handling in UniverseManager."""
+
+    def test_get_local_storage_path_success(self):
+        """Test _get_local_storage_path returns path from env."""
+        manager = UniverseManager.__new__(UniverseManager)
+        manager.logger = Mock()
+
+        with patch.dict('os.environ', {'LOCAL_STORAGE_PATH': '/test/path'}):
+            result = manager._get_local_storage_path()
+            assert result == Path('/test/path')
+
+    def test_get_local_storage_path_with_tilde(self):
+        """Test _get_local_storage_path expands ~."""
+        manager = UniverseManager.__new__(UniverseManager)
+        manager.logger = Mock()
+        import os
+
+        with patch.dict('os.environ', {'LOCAL_STORAGE_PATH': '~/data'}):
+            result = manager._get_local_storage_path()
+            assert str(result).startswith(os.path.expanduser('~'))
+
+    def test_get_local_storage_path_missing_raises(self):
+        """Test _get_local_storage_path raises when env var missing."""
+        manager = UniverseManager.__new__(UniverseManager)
+        manager.logger = Mock()
+
+        with patch.dict('os.environ', {}, clear=True):
+            # Remove LOCAL_STORAGE_PATH if it exists
+            import os
+            if 'LOCAL_STORAGE_PATH' in os.environ:
+                del os.environ['LOCAL_STORAGE_PATH']
+            with pytest.raises(ValueError, match="LOCAL_STORAGE_PATH"):
+                manager._get_local_storage_path()
+
+
+class TestUniverseManagerVerifyTicks:
+    """Tests for _verify_ticks_exist method."""
+
+    def test_verify_ticks_exist_returns_false_no_dir(self, tmp_path):
+        """Test _verify_ticks_exist returns False when ticks dir doesn't exist."""
+        manager = UniverseManager.__new__(UniverseManager)
+        manager.logger = Mock()
+
+        with patch.dict('os.environ', {'LOCAL_STORAGE_PATH': str(tmp_path)}):
+            result = manager._verify_ticks_exist()
+            assert result is False
+
+    def test_verify_ticks_exist_returns_false_empty_dir(self, tmp_path):
+        """Test _verify_ticks_exist returns False when ticks dir is empty."""
+        manager = UniverseManager.__new__(UniverseManager)
+        manager.logger = Mock()
+
+        # Create empty ticks directory
+        ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily"
+        ticks_dir.mkdir(parents=True)
+
+        with patch.dict('os.environ', {'LOCAL_STORAGE_PATH': str(tmp_path)}):
+            result = manager._verify_ticks_exist()
+            assert result is False
+
+    def test_verify_ticks_exist_returns_false_no_parquet(self, tmp_path):
+        """Test _verify_ticks_exist returns False when no parquet files."""
+        manager = UniverseManager.__new__(UniverseManager)
+        manager.logger = Mock()
+
+        # Create security dirs without parquet files
+        ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily"
+        for i in range(5):
+            (ticks_dir / str(i)).mkdir(parents=True)
+
+        with patch.dict('os.environ', {'LOCAL_STORAGE_PATH': str(tmp_path)}):
+            result = manager._verify_ticks_exist()
+            assert result is False  # Only 0 files found, need >= 3
+
+    def test_verify_ticks_exist_returns_true(self, tmp_path):
+        """Test _verify_ticks_exist returns True when parquet files exist."""
+        manager = UniverseManager.__new__(UniverseManager)
+        manager.logger = Mock()
+
+        # Create security dirs with parquet files
+        ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily"
+        for i in range(5):
+            sec_dir = ticks_dir / str(i)
+            sec_dir.mkdir(parents=True)
+            (sec_dir / "ticks.parquet").touch()
+
+        with patch.dict('os.environ', {'LOCAL_STORAGE_PATH': str(tmp_path)}):
+            result = manager._verify_ticks_exist()
+            assert result is True
+
+    def test_verify_ticks_exist_handles_env_error(self):
+        """Test _verify_ticks_exist returns False on environment error."""
+        manager = UniverseManager.__new__(UniverseManager)
+        manager.logger = Mock()
+
+        # Missing env var causes ValueError
+        with patch.dict('os.environ', {}, clear=True):
+            import os
+            if 'LOCAL_STORAGE_PATH' in os.environ:
+                del os.environ['LOCAL_STORAGE_PATH']
+            result = manager._verify_ticks_exist()
+            assert result is False
+
+
+class TestUniverseManagerADVCalculation:
+    """Tests for ADV calculation methods."""
+
+    def test_calculate_adv_single_file_not_exists(self, tmp_path):
+        """Test _calculate_adv_single returns 0 when file doesn't exist."""
+        manager = UniverseManager.__new__(UniverseManager)
+        manager.logger = Mock()
+
+        with patch.dict('os.environ', {'LOCAL_STORAGE_PATH': str(tmp_path)}):
+            result = manager._calculate_adv_single((123, "AAPL", ["2024-01-01"]))
+            assert result == (123, "AAPL", 0.0)
+
+    def test_calculate_adv_single_with_data(self, tmp_path):
+        """Test _calculate_adv_single calculates ADV correctly."""
+        manager = UniverseManager.__new__(UniverseManager)
+        manager.logger = Mock()
+
+        # Create parquet file with test data
+        ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily" / "123"
+        ticks_dir.mkdir(parents=True)
+
+        df = pl.DataFrame({
+            "timestamp": ["2024-01-02", "2024-01-03"],
+            "close": [100.0, 110.0],
+            "volume": [1000, 2000],
+        })
+        df.write_parquet(ticks_dir / "ticks.parquet")
+
+        with patch.dict('os.environ', {'LOCAL_STORAGE_PATH': str(tmp_path)}):
+            result = manager._calculate_adv_single(
+                (123, "AAPL", ["2024-01-02", "2024-01-03"])
+            )
+            assert result[0] == 123
+            assert result[1] == "AAPL"
+            # ADV = mean(close * volume) = mean(100*1000, 110*2000) = mean(100000, 220000) = 160000
+            assert result[2] == 160000.0
+
+    def test_calculate_adv_single_no_matching_dates(self, tmp_path):
+        """Test _calculate_adv_single returns 0 when no dates match."""
+        manager = UniverseManager.__new__(UniverseManager)
+        manager.logger = Mock()
+
+        # Create parquet file with test data
+        ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily" / "123"
+        ticks_dir.mkdir(parents=True)
+
+        df = pl.DataFrame({
+            "timestamp": ["2024-01-02"],
+            "close": [100.0],
+            "volume": [1000],
+        })
+        df.write_parquet(ticks_dir / "ticks.parquet")
+
+        with patch.dict('os.environ', {'LOCAL_STORAGE_PATH': str(tmp_path)}):
+            result = manager._calculate_adv_single(
+                (123, "AAPL", ["2024-12-01"])  # Date not in file
+            )
+            assert result == (123, "AAPL", 0.0)
+
+    def test_calculate_adv_single_handles_exception(self, tmp_path):
+        """Test _calculate_adv_single handles exceptions gracefully."""
+        manager = UniverseManager.__new__(UniverseManager)
+        manager.logger = Mock()
+
+        # Create invalid parquet file
+        ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily" / "123"
+        ticks_dir.mkdir(parents=True)
+        (ticks_dir / "ticks.parquet").write_text("invalid")
+
+        with patch.dict('os.environ', {'LOCAL_STORAGE_PATH': str(tmp_path)}):
+            result = manager._calculate_adv_single(
+                (123, "AAPL", ["2024-01-02"])
+            )
+            assert result == (123, "AAPL", 0.0)
+
+
+class TestUniverseManagerTop3000LocalPath:
+    """Tests for get_top_3000 with local ticks storage."""
+
+    def test_get_top_3000_uses_local_when_available(self, tmp_path):
+        """Test get_top_3000 uses local ticks when available."""
+        manager = UniverseManager.__new__(UniverseManager)
+        manager.logger = Mock()
+        manager.security_master = Mock()
+        manager.alpaca_fetcher = Mock()
+
+        # Setup security_master to return security IDs
+        manager.security_master.get_security_id.side_effect = [1, 2, 3]
+
+        # Create ticks files
+        for sid in [1, 2, 3]:
+            ticks_dir = tmp_path / "data" / "raw" / "ticks" / "daily" / str(sid)
+            ticks_dir.mkdir(parents=True)
+            df = pl.DataFrame({
+                "timestamp": ["2024-06-28", "2024-06-29"],
+                "close": [100.0 * sid, 100.0 * sid],
+                "volume": [1000 * sid, 1000 * sid],
+            })
+            df.write_parquet(ticks_dir / "ticks.parquet")
+
+        with patch.dict('os.environ', {'LOCAL_STORAGE_PATH': str(tmp_path)}):
+            with patch('alphalab.utils.calendar.TradingCalendar') as mock_cal:
+                import datetime as dt
+                mock_cal_instance = Mock()
+                mock_cal_instance.get_trading_days.return_value = [
+                    dt.date(2024, 6, 28), dt.date(2024, 6, 29)
+                ]
+                mock_cal.return_value = mock_cal_instance
+
+                result = manager.get_top_3000("2024-06-30", ["AAA", "BBB", "CCC"])
+
+                # Should have ranked results based on ADV
+                assert len(result) == 3
+                # Alpaca fetcher should NOT be called when local is available
+                manager.alpaca_fetcher.recent_daily_ticks.assert_not_called()
