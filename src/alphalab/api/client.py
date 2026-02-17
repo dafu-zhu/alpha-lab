@@ -182,8 +182,7 @@ class AlphaLabClient:
         Returns:
             Wide DataFrame with Date + symbol columns
         """
-        import alphalab.api.operators as operators
-        from alphalab.alpha.parser import alpha_query
+        from alphalab.api.dsl import compute
 
         if isinstance(start, str):
             start = date.fromisoformat(start)
@@ -201,8 +200,7 @@ class AlphaLabClient:
         for f in fields:
             variables[f] = self.get(f, symbols=symbols, universe=universe, start=start, end=end)
 
-        result = alpha_query(expr, variables, ops=operators)
-        return result.data
+        return compute(expr, **variables)
 
     def universe(self, name: str = "top3000") -> list[str]:
         """Load universe of symbols."""
