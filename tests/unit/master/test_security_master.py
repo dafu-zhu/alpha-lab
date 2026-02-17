@@ -1111,9 +1111,9 @@ class TestOpenFIGIRetryBehavior:
                     mock_rl.return_value.acquire = Mock()
                     result = sm._fetch_openfigi_mapping(tickers)
 
-        # Verify final summary log was called
-        info_calls = [str(call) for call in sm.logger.info.call_args_list]
-        summary_logs = [c for c in info_calls if 'OpenFIGI' in c and 'mapped' in c]
+        # Verify final summary log was called (now at debug level)
+        debug_calls = [str(call) for call in sm.logger.debug.call_args_list]
+        summary_logs = [c for c in debug_calls if 'OpenFIGI' in c and 'mapped' in c]
         assert len(summary_logs) >= 1
 
     def test_fetch_openfigi_request_exception_retries(self):
