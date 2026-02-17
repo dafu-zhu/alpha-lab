@@ -351,7 +351,7 @@ class SecurityMaster:
                 self.logger.debug(f"yfinance failed for {ticker}: {e}")
         pbar.close()
 
-        self.logger.info(f"yfinance: {len(results)}/{total} metadata fetched")
+        self.logger.debug(f"yfinance: {len(results)}/{total} metadata fetched")
         return results
 
     def _load_gics_mapping(self) -> Dict:
@@ -692,7 +692,7 @@ class SecurityMaster:
         pbar.close()
 
         found = sum(1 for v in results.values() if v is not None)
-        self.logger.info(f"OpenFIGI: {found}/{len(results)} tickers mapped")
+        self.logger.debug(f"OpenFIGI: {found}/{len(results)} tickers mapped")
 
         return results
 
@@ -740,7 +740,7 @@ class SecurityMaster:
             if figi and figi in figi_to_old:
                 old_ticker = figi_to_old[figi]
                 rebrands.append((old_ticker, ticker, figi))
-                self.logger.info(f"Detected rebrand: {old_ticker} -> {ticker} (FIGI: {figi})")
+                self.logger.debug(f"Detected rebrand: {old_ticker} -> {ticker} (FIGI: {figi})")
 
         return rebrands
 
@@ -851,7 +851,7 @@ class SecurityMaster:
 
         # 4. Bootstrap: if no prev_universe, extend existing + enrich from SEC
         if not prev_universe:
-            self.logger.info("Bootstrapping: using current Nasdaq list as prev_universe")
+            self.logger.debug("Bootstrapping: using current Nasdaq list as prev_universe")
             self._save_prev_universe(current_nasdaq, today_str)
             return self._bootstrap_extend(current_nasdaq, today, sec_lookup)
 
@@ -866,7 +866,7 @@ class SecurityMaster:
         disappeared = prev_set - current_set
         appeared = current_set - prev_set
 
-        self.logger.info(
+        self.logger.debug(
             f"Universe changes: {len(still_active)} active, "
             f"{len(disappeared)} disappeared, {len(appeared)} appeared"
         )
@@ -1040,7 +1040,7 @@ class SecurityMaster:
         # 14. Log results (caller is responsible for save_local)
         changes_made = stats['extended'] + stats['rebranded'] + stats['added'] + stats['delisted']
         if changes_made > 0:
-            self.logger.info(
+            self.logger.debug(
                 f"SecurityMaster updated: "
                 f"{stats['extended']} extended, {stats['rebranded']} rebranded, "
                 f"{stats['added']} new IPOs, {stats['delisted']} delisted, "
@@ -1068,7 +1068,7 @@ class SecurityMaster:
         current_normalized = {_normalize_ticker(t): t for t in current_nasdaq}
 
         # Fetch OpenFIGI for all active tickers
-        self.logger.info(f"Bootstrap: fetching OpenFIGI for {len(current_nasdaq)} active tickers...")
+        self.logger.debug(f"Bootstrap: fetching OpenFIGI for {len(current_nasdaq)} active tickers...")
         figi_mapping = self._fetch_openfigi_mapping(list(current_nasdaq))
         figi_by_norm = {_normalize_ticker(t): figi for t, figi in figi_mapping.items()}
 
@@ -1107,7 +1107,7 @@ class SecurityMaster:
 
         unmatched = set(current_normalized.keys()) - extended_norms
         if unmatched:
-            self.logger.info(
+            self.logger.debug(
                 f"Bootstrap: {len(unmatched)} Nasdaq tickers not in CRSP data, adding as new IPOs"
             )
 
@@ -1155,7 +1155,7 @@ class SecurityMaster:
             })
 
         figi_count = sum(1 for v in figi_by_norm.values() if v is not None)
-        self.logger.info(
+        self.logger.debug(
             f"Bootstrap: {stats['extended']} extended, {stats['added']} new IPOs added, "
             f"{figi_count}/{len(current_nasdaq)} FIGIs populated"
         )

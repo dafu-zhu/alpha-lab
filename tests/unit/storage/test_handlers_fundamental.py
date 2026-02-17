@@ -53,9 +53,9 @@ class TestFundamentalHandler:
         assert result['failed'] == 0
         handler.logger.warning.assert_called_once()
 
-    @patch('alphalab.storage.handlers.fundamental.tqdm')
+    @patch('alphalab.storage.handlers.fundamental.Progress')
     @patch('alphalab.storage.handlers.fundamental.ThreadPoolExecutor')
-    def test_upload_processes_symbols(self, mock_executor_cls, mock_tqdm, handler):
+    def test_upload_processes_symbols(self, mock_executor_cls, mock_progress, handler):
         with patch.object(handler, '_prepare_symbols', return_value=(['AAPL'], {'AAPL': '123'}, {'AAPL': 100}, 0.1)):
             mock_future = Mock()
             mock_future.result.return_value = {'status': 'success'}
@@ -64,11 +64,12 @@ class TestFundamentalHandler:
             mock_executor.submit.return_value = mock_future
             mock_executor_cls.return_value = mock_executor
 
-            mock_pbar = MagicMock()
-            mock_tqdm.return_value = mock_pbar
-            mock_pbar.__iter__ = Mock(return_value=iter([mock_future]))
+            mock_ctx = MagicMock()
+            mock_progress.return_value.__enter__ = Mock(return_value=mock_ctx)
+            mock_progress.return_value.__exit__ = Mock(return_value=False)
 
-            result = handler.upload('2020-01-01', '2020-12-31')
+            with patch('alphalab.storage.handlers.fundamental.as_completed', return_value=[mock_future]):
+                result = handler.upload('2020-01-01', '2020-12-31')
 
         assert result['success'] == 1
 
@@ -158,12 +159,13 @@ class TestFundamentalHandler:
         assert any('Non-SEC filers' in c for c in debug_calls)
 
     def test_update_stats_all_statuses(self, handler):
-        handler._update_stats({'status': 'success'})
-        handler._update_stats({'status': 'canceled'})
-        handler._update_stats({'status': 'skipped'})
-        handler._update_stats({'status': 'failed'})
-        handler._update_stats({'status': 'unknown'})  # defaults to failed
-        handler._update_stats({})  # no status -> failed
+        """Test update_stats_from_result (inherited from BaseHandler)."""
+        handler.update_stats_from_result({'status': 'success'})
+        handler.update_stats_from_result({'status': 'canceled'})
+        handler.update_stats_from_result({'status': 'skipped'})
+        handler.update_stats_from_result({'status': 'failed'})
+        handler.update_stats_from_result({'status': 'unknown'})  # defaults to failed
+        handler.update_stats_from_result({})  # no status -> failed
 
         assert handler.stats == {'success': 1, 'canceled': 1, 'skipped': 1, 'failed': 3}
 

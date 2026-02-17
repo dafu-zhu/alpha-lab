@@ -7,11 +7,11 @@ SecurityMaster-driven: downloads full date range for all securities at once.
 
 from __future__ import annotations
 
-import time
 import logging
-from typing import TYPE_CHECKING, Dict, List, Optional, Any, Tuple
+import time
+from typing import TYPE_CHECKING, Dict, List, Any, Tuple
 
-from tqdm import tqdm
+from rich.progress import Progress, BarColumn, TextColumn, TaskProgressColumn
 import polars as pl
 
 from alphalab.storage.handlers.base import BaseHandler
@@ -66,45 +66,47 @@ class DailyTicksHandler(BaseHandler):
         self.reset_stats()
 
         total = len(securities)
-        pbar = tqdm(total=total, desc="Daily ticks download", unit="sym")
 
-        # 2. Filter already-downloaded
-        if not overwrite:
-            securities = self._filter_existing(securities, end_year, pbar)
+        with Progress(
+            TextColumn("Downloading daily_ticks"),
+            BarColumn(bar_width=30, complete_style="green", finished_style="green"),
+            TaskProgressColumn(),
+            TextColumn("{task.completed}/{task.total}"),
+            transient=True
+        ) as progress:
+            task = progress.add_task("", total=total)
 
-        # 3. Batch and download
-        start_date = f"{start_year}-01-01"
-        end_date = f"{end_year}-12-31"
+            # 2. Filter already-downloaded
+            if not overwrite:
+                securities = self._filter_existing(securities, end_year, progress, task)
 
-        for i in range(0, len(securities), chunk_size):
-            batch = securities[i:i + chunk_size]
-            syms = [s for s, _ in batch]
+            # 3. Batch and download
+            start_date = f"{start_year}-01-01"
+            end_date = f"{end_year}-12-31"
 
-            symbol_map = self.collectors.collect_daily_ticks_range_bulk(
-                syms, start_date, end_date
-            )
+            for i in range(0, len(securities), chunk_size):
+                batch = securities[i:i + chunk_size]
+                syms = [s for s, _ in batch]
 
-            for sym, sid in batch:
-                df = symbol_map.get(sym, pl.DataFrame())
-                result = self.publishers.publish_daily_ticks(
-                    sym, sid, df, start_year, end_year
-                )
-                self._update_stats_from_result(result)
-                pbar.update(1)
-                pbar.set_postfix(
-                    ok=self.stats['success'], fail=self.stats['failed'],
-                    skip=self.stats['skipped'], cancel=self.stats['canceled']
+                symbol_map = self.collectors.collect_daily_ticks_range_bulk(
+                    syms, start_date, end_date
                 )
 
-            if sleep_time > 0 and i + chunk_size < len(securities):
-                time.sleep(sleep_time)
+                for sym, sid in batch:
+                    df = symbol_map.get(sym, pl.DataFrame())
+                    result = self.publishers.publish_daily_ticks(
+                        sym, sid, df, start_year, end_year
+                    )
+                    self.update_stats_from_result(result)
+                    progress.advance(task)
 
-        pbar.close()
+                if sleep_time > 0 and i + chunk_size < len(securities):
+                    time.sleep(sleep_time)
+
         elapsed = time.time() - start_time
-        self.logger.info(
-            f"Successfully downloaded daily ticks in {elapsed:.1f}s: "
-            f"{self.stats['success']} success, {self.stats['failed']} failed, "
-            f"{self.stats['skipped']} skipped, {self.stats['canceled']} canceled"
+        print(
+            f"Downloading daily_ticks... done "
+            f"({self.stats['success']} ok, {self.stats['skipped']} skip, {elapsed:.1f}s)"
         )
         return self.stats
 
@@ -112,32 +114,19 @@ class DailyTicksHandler(BaseHandler):
         self,
         securities: List[Tuple[str, int]],
         end_year: int,
-        pbar,
+        progress,
+        task,
     ) -> List[Tuple[str, int]]:
         """Filter out securities that already have end_year data."""
         to_fetch = []
         for sym, sid in securities:
             if sid is None:
                 self.stats['skipped'] += 1
-                pbar.update(1)
+                progress.advance(task)
             elif self.validator.data_exists(sym, 'ticks', year=end_year, security_id=sid):
                 self.stats['canceled'] += 1
-                pbar.update(1)
+                progress.advance(task)
             else:
                 to_fetch.append((sym, sid))
-        pbar.set_postfix(
-            ok=self.stats['success'], fail=self.stats['failed'],
-            skip=self.stats['skipped'], cancel=self.stats['canceled']
-        )
         return to_fetch
 
-    def _update_stats_from_result(self, result: Dict[str, Any]):
-        status = result.get('status', 'failed')
-        if status == 'success':
-            self.stats['success'] += 1
-        elif status == 'canceled':
-            self.stats['canceled'] += 1
-        elif status == 'skipped':
-            self.stats['skipped'] += 1
-        else:
-            self.stats['failed'] += 1

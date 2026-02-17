@@ -11,7 +11,7 @@ import logging
 import time
 from typing import TYPE_CHECKING, Dict, List, Any
 
-from tqdm import tqdm
+from rich.progress import Progress, BarColumn, TextColumn, TaskProgressColumn
 
 from alphalab.storage.handlers.base import BaseHandler
 
@@ -52,79 +52,98 @@ class Top3000Handler(BaseHandler):
         overwrite: bool = False,
         auto_resolve: bool = True
     ) -> Dict[str, Any]:
-        """Upload top 3000 symbols for each month in a year."""
+        """Upload top 3000 symbols for all months in a single year."""
+        return self.upload_range(year, year, overwrite, auto_resolve)
+
+    def upload_range(
+        self,
+        start_year: int,
+        end_year: int,
+        overwrite: bool = False,
+        auto_resolve: bool = True
+    ) -> Dict[str, Any]:
+        """Upload top 3000 symbols for all months in year range."""
         start_time = time.time()
-        symbols = self.universe_manager.load_symbols_for_year(year, sym_type='alpaca')
-
-        if not symbols:
-            self.logger.warning(f"No symbols for {year}, skipping top3000")
-            return self.stats
-
-        source = 'crsp' if year < self.alpaca_start_year else 'alpaca'
-        self.logger.debug(
-            f"Starting {year} top3000 upload for {len(symbols)} symbols "
-            f"(source={source}, overwrite={overwrite})"
-        )
-
         self.reset_stats()
         today = dt.date.today()
-        months_processed = 0
 
-        pbar = tqdm(range(1, 13), desc="Top3000", unit="month", leave=False)
-        for month in pbar:
-            # Skip existing
-            if not overwrite and self.validator.top_3000_exists(year, month):
-                self.logger.debug(f"Skipping {year}-{month:02d}: exists")
-                self.stats['skipped'] += 1
-                pbar.set_postfix(ok=self.stats['success'], skip=self.stats['skipped'])
-                continue
+        # Build list of (year, month) tuples to process
+        year_months = []
+        for year in range(start_year, end_year + 1):
+            for month in range(1, 13):
+                year_months.append((year, month))
 
-            trading_days = self.calendar.load_trading_days(year, month)
-            if not trading_days:
-                self.logger.debug(f"No trading days for {year}-{month:02d}")
-                self.stats['skipped'] += 1
-                pbar.set_postfix(ok=self.stats['success'], skip=self.stats['skipped'])
-                continue
+        # Cache symbols per year
+        symbols_cache: Dict[int, List[str]] = {}
 
-            as_of = trading_days[-1]
-            as_of_date = dt.datetime.strptime(as_of, "%Y-%m-%d").date()
+        with Progress(
+            TextColumn("Downloading top3000"),
+            BarColumn(bar_width=30, complete_style="green", finished_style="green"),
+            TaskProgressColumn(),
+            TextColumn("{task.completed}/{task.total}"),
+            transient=True
+        ) as progress:
+            task = progress.add_task("", total=len(year_months))
 
-            # Stop at future months
-            if as_of_date > today and (as_of_date.year, as_of_date.month) > (today.year, today.month):
-                self.logger.debug(f"Stopping at {year}-{month:02d}: future month")
-                break
+            for year, month in year_months:
+                # Skip existing
+                if not overwrite and self.validator.top_3000_exists(year, month):
+                    self.stats['skipped'] += 1
+                    progress.advance(task)
+                    continue
 
-            top_3000 = self.universe_manager.get_top_3000(
-                as_of, symbols, source, auto_resolve=auto_resolve
-            )
+                # Load symbols for year (cached)
+                if year not in symbols_cache:
+                    symbols_cache[year] = self.universe_manager.load_symbols_for_year(
+                        year, sym_type='alpaca'
+                    )
+                symbols = symbols_cache[year]
 
-            result = self.publishers.publish_top_3000(
-                year=year,
-                month=month,
-                as_of=as_of,
-                symbols=top_3000,
-                source=source
-            )
+                if not symbols:
+                    self.stats['skipped'] += 1
+                    progress.advance(task)
+                    continue
 
-            if result['status'] == 'success':
-                self.stats['success'] += 1
-                months_processed += 1
-                self.logger.debug(
-                    f"Uploaded top3000 for {year}-{month:02d} (as_of={as_of}, count={len(top_3000)})"
+                trading_days = self.calendar.load_trading_days(year, month)
+                if not trading_days:
+                    self.stats['skipped'] += 1
+                    progress.advance(task)
+                    continue
+
+                as_of = trading_days[-1]
+                as_of_date = dt.datetime.strptime(as_of, "%Y-%m-%d").date()
+
+                # Stop at future months
+                if as_of_date > today:
+                    self.stats['skipped'] += 1
+                    progress.advance(task)
+                    continue
+
+                source = 'crsp' if year < self.alpaca_start_year else 'alpaca'
+                top_3000 = self.universe_manager.get_top_3000(
+                    as_of, symbols, source, auto_resolve=auto_resolve
                 )
-            elif result['status'] == 'skipped':
-                self.stats['skipped'] += 1
-                self.logger.debug(f"Skipped {year}-{month:02d}: {result.get('error')}")
-            else:
-                self.stats['failed'] += 1
-                self.logger.error(f"Failed {year}-{month:02d}: {result.get('error')}")
 
-            pbar.set_postfix(ok=self.stats['success'], skip=self.stats['skipped'])
+                result = self.publishers.publish_top_3000(
+                    year=year,
+                    month=month,
+                    as_of=as_of,
+                    symbols=top_3000,
+                    source=source
+                )
 
-        pbar.close()
+                if result['status'] == 'success':
+                    self.stats['success'] += 1
+                elif result['status'] == 'skipped':
+                    self.stats['skipped'] += 1
+                else:
+                    self.stats['failed'] += 1
+                    self.logger.error(f"Failed {year}-{month:02d}: {result.get('error')}")
+
+                progress.advance(task)
         elapsed = time.time() - start_time
-        self.logger.info(
-            f"Successfully generated top3000 in {elapsed:.1f}s "
-            f"({self.stats['success']} months, {self.stats['skipped']} skipped)"
+        print(
+            f"Downloading top3000... done "
+            f"({self.stats['success']} ok, {self.stats['skipped']} skip, {elapsed:.1f}s)"
         )
         return self.stats

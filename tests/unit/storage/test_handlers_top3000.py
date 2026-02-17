@@ -38,12 +38,13 @@ class TestTop3000Handler:
         assert handler.alpaca_start_year == 2025
 
     def test_upload_year_no_symbols(self, handler, deps):
+        """Test upload_year with no symbols skips all months."""
         deps['universe_manager'].load_symbols_for_year.return_value = []
 
         result = handler.upload_year(2020)
 
-        deps['logger'].warning.assert_called_once()
-        assert result == handler.stats
+        # All 12 months should be skipped when no symbols
+        assert result['skipped'] == 12
 
     def test_upload_year_skips_existing(self, handler, deps):
         deps['universe_manager'].load_symbols_for_year.return_value = ['AAPL']
@@ -57,6 +58,7 @@ class TestTop3000Handler:
         assert result['skipped'] == 12  # All 12 months skipped
 
     def test_upload_year_no_trading_days(self, handler, deps):
+        """Test upload_year with no trading days skips all months."""
         deps['universe_manager'].load_symbols_for_year.return_value = ['AAPL']
         deps['validator'].top_3000_exists.return_value = False
         deps['calendar'].load_trading_days.return_value = []
@@ -67,7 +69,6 @@ class TestTop3000Handler:
             result = handler.upload_year(2020)
 
         assert result['skipped'] == 12
-        deps['logger'].debug.assert_any_call('No trading days for 2020-01')
 
     def test_upload_year_stops_at_future(self, handler, deps):
         deps['universe_manager'].load_symbols_for_year.return_value = ['AAPL']
@@ -136,17 +137,23 @@ class TestTop3000Handler:
         assert result['failed'] == 12
 
     def test_upload_year_crsp_source(self, handler, deps):
-        """Year < alpaca_start_year → source='crsp'."""
+        """Year < alpaca_start_year uses crsp source for get_top_3000."""
         deps['universe_manager'].load_symbols_for_year.return_value = ['AAPL']
-        deps['validator'].top_3000_exists.return_value = True
+        deps['validator'].top_3000_exists.return_value = False
+        deps['calendar'].load_trading_days.return_value = ['2020-01-31']
+        deps['universe_manager'].get_top_3000.return_value = ['AAPL']
+        deps['data_publishers'].publish_top_3000.return_value = {'status': 'success'}
 
         with patch('alphalab.storage.handlers.top3000.dt') as mock_dt:
             mock_dt.date.today.return_value = dt.date(2020, 12, 31)
             mock_dt.datetime = dt.datetime
             handler.upload_year(2020)
 
-        debug_calls = [str(c) for c in deps['logger'].debug.call_args_list]
-        assert any('source=crsp' in c for c in debug_calls)
+        # Verify get_top_3000 was called with source='crsp' (2020 < 2025)
+        calls = deps['universe_manager'].get_top_3000.call_args_list
+        assert len(calls) == 12
+        # First call should have source='crsp'
+        assert calls[0][1].get('source') == 'crsp' or calls[0][0][2] == 'crsp'
 
     def test_upload_year_overwrite(self, handler, deps):
         deps['universe_manager'].load_symbols_for_year.return_value = ['AAPL']

@@ -29,3 +29,15 @@ class BaseHandler:
             f"({rate:.2f} items/sec)"
         )
         return {**self.stats, 'total': total, 'elapsed': elapsed, 'rate': rate}
+
+    def update_stats_from_result(self, result: Dict[str, Any]) -> None:
+        """Update statistics from a result dictionary."""
+        status = result.get('status', 'failed')
+        if status == 'success':
+            self.stats['success'] += 1
+        elif status == 'canceled':
+            self.stats['canceled'] += 1
+        elif status == 'skipped':
+            self.stats['skipped'] += 1
+        else:
+            self.stats['failed'] += 1

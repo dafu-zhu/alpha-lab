@@ -2,17 +2,11 @@ import logging
 import sys
 import datetime as dt
 from pathlib import Path
-from typing import Optional
 
 
 def console_log(logger: logging.Logger, message: str, section: bool = False):
-    """Log a message with optional section header formatting."""
-    if section:
-        logger.info(f"{'─' * 60}")
-        logger.info(f"  {message}")
-        logger.info(f"{'─' * 60}")
-    else:
-        logger.info(message)
+    """Log a message. Section parameter kept for compatibility but ignored."""
+    logger.info(message)
 
 
 class MaxLevelFilter(logging.Filter):

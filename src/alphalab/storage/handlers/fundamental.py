@@ -6,13 +6,12 @@ Handles raw fundamental data uploads.
 
 from __future__ import annotations
 
-import time
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Dict, List, Optional, Any, Tuple
 
-from tqdm import tqdm
-import polars as pl
+from rich.progress import Progress, BarColumn, TextColumn, TaskProgressColumn
 
 from alphalab.storage.handlers.base import BaseHandler
 
@@ -71,23 +70,28 @@ class FundamentalHandler(BaseHandler):
         self.logger.debug(f"Step 4/4: Fetching fundamental data for {total} symbols...")
         fetch_start = time.time()
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(
-                    self._process_symbol, sym, start_date, end_date, overwrite,
-                    cik_map.get(sym), security_id_cache.get(sym)
-                ): sym
-                for sym in symbols_with_cik
-            }
+        with Progress(
+            TextColumn("Downloading fundamentals"),
+            BarColumn(bar_width=30, complete_style="green", finished_style="green"),
+            TaskProgressColumn(),
+            TextColumn("{task.completed}/{task.total}"),
+            transient=True
+        ) as progress:
+            task = progress.add_task("", total=total)
 
-            pbar = tqdm(as_completed(futures), total=total, desc="Fundamental download", unit="sym")
-            for future in pbar:
-                result = future.result()
-                self._update_stats(result)
-                pbar.set_postfix(
-                    ok=self.stats['success'], fail=self.stats['failed'],
-                    skip=self.stats['skipped'], cancel=self.stats['canceled']
-                )
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {
+                    executor.submit(
+                        self._process_symbol, sym, start_date, end_date, overwrite,
+                        cik_map.get(sym), security_id_cache.get(sym)
+                    ): sym
+                    for sym in symbols_with_cik
+                }
+
+                for future in as_completed(futures):
+                    result = future.result()
+                    self.update_stats_from_result(result)
+                    progress.advance(task)
 
         return self._build_result(start_time, prefetch_time, time.time() - fetch_start, total)
 
@@ -178,18 +182,6 @@ class FundamentalHandler(BaseHandler):
 
         return symbols_with_cik, cik_map, security_id_cache, prefetch_time
 
-    def _update_stats(self, result: Dict[str, Any]) -> None:
-        """Update statistics from result."""
-        status = result.get('status', 'failed')
-        if status == 'success':
-            self.stats['success'] += 1
-        elif status == 'canceled':
-            self.stats['canceled'] += 1
-        elif status == 'skipped':
-            self.stats['skipped'] += 1
-        else:
-            self.stats['failed'] += 1
-
     def _build_result(
         self,
         start_time: float,
@@ -201,14 +193,9 @@ class FundamentalHandler(BaseHandler):
         total_time = time.time() - start_time
         avg_rate = total / fetch_time if fetch_time > 0 else 0
 
-        self.logger.info(
-            f"Successfully downloaded fundamentals in {total_time:.1f}s: "
-            f"{self.stats['success']} success, {self.stats['failed']} failed, "
-            f"{self.stats['skipped']} skipped, {self.stats['canceled']} canceled"
-        )
-        self.logger.debug(
-            f"Performance: CIK fetch={prefetch_time:.1f}s, "
-            f"Data fetch={fetch_time:.1f}s, Avg rate={avg_rate:.2f} sym/sec"
+        print(
+            f"Downloading fundamentals... done "
+            f"({self.stats['success']} ok, {self.stats['skipped']} skip, {total_time:.1f}s)"
         )
 
         return {

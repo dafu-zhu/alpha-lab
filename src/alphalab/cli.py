@@ -33,41 +33,33 @@ def _get_local_storage_path() -> Path:
 def _build_master(logger) -> None:
     """Build security_master + calendar_master under LOCAL_STORAGE_PATH."""
     from alphalab.master.security_master import SecurityMaster
-    from alphalab.utils.logger import console_log
 
     storage = _get_local_storage_path()
     master_dir = storage / "data" / "meta" / "master"
     master_dir.mkdir(parents=True, exist_ok=True)
 
     # --- Security Master ---
-    console_log(logger, "Security Master", section=True)
     source = Path(__file__).resolve().parent / "data" / "security_master.parquet"
     working = master_dir / "security_master.parquet"
 
     if not working.exists():
         if source.exists():
             shutil.copy2(str(source), str(working))
-            logger.debug(f"Initialized working copy from source parquet")
         else:
             raise FileNotFoundError(
                 f"No source parquet at {source}. "
                 "Run: python scripts/build_security_master.py"
             )
-    else:
-        logger.debug(f"Using existing working copy at {working}")
 
+    print("Building security_master...", end=" ", flush=True)
     start_time = time.time()
     master = SecurityMaster(local_path=working)
     result = master.update()
     master.save_local(working)
     elapsed = time.time() - start_time
-    logger.info(
-        f"Successfully updated SecurityMaster in {elapsed:.1f}s "
-        f"({len(master.master_tb)} rows, {result['extended']} extended, {result['added']} added)"
-    )
+    print(f"done ({len(master.master_tb)} rows, {result['extended']} extended, {elapsed:.1f}s)")
 
     # --- Calendar Master ---
-    console_log(logger, "Calendar Master", section=True)
     calendar_path = master_dir / "calendar_master.parquet"
     _build_calendar_master(calendar_path, logger)
 
@@ -79,7 +71,7 @@ def _build_calendar_master(output_path: Path, logger) -> None:
     api_key = os.getenv("ALPACA_API_KEY")
     api_secret = os.getenv("ALPACA_API_SECRET")
     if not api_key or not api_secret:
-        logger.error("ALPACA_API_KEY and ALPACA_API_SECRET required for calendar")
+        print("error: ALPACA_API_KEY and ALPACA_API_SECRET required")
         return
 
     headers = {
@@ -94,8 +86,8 @@ def _build_calendar_master(output_path: Path, logger) -> None:
         "date_type": "TRADING",
     }
 
+    print("Building calendar_master...", end=" ", flush=True)
     start_time = time.time()
-    logger.debug("Fetching NYSE trading calendar from Alpaca API...")
     resp = requests.get(
         "https://paper-api.alpaca.markets/v2/calendar",
         headers=headers,
@@ -112,7 +104,7 @@ def _build_calendar_master(output_path: Path, logger) -> None:
     df = pl.DataFrame({"timestamp": dates})
     df.write_parquet(output_path)
     elapsed = time.time() - start_time
-    logger.info(f"Successfully built calendar in {elapsed:.1f}s ({len(dates)} trading days)")
+    print(f"done ({len(dates)} days, {elapsed:.1f}s)")
 
 
 def _download(args, logger) -> None:

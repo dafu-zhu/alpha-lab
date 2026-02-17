@@ -170,10 +170,10 @@ class CIKResolver:
                 symbols_to_fetch.append(sym)
 
         if not symbols_to_fetch:
-            self.logger.info(f"All {len(symbols)} CIKs found in cache for {year}")
+            self.logger.debug(f"All {len(symbols)} CIKs found in cache for {year}")
             return cik_map
 
-        self.logger.info(
+        self.logger.debug(
             f"Pre-fetching CIKs for {len(symbols_to_fetch)} symbols "
             f"(year={year}, cached={len(cik_map)})"
         )
@@ -207,8 +207,8 @@ class CIKResolver:
                 self._cik_cache[cache_key] = cik
 
                 total_fetched += 1
-                if total_fetched % 100 == 0:
-                    self.logger.info(
+                if total_fetched % 500 == 0:
+                    self.logger.debug(
                         f"CIK pre-fetch progress: {total_fetched}/{len(symbols_to_fetch)}"
                     )
 
@@ -216,43 +216,10 @@ class CIKResolver:
         found = sum(1 for cik in cik_map.values() if cik is not None)
         null_count = sum(1 for cik in cik_map.values() if cik is None)
 
-        self.logger.info(
+        self.logger.debug(
             f"CIK pre-fetch complete: {found}/{len(symbols)} found "
             f"({found/len(symbols)*100:.1f}%), {null_count} non-SEC filers"
         )
-
-        # Log specific symbols without CIKs (with company names from SecurityMaster)
-        if null_count > 0:
-            symbols_without_cik = [sym for sym, cik in cik_map.items() if cik is None]
-
-            # Try to get company names from SecurityMaster
-            if null_count <= 50:
-                # For small lists, show all with company names
-                self.logger.info(f"Symbols without CIK ({null_count}): {sorted(symbols_without_cik)}")
-
-                # Get company names for these symbols
-                try:
-                    master_tb = self.security_master.master_tb
-                    null_details = master_tb.filter(
-                        pl.col('symbol').is_in(symbols_without_cik),
-                        pl.col('cik').is_null()
-                    ).select(['symbol', 'company']).unique()
-
-                    if not null_details.is_empty():
-                        self.logger.info("Non-SEC filers details:")
-                        for row in null_details.head(20).iter_rows(named=True):
-                            self.logger.info(f"  {row['symbol']:10} - {row['company']}")
-
-                        if len(null_details) > 20:
-                            self.logger.info(f"  ... and {len(null_details) - 20} more")
-                except Exception as e:
-                    self.logger.debug(f"Could not fetch company names: {e}")
-            else:
-                # For large lists, just show first 50 symbols
-                self.logger.info(
-                    f"Symbols without CIK ({null_count}): {sorted(symbols_without_cik)[:50]} "
-                    f"... and {null_count - 50} more"
-                )
 
         return cik_map
 

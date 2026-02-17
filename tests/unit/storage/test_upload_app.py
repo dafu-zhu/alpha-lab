@@ -228,7 +228,8 @@ class TestUploadAppRun:
 
         app._run_daily_ticks = Mock()
         app.upload_fundamental = Mock()
-        app.upload_top_3000_monthly = Mock()
+        mock_top3000_handler = Mock()
+        app._get_top3000_handler = Mock(return_value=mock_top3000_handler)
         mock_features_handler = Mock()
         app._get_features_handler = Mock(return_value=mock_features_handler)
 
@@ -240,7 +241,7 @@ class TestUploadAppRun:
 
         assert app._run_daily_ticks.called
         assert app.upload_fundamental.called
-        assert app.upload_top_3000_monthly.called
+        assert mock_top3000_handler.upload_range.called
         assert mock_features_handler.build.called
 
     def test_run_passes_daily_chunk_and_sleep(self):

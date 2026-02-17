@@ -1,6 +1,4 @@
 from pathlib import Path
-import shutil
-import time
 import datetime as dt
 import os
 import polars as pl
@@ -168,11 +166,8 @@ class UniverseManager:
             # Read parquet and filter to trading days
             df = pl.read_parquet(ticks_path)
 
-            # Convert trading_days to dates for filtering
-            trading_dates = [dt.datetime.strptime(d, "%Y-%m-%d").date() for d in trading_days_str]
-
-            # Filter to last 60 trading days
-            df = df.filter(pl.col("timestamp").is_in(trading_dates))
+            # Filter to trading days (timestamp column is string format YYYY-MM-DD)
+            df = df.filter(pl.col("timestamp").is_in(trading_days_str))
 
             if len(df) == 0:
                 return (security_id, symbol, 0.0)

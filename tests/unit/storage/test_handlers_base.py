@@ -108,3 +108,29 @@ class TestBaseHandler:
         assert handler.stats['failed'] == 2
         assert handler.stats['skipped'] == 0
         assert handler.stats['canceled'] == 0
+
+    def test_update_stats_from_result_success(self):
+        """Test that update_stats_from_result handles success status."""
+        from alphalab.storage.handlers.base import BaseHandler
+
+        mock_logger = Mock(spec=logging.Logger)
+        handler = BaseHandler(logger=mock_logger)
+
+        handler.update_stats_from_result({'status': 'success'})
+        assert handler.stats['success'] == 1
+
+    def test_update_stats_from_result_all_statuses(self):
+        """Test that update_stats_from_result handles all status types."""
+        from alphalab.storage.handlers.base import BaseHandler
+
+        mock_logger = Mock(spec=logging.Logger)
+        handler = BaseHandler(logger=mock_logger)
+
+        handler.update_stats_from_result({'status': 'success'})
+        handler.update_stats_from_result({'status': 'canceled'})
+        handler.update_stats_from_result({'status': 'skipped'})
+        handler.update_stats_from_result({'status': 'failed'})
+        handler.update_stats_from_result({'status': 'unknown'})  # defaults to failed
+        handler.update_stats_from_result({})  # no status -> failed
+
+        assert handler.stats == {'success': 1, 'canceled': 1, 'skipped': 1, 'failed': 3}

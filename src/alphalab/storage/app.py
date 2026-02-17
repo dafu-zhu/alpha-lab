@@ -9,11 +9,10 @@ import datetime as dt
 import logging
 import shutil
 from pathlib import Path
-from typing import Optional
 
 from dotenv import load_dotenv
 
-from alphalab.utils.logger import setup_logger, console_log
+from alphalab.utils.logger import setup_logger
 from alphalab.utils.calendar import TradingCalendar
 from alphalab.storage.clients import StorageClient
 from alphalab.storage.pipeline import DataCollectors, DataPublishers, Validator
@@ -243,32 +242,27 @@ class UploadApp:
             run_top_3000 = True
             run_features = True
 
-        console_log(self.logger, f"Upload: {start_year}-{end_year}", section=True)
-
         # Daily ticks
         if run_daily_ticks:
-            console_log(self.logger, f"Daily Ticks ({start_year}-{end_year})", section=True)
             self._run_daily_ticks(start_year, end_year, overwrite, daily_chunk_size, daily_sleep_time)
 
-        # Top 3000 by year
+        # Top 3000
         if run_top_3000:
-            for year in range(start_year, end_year + 1):
-                self.upload_top_3000_monthly(year, overwrite=overwrite)
+            handler = self._get_top3000_handler()
+            handler.upload_range(start_year, end_year, overwrite=overwrite)
 
-        # Fundamentals (after ticks)
+        # Fundamentals
         if run_fundamental:
-            console_log(self.logger, f"Raw Fundamental: {start_date} to {end_date}", section=True)
             self.upload_fundamental(start_date, end_date, max_workers, overwrite)
 
-        # Features (after raw data uploads)
+        # Features
         if run_features:
-            console_log(self.logger, f"Features: {start_year}-{end_year}", section=True)
             handler = self._get_features_handler()
             handler.build(start_year, end_year, overwrite=overwrite)
 
         elapsed = _time.time() - _start_time
         minutes, seconds = divmod(int(elapsed), 60)
-        console_log(self.logger, f"Done: Upload complete ({minutes}m {seconds:02d}s)", section=True)
+        print(f"Done ({minutes}m {seconds:02d}s)")
 
     def _run_daily_ticks(
         self,
