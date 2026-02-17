@@ -11,8 +11,8 @@ from alphalab.alpha import (
     AlphaParseError,
     ColumnMismatchError,
     DateMismatchError,
-    alpha_eval,
 )
+from alphalab.alpha.parser import alpha_eval
 
 
 @pytest.fixture
