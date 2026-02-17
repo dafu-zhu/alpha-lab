@@ -27,7 +27,7 @@ def _get_local_storage_path() -> Path:
     base = os.getenv("LOCAL_STORAGE_PATH", "")
     if not base:
         raise ValueError("LOCAL_STORAGE_PATH environment variable required")
-    return Path(base)
+    return Path(os.path.expanduser(base))
 
 
 def _build_master(logger) -> None:

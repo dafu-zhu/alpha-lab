@@ -387,7 +387,7 @@ class TestSecurityMaster:
         sm = _make_security_master(master_tb, sid_to_info=Mock(return_value="info"))
 
         assert sm.auto_resolve('AAA', '2020-06-15') == 2
-        sm.logger.info.assert_called()
+        sm.logger.debug.assert_called()
 
     def test_ensure_schema_drops_cusip(self):
         df = pl.DataFrame({

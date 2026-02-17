@@ -33,7 +33,7 @@ class Validator:
 
     def _list_local_files_from_env(self, prefix: str) -> list[str]:
         """List all files under a local directory prefix using LOCAL_STORAGE_PATH."""
-        local_path = os.getenv('LOCAL_STORAGE_PATH', '')
+        local_path = os.path.expanduser(os.getenv('LOCAL_STORAGE_PATH', ''))
         files = []
         local_dir = Path(local_path) / prefix
         if local_dir.exists():
@@ -86,7 +86,7 @@ class Validator:
         if self.storage_client is not None:
             local_file = self.storage_client.base_path / key
         else:
-            local_path = os.getenv('LOCAL_STORAGE_PATH', '')
+            local_path = os.path.expanduser(os.getenv('LOCAL_STORAGE_PATH', ''))
             local_file = Path(local_path) / key
 
         if not local_file.exists():
@@ -110,7 +110,7 @@ class Validator:
         if self.storage_client is not None:
             local_file = self.storage_client.base_path / key
         else:
-            local_path = os.getenv('LOCAL_STORAGE_PATH', '')
+            local_path = os.path.expanduser(os.getenv('LOCAL_STORAGE_PATH', ''))
             local_file = Path(local_path) / key
 
         return local_file.exists()

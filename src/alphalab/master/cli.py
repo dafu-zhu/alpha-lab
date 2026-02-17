@@ -19,7 +19,7 @@ def _get_working_path() -> Path:
     base = os.getenv("LOCAL_STORAGE_PATH", "")
     if not base:
         return SOURCE_PATH
-    return Path(base) / "data" / "meta" / "master" / "security_master.parquet"
+    return Path(os.path.expanduser(base)) / "data" / "meta" / "master" / "security_master.parquet"
 
 
 def _copy_source_to_working(source: Path, working: Path) -> None:

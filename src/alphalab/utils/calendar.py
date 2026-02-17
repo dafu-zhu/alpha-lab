@@ -16,7 +16,7 @@ def _default_calendar_path() -> Path:
     """Get default calendar path under LOCAL_STORAGE_PATH."""
     base = os.getenv("LOCAL_STORAGE_PATH", "")
     if base:
-        return Path(base) / "data" / "meta" / "master" / "calendar_master.parquet"
+        return Path(os.path.expanduser(base)) / "data" / "meta" / "master" / "calendar_master.parquet"
     return Path("data/meta/master/calendar_master.parquet")
 
 

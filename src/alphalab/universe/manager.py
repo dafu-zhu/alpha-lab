@@ -114,7 +114,7 @@ class UniverseManager:
         base = os.getenv("LOCAL_STORAGE_PATH", "")
         if not base:
             raise ValueError("LOCAL_STORAGE_PATH environment variable required")
-        return Path(base)
+        return Path(os.path.expanduser(base))
 
     def _verify_ticks_exist(self, sample_size: int = 10) -> bool:
         """
