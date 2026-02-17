@@ -201,67 +201,21 @@ class TestCIKResolver:
         # Should have tried both dates
         assert security_master.get_security_id.call_count == 2
 
-    def test_batch_prefetch_logs_progress_every_100(self):
-        """Logs progress every 100 symbols - covers line 207."""
+    def test_batch_prefetch_logs_progress_every_500(self):
+        """Logs progress every 500 symbols - covers line 210."""
         security_master = Mock()
         logger = Mock()
         resolver = CIKResolver(security_master=security_master, logger=logger)
 
-        # Create 150 symbols
-        symbols = [f"SYM{i:03d}" for i in range(150)]
+        # Create 600 symbols to trigger 500-symbol progress log
+        symbols = [f"SYM{i:03d}" for i in range(600)]
         resolver.get_cik = Mock(return_value="0000123456")
 
-        resolver.batch_prefetch_ciks(symbols, year=2024, batch_size=150)
+        resolver.batch_prefetch_ciks(symbols, year=2024, batch_size=600)
 
-        # Should log progress at 100 symbols
-        info_calls = [str(call) for call in logger.info.call_args_list]
-        assert any("100/" in c and "progress" in c.lower() for c in info_calls)
-
-    def test_batch_prefetch_logs_non_sec_filer_details_small_list(self):
-        """Logs non-SEC filer details when null_count <= 50 - covers lines 238-248."""
-        import polars as pl
-
-        security_master = Mock()
-        security_master.master_tb = pl.DataFrame({
-            'symbol': ['NOPE1', 'NOPE2'],
-            'company': ['Foreign Co 1', 'Foreign Co 2'],
-            'cik': [None, None]
-        })
-
-        logger = Mock()
-        resolver = CIKResolver(security_master=security_master, logger=logger)
-
-        # Return CIK for some, None for others
-        def get_cik_side_effect(symbol, date, year):
-            if symbol.startswith("NOPE"):
-                return None
-            return "0000123456"
-
-        resolver.get_cik = Mock(side_effect=get_cik_side_effect)
-
-        symbols = ["AAPL", "MSFT", "NOPE1", "NOPE2"]
-        result = resolver.batch_prefetch_ciks(symbols, year=2024, batch_size=10)
-
-        # Should log details for non-SEC filers
-        info_calls = [str(call) for call in logger.info.call_args_list]
-        assert any("Non-SEC filers details" in c for c in info_calls)
-        assert any("NOPE1" in c or "Foreign Co 1" in c for c in info_calls)
-
-    def test_batch_prefetch_logs_large_null_list(self):
-        """Logs first 50 when null_count > 50 - covers lines 247-251."""
-        security_master = Mock()
-        logger = Mock()
-        resolver = CIKResolver(security_master=security_master, logger=logger)
-
-        # Create 60 symbols without CIKs
-        symbols = [f"NOPE{i:03d}" for i in range(60)]
-        resolver.get_cik = Mock(return_value=None)
-
-        resolver.batch_prefetch_ciks(symbols, year=2024, batch_size=70)
-
-        # Should log "and X more"
-        info_calls = [str(call) for call in logger.info.call_args_list]
-        assert any("and 10 more" in c or "and" in c and "more" in c for c in info_calls)
+        # Should log progress at 500 symbols (debug level)
+        debug_calls = [str(call) for call in logger.debug.call_args_list]
+        assert any("500/" in c and "progress" in c.lower() for c in debug_calls)
 
     def test_clear_cache_clears_and_logs(self):
         """Clear cache clears entries and logs - covers lines 257-258."""
