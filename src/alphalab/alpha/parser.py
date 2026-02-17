@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ast
 import operator
+import textwrap
 from collections.abc import Callable
 from typing import Any
 
@@ -364,6 +365,51 @@ def _if_else(cond: Alpha, if_true: AlphaLike, if_false: AlphaLike) -> Alpha:
 
     result = cond_df.select(pl.col(date_col), *exprs)
     return Alpha(result)
+
+
+def _evaluate(
+    expr: str,
+    variables: dict[str, AlphaLike],
+    ops: Any | None = None,
+) -> Alpha:
+    """Internal: evaluate expression (single or multi-line).
+
+    Automatically detects whether to use eval or exec mode based on
+    whether the expression contains assignments or semicolons.
+
+    Args:
+        expr: Expression string
+        variables: Variable mappings
+        ops: Operator module
+
+    Returns:
+        Alpha with computed result
+    """
+    # Normalize indentation for multi-line strings
+    expr = textwrap.dedent(expr).strip()
+
+    # Use exec mode if expression has assignments or semicolons
+    has_assignment = "=" in expr and "==" not in expr.replace("!=", "").replace("<=", "").replace(">=", "")
+    has_semicolon = ";" in expr
+    mode = "exec" if (has_assignment or has_semicolon) else "eval"
+
+    try:
+        tree = ast.parse(expr, mode=mode)
+    except SyntaxError as e:
+        raise AlphaParseError(f"Invalid expression syntax: {e}") from e
+
+    eval_vars: dict[str, Any] = dict(variables)
+    if ops is not None:
+        eval_vars["ops"] = ops
+
+    evaluator = SafeEvaluator(eval_vars, ops)
+    result = evaluator.visit(tree)
+
+    if isinstance(result, Alpha):
+        return result
+    if isinstance(result, pl.DataFrame):
+        return Alpha(result)
+    raise AlphaParseError(f"Expression did not return Alpha/DataFrame: {type(result)}")
 
 
 def alpha_eval(
