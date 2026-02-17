@@ -610,3 +610,91 @@ class TestAlphaQuery:
         from alphalab.alpha.parser import alpha_query
         with pytest.raises(AlphaParseError):
             alpha_query("x = ", {}, ops=ops)
+
+
+class TestParserEdgeCases:
+    """Additional edge case tests for parser coverage."""
+
+    @pytest.fixture
+    def simple_df(self) -> pl.DataFrame:
+        return pl.DataFrame({
+            "Date": [date(2024, 1, 1)],
+            "A": [10.0],
+            "B": [20.0],
+        })
+
+    def test_min_requires_two_args(self, simple_df: pl.DataFrame) -> None:
+        """min() requires at least 2 arguments."""
+        with pytest.raises(ValueError, match="requires at least 2"):
+            alpha_eval("min(close)", {"close": simple_df}, ops=ops)
+
+    def test_max_requires_two_args(self, simple_df: pl.DataFrame) -> None:
+        """max() requires at least 2 arguments."""
+        with pytest.raises(ValueError, match="requires at least 2"):
+            alpha_eval("max(close)", {"close": simple_df}, ops=ops)
+
+    def test_min_with_three_args(self, simple_df: pl.DataFrame) -> None:
+        """min() works with 3+ arguments."""
+        df2 = simple_df.with_columns(pl.col("A") + 5)
+        df3 = simple_df.with_columns(pl.col("A") - 5)
+        result = alpha_eval(
+            "min(a, b, c)",
+            {"a": simple_df, "b": df2, "c": df3},
+            ops=ops,
+        )
+        assert result.data["A"][0] == 5.0  # min(10, 15, 5) = 5
+
+    def test_max_with_three_args(self, simple_df: pl.DataFrame) -> None:
+        """max() works with 3+ arguments."""
+        df2 = simple_df.with_columns(pl.col("A") + 5)
+        df3 = simple_df.with_columns(pl.col("A") - 5)
+        result = alpha_eval(
+            "max(a, b, c)",
+            {"a": simple_df, "b": df2, "c": df3},
+            ops=ops,
+        )
+        assert result.data["A"][0] == 15.0  # max(10, 15, 5) = 15
+
+    def test_ternary_with_scalar_values(self, simple_df: pl.DataFrame) -> None:
+        """Ternary if-else with scalar true/false values."""
+        result = alpha_eval(
+            "100 if close > 5 else 0",
+            {"close": simple_df},
+            ops=ops,
+        )
+        assert result.data["A"][0] == 100.0
+
+    def test_bool_and_multiple(self, simple_df: pl.DataFrame) -> None:
+        """Boolean AND with multiple operands."""
+        result = alpha_eval(
+            "(close > 5) and (close < 50) and (close > 0)",
+            {"close": simple_df},
+            ops=ops,
+        )
+        # All conditions true for A=10
+        assert result.data["A"][0] == 1.0
+
+    def test_bool_or_multiple(self, simple_df: pl.DataFrame) -> None:
+        """Boolean OR with multiple operands."""
+        result = alpha_eval(
+            "(close < 5) or (close > 50) or (close > 0)",
+            {"close": simple_df},
+            ops=ops,
+        )
+        # Third condition true
+        assert result.data["A"][0] == 1.0
+
+    def test_unsupported_operator_raises(self, simple_df: pl.DataFrame) -> None:
+        """Unsupported operators raise AlphaParseError."""
+        with pytest.raises(AlphaParseError):
+            alpha_eval("close @ 2", {"close": simple_df}, ops=ops)
+
+    def test_unknown_ops_attribute_raises(self, simple_df: pl.DataFrame) -> None:
+        """Unknown ops.attr raises AlphaParseError."""
+        with pytest.raises(AlphaParseError):
+            alpha_eval("ops.nonexistent(close)", {"close": simple_df}, ops=ops)
+
+    def test_not_callable_raises(self, simple_df: pl.DataFrame) -> None:
+        """Calling non-callable raises AlphaParseError."""
+        with pytest.raises(AlphaParseError):
+            alpha_eval("close()", {"close": simple_df}, ops=ops)
