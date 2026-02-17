@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import time
 from typing import TYPE_CHECKING, Dict, List, Any
+
+from tqdm import tqdm
 
 from alphalab.storage.handlers.base import BaseHandler
 
@@ -50,6 +53,7 @@ class Top3000Handler(BaseHandler):
         auto_resolve: bool = True
     ) -> Dict[str, Any]:
         """Upload top 3000 symbols for each month in a year."""
+        start_time = time.time()
         symbols = self.universe_manager.load_symbols_for_year(year, sym_type='alpaca')
 
         if not symbols:
@@ -64,18 +68,22 @@ class Top3000Handler(BaseHandler):
 
         self.reset_stats()
         today = dt.date.today()
+        months_processed = 0
 
-        for month in range(1, 13):
+        pbar = tqdm(range(1, 13), desc="Top3000", unit="month", leave=False)
+        for month in pbar:
             # Skip existing
             if not overwrite and self.validator.top_3000_exists(year, month):
                 self.logger.debug(f"Skipping {year}-{month:02d}: exists")
                 self.stats['skipped'] += 1
+                pbar.set_postfix(ok=self.stats['success'], skip=self.stats['skipped'])
                 continue
 
             trading_days = self.calendar.load_trading_days(year, month)
             if not trading_days:
-                self.logger.warning(f"No trading days for {year}-{month:02d}")
+                self.logger.debug(f"No trading days for {year}-{month:02d}")
                 self.stats['skipped'] += 1
+                pbar.set_postfix(ok=self.stats['success'], skip=self.stats['skipped'])
                 continue
 
             as_of = trading_days[-1]
@@ -100,14 +108,23 @@ class Top3000Handler(BaseHandler):
 
             if result['status'] == 'success':
                 self.stats['success'] += 1
+                months_processed += 1
                 self.logger.debug(
                     f"Uploaded top3000 for {year}-{month:02d} (as_of={as_of}, count={len(top_3000)})"
                 )
             elif result['status'] == 'skipped':
                 self.stats['skipped'] += 1
-                self.logger.warning(f"Skipped {year}-{month:02d}: {result.get('error')}")
+                self.logger.debug(f"Skipped {year}-{month:02d}: {result.get('error')}")
             else:
                 self.stats['failed'] += 1
                 self.logger.error(f"Failed {year}-{month:02d}: {result.get('error')}")
 
+            pbar.set_postfix(ok=self.stats['success'], skip=self.stats['skipped'])
+
+        pbar.close()
+        elapsed = time.time() - start_time
+        self.logger.info(
+            f"Successfully generated top3000 in {elapsed:.1f}s "
+            f"({self.stats['success']} months, {self.stats['skipped']} skipped)"
+        )
         return self.stats

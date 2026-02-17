@@ -67,7 +67,7 @@ class TestTop3000Handler:
             result = handler.upload_year(2020)
 
         assert result['skipped'] == 12
-        deps['logger'].warning.assert_any_call('No trading days for 2020-01')
+        deps['logger'].debug.assert_any_call('No trading days for 2020-01')
 
     def test_upload_year_stops_at_future(self, handler, deps):
         deps['universe_manager'].load_symbols_for_year.return_value = ['AAPL']

@@ -227,11 +227,11 @@ class SecurityMaster:
         if not local_path.exists():
             raise FileNotFoundError(
                 f"Security master not found at {local_path}. "
-                "Run: python scripts/build_security_master.py or al --master"
+                "Run: python scripts/build_security_master.py or alab --master"
             )
 
         self.master_tb = self._load_from_local(local_path)
-        self.logger.info(f"Loaded SecurityMaster ({len(self.master_tb)} rows)")
+        self.logger.debug(f"Loaded SecurityMaster ({len(self.master_tb)} rows)")
 
     @staticmethod
     def _load_from_local(path: Path) -> pl.DataFrame:
@@ -274,7 +274,7 @@ class SecurityMaster:
         url = "https://www.sec.gov/files/company_tickers_exchange.json"
         headers = {'User-Agent': os.getenv('SEC_USER_AGENT', 'name@example.com')}
 
-        self.logger.info("Fetching SEC company tickers with exchange info...")
+        self.logger.debug("Fetching SEC company tickers with exchange info...")
         response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
 
@@ -305,7 +305,7 @@ class SecurityMaster:
                 })
 
         df = pl.DataFrame(records)
-        self.logger.info(f"Loaded {len(df)} tickers from SEC (with exchange)")
+        self.logger.debug(f"Loaded {len(df)} tickers from SEC (with exchange)")
         return df
 
     def _fetch_yfinance_metadata(self, tickers: List[str]) -> Dict[str, Dict[str, str]]:
@@ -323,12 +323,13 @@ class SecurityMaster:
 
         import io
         import sys
+        from tqdm import tqdm
 
         results: Dict[str, Dict[str, str]] = {}
         total = len(tickers)
-        self.logger.info(f"Fetching yfinance metadata for {total} tickers...")
 
-        for i, ticker in enumerate(tickers):
+        pbar = tqdm(tickers, desc="yfinance", unit="sym", leave=False)
+        for ticker in pbar:
             try:
                 yf_ticker = ticker.replace('.', '-')
                 # Suppress yfinance 404 stderr noise
@@ -348,11 +349,9 @@ class SecurityMaster:
                 time.sleep(0.3)
             except Exception as e:
                 self.logger.debug(f"yfinance failed for {ticker}: {e}")
+        pbar.close()
 
-            if (i + 1) % 25 == 0 or i + 1 == total:
-                self.logger.info(f"yfinance progress: {i + 1}/{total}")
-
-        self.logger.info(f"yfinance: got metadata for {len(results)}/{total} tickers")
+        self.logger.info(f"yfinance: {len(results)}/{total} metadata fetched")
         return results
 
     def _load_gics_mapping(self) -> Dict:
@@ -506,11 +505,11 @@ class SecurityMaster:
         try:
             cik = self.sid_to_info(sid, day, info='cik')
             company = self.sid_to_info(sid, day, info='company')
-            self.logger.info(
+            self.logger.debug(
                 f"auto_resolve triggered for symbol='{symbol}' ({company}) on date='{day}', sid={sid}, cik={cik}"
             )
         except Exception as e:
-            self.logger.error(f"auto_resolve triggered for symbol='{symbol}', sid={sid}: {e}")
+            self.logger.debug(f"auto_resolve triggered for symbol='{symbol}', sid={sid}: {e}")
 
         return sid
 
@@ -591,7 +590,7 @@ class SecurityMaster:
         table = table.replace_schema_metadata(combined_meta)
 
         pq.write_table(table, str(path))
-        self.logger.info(f"Saved SecurityMaster to {path} ({len(out_df)} rows)")
+        self.logger.debug(f"Saved SecurityMaster to {path} ({len(out_df)} rows)")
 
     def _fetch_openfigi_mapping(
         self,
@@ -609,6 +608,8 @@ class SecurityMaster:
         :param rate_limiter: Optional RateLimiter instance
         :return: Dict mapping ticker -> shareClassFIGI (None if not found)
         """
+        from tqdm import tqdm
+
         url = "https://api.openfigi.com/v3/mapping"
         headers = {"Content-Type": "application/json"}
 
@@ -629,12 +630,8 @@ class SecurityMaster:
         results: Dict[str, Optional[str]] = {}
         total_batches = (len(tickers) + batch_size - 1) // batch_size
 
-        self.logger.info(
-            f"Starting OpenFIGI lookup for {len(tickers)} tickers "
-            f"({total_batches} batches of {batch_size}, API key: {'yes' if api_key else 'no'})"
-        )
-
-        # Process in batches
+        # Process in batches with tqdm
+        pbar = tqdm(total=total_batches, desc="OpenFIGI", unit="batch", leave=False)
         for batch_idx in range(total_batches):
             start = batch_idx * batch_size
             batch = tickers[start:start + batch_size]
@@ -691,13 +688,11 @@ class SecurityMaster:
                         results[t] = None
                     break
 
-            # Progress logging every 10 batches
-            if (batch_idx + 1) % 10 == 0 or batch_idx + 1 == total_batches:
-                pct = ((batch_idx + 1) / total_batches) * 100
-                self.logger.info(f"OpenFIGI progress: {batch_idx + 1}/{total_batches} batches ({pct:.0f}%)")
+            pbar.update(1)
+        pbar.close()
 
         found = sum(1 for v in results.values() if v is not None)
-        self.logger.info(f"OpenFIGI lookup complete: {found}/{len(results)} tickers mapped")
+        self.logger.info(f"OpenFIGI: {found}/{len(results)} tickers mapped")
 
         return results
 
@@ -710,7 +705,7 @@ class SecurityMaster:
         try:
             df = fetch_all_stocks(with_filter=True, refresh=True, logger=self.logger)
             tickers = set(df['Ticker'].tolist())
-            self.logger.info(f"Fetched {len(tickers)} active tickers from Nasdaq")
+            self.logger.debug(f"Fetched {len(tickers)} active tickers from Nasdaq")
             return tickers
         except Exception as e:
             self.logger.error(f"Failed to fetch Nasdaq universe: {e}")
@@ -760,10 +755,10 @@ class SecurityMaster:
                 data = json.loads(self._prev_universe_path.read_text(encoding='utf-8'))
                 prev_universe = set(data.get('tickers', []))
                 prev_date = data.get('date')
-                self.logger.info(f"Loaded prev_universe: {len(prev_universe)} tickers from {prev_date}")
+                self.logger.debug(f"Loaded prev_universe: {len(prev_universe)} tickers from {prev_date}")
                 return prev_universe, prev_date
             else:
-                self.logger.info("No prev_universe found, will bootstrap from current Nasdaq list")
+                self.logger.debug("No prev_universe found, will bootstrap from current Nasdaq list")
                 return set(), None
         except Exception as e:
             self.logger.warning(f"Failed to load prev_universe: {e}, bootstrapping")
@@ -789,7 +784,7 @@ class SecurityMaster:
             json.dumps(data, indent=2),
             encoding='utf-8'
         )
-        self.logger.info(f"Saved prev_universe: {len(universe)} tickers for {date}")
+        self.logger.debug(f"Saved prev_universe: {len(universe)} tickers for {date}")
 
     def update(
         self,

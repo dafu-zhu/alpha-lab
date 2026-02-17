@@ -363,7 +363,7 @@ class TestSecurityMaster:
         sm = _make_security_master(master_tb, sid_to_info=Mock(side_effect=RuntimeError("boom")))
 
         assert sm.auto_resolve('AAA', '2020-06-30') == 101
-        sm.logger.error.assert_called_once()
+        sm.logger.debug.assert_called()
 
     def test_auto_resolve_no_active_security(self):
         master_tb = pl.DataFrame({
@@ -1086,12 +1086,12 @@ class TestOpenFIGIRetryBehavior:
         assert result['AAPL'] is None
         sm.logger.warning.assert_called()
 
-    def test_fetch_openfigi_progress_logging(self):
+    def test_fetch_openfigi_summary_logging(self):
+        """Test that OpenFIGI logs final summary (progress is now via tqdm)."""
         sm = SecurityMaster.__new__(SecurityMaster)
         sm.logger = Mock()
 
         # With API key: 100 per batch. 1500 tickers = 15 batches
-        # Should log at batch 10 and 15 (final)
         tickers = [f'SYM{i:04d}' for i in range(1500)]
 
         def mock_post(*args, **kwargs):
@@ -1111,9 +1111,10 @@ class TestOpenFIGIRetryBehavior:
                     mock_rl.return_value.acquire = Mock()
                     result = sm._fetch_openfigi_mapping(tickers)
 
+        # Verify final summary log was called
         info_calls = [str(call) for call in sm.logger.info.call_args_list]
-        progress_logs = [c for c in info_calls if 'progress' in c.lower()]
-        assert len(progress_logs) >= 2
+        summary_logs = [c for c in info_calls if 'OpenFIGI' in c and 'mapped' in c]
+        assert len(summary_logs) >= 1
 
     def test_fetch_openfigi_request_exception_retries(self):
         sm = SecurityMaster.__new__(SecurityMaster)

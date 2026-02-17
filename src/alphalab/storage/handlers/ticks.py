@@ -55,6 +55,8 @@ class DailyTicksHandler(BaseHandler):
         sleep_time: float = 0.2,
     ) -> Dict[str, Any]:
         """Upload daily ticks for all securities active in [start_year, end_year]."""
+        start_time = time.time()
+
         # 1. Get all (symbol, security_id) from SecurityMaster
         securities = self.security_master.get_securities_in_range(start_year, end_year)
 
@@ -64,7 +66,7 @@ class DailyTicksHandler(BaseHandler):
         self.reset_stats()
 
         total = len(securities)
-        pbar = tqdm(total=total, desc=f"Uploading {start_year}-{end_year} daily ticks", unit="sym")
+        pbar = tqdm(total=total, desc="Daily ticks download", unit="sym")
 
         # 2. Filter already-downloaded
         if not overwrite:
@@ -98,7 +100,12 @@ class DailyTicksHandler(BaseHandler):
                 time.sleep(sleep_time)
 
         pbar.close()
-        self.log_summary(f"{start_year}-{end_year} daily ticks (alpaca)", total, time.time())
+        elapsed = time.time() - start_time
+        self.logger.info(
+            f"Successfully downloaded daily ticks in {elapsed:.1f}s: "
+            f"{self.stats['success']} success, {self.stats['failed']} failed, "
+            f"{self.stats['skipped']} skipped, {self.stats['canceled']} canceled"
+        )
         return self.stats
 
     def _filter_existing(

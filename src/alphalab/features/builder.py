@@ -7,6 +7,7 @@ from datetime import date
 from pathlib import Path
 
 import polars as pl
+from tqdm import tqdm
 
 from alphalab.features.registry import (
     ALL_FIELDS,
@@ -51,8 +52,10 @@ class FeatureBuilder:
         order = get_build_order()
         written: dict[str, str] = {}
 
-        for field_name in order:
+        pbar = tqdm(order, desc="Features build", unit="field", leave=False)
+        for field_name in pbar:
             out_path = out_dir / f"{field_name}.arrow"
+            pbar.set_postfix(field=field_name[:15])
 
             if not overwrite and out_path.exists():
                 # Load into cache for downstream deps
@@ -67,6 +70,7 @@ class FeatureBuilder:
             written[field_name] = str(out_path)
             self._logger.debug(f"Built: {field_name} → {out_path}")
 
+        pbar.close()
         return written
 
     def _build_single(

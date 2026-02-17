@@ -2,9 +2,11 @@ from pathlib import Path
 import shutil
 import time
 import datetime as dt
+import os
 import polars as pl
 import logging
-from typing import Dict, Optional
+from concurrent.futures import ThreadPoolExecutor
+from typing import Dict, List, Optional, Tuple
 from alphalab.collection.alpaca_ticks import Ticks
 from alphalab.universe.current import fetch_all_stocks
 from alphalab.universe.historical import get_hist_universe_local
@@ -107,6 +109,128 @@ class UniverseManager:
             self.logger.error(f"Failed to load symbols for {year}: {e}", exc_info=True)
             return []
 
+    def _get_local_storage_path(self) -> Path:
+        """Get LOCAL_STORAGE_PATH from environment."""
+        base = os.getenv("LOCAL_STORAGE_PATH", "")
+        if not base:
+            raise ValueError("LOCAL_STORAGE_PATH environment variable required")
+        return Path(base)
+
+    def _verify_ticks_exist(self, sample_size: int = 10) -> bool:
+        """
+        Verify that local ticks data exists by checking a sample of files.
+
+        :param sample_size: Number of files to check
+        :return: True if ticks data exists, False otherwise
+        """
+        try:
+            storage = self._get_local_storage_path()
+            ticks_dir = storage / "data" / "raw" / "ticks" / "daily"
+
+            if not ticks_dir.exists():
+                return False
+
+            # Check if at least some security directories exist with parquet files
+            security_dirs = [d for d in ticks_dir.iterdir() if d.is_dir()][:sample_size]
+            if not security_dirs:
+                return False
+
+            # Check if parquet files exist in sample directories
+            found = 0
+            for sec_dir in security_dirs:
+                ticks_file = sec_dir / "ticks.parquet"
+                if ticks_file.exists():
+                    found += 1
+
+            # Require at least 3 files to consider data "exists"
+            return found >= 3
+        except (ValueError, OSError):
+            return False
+
+    def _calculate_adv_single(
+        self,
+        args: Tuple[int, str, List[str]]
+    ) -> Tuple[int, str, float]:
+        """
+        Calculate ADV for a single security from local ticks.
+
+        :param args: Tuple of (security_id, symbol, trading_days_str)
+        :return: Tuple of (security_id, symbol, avg_dollar_volume)
+        """
+        security_id, symbol, trading_days_str = args
+        try:
+            storage = self._get_local_storage_path()
+            ticks_path = storage / "data" / "raw" / "ticks" / "daily" / str(security_id) / "ticks.parquet"
+
+            if not ticks_path.exists():
+                return (security_id, symbol, 0.0)
+
+            # Read parquet and filter to trading days
+            df = pl.read_parquet(ticks_path)
+
+            # Convert trading_days to dates for filtering
+            trading_dates = [dt.datetime.strptime(d, "%Y-%m-%d").date() for d in trading_days_str]
+
+            # Filter to last 60 trading days
+            df = df.filter(pl.col("timestamp").is_in(trading_dates))
+
+            if len(df) == 0:
+                return (security_id, symbol, 0.0)
+
+            # Calculate ADV = mean(close * volume)
+            adv = (df["close"] * df["volume"]).mean()
+            return (security_id, symbol, adv if adv is not None else 0.0)
+
+        except Exception as e:
+            self.logger.debug(f"Error calculating ADV for {symbol} (sid={security_id}): {e}")
+            return (security_id, symbol, 0.0)
+
+    def _calculate_adv_from_local_ticks(
+        self,
+        symbols: List[str],
+        end_date: dt.date,
+        lookback_days: int = 60,
+        max_workers: int = 8
+    ) -> Dict[str, float]:
+        """
+        Calculate average dollar volume from local ticks storage.
+
+        :param symbols: List of ticker symbols
+        :param end_date: End date (month-end trading day)
+        :param lookback_days: Number of trading days to look back (default 60)
+        :param max_workers: Max parallel workers (default 8)
+        :return: Dict mapping symbol -> average dollar volume
+        """
+        from alphalab.utils.calendar import TradingCalendar
+
+        # Load trading calendar
+        calendar = TradingCalendar()
+        start_date = end_date - dt.timedelta(days=90)  # Buffer for ~60 trading days
+        trading_days = calendar.get_trading_days(start_date, end_date)
+
+        # Take last N trading days
+        trading_days = trading_days[-lookback_days:]
+        trading_days_str = [d.strftime("%Y-%m-%d") for d in trading_days]
+
+        # Resolve symbols to security IDs
+        end_date_str = end_date.strftime("%Y-%m-%d")
+        args_list = []
+        for sym in symbols:
+            try:
+                sid = self.security_master.get_security_id(sym, end_date_str)
+                args_list.append((sid, sym, trading_days_str))
+            except ValueError:
+                continue
+
+        # Calculate ADV in parallel
+        results: Dict[str, float] = {}
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = executor.map(self._calculate_adv_single, args_list)
+            for security_id, symbol, adv in futures:
+                results[symbol] = adv
+
+        return results
+
     def get_top_3000(
         self,
         day: str,
@@ -115,31 +239,45 @@ class UniverseManager:
         auto_resolve: bool = True
     ) -> list[str]:
         """
-        Fetch recent data and calculate top 3000 most liquid stocks (in-memory).
+        Calculate top 3000 most liquid stocks.
+
+        Prefers local ticks storage when available (faster, no API calls).
+        Falls back to Alpaca API for real-time data.
+
+        REQUIRES: For local source, daily ticks must be downloaded first (`alab --ticks`).
 
         :param day: Date string in format "YYYY-MM-DD"
         :param symbols: List of symbols to analyze
-        :param source: 'alpaca' (only supported source)
+        :param source: 'local' (from ticks storage) or 'alpaca' (real-time API)
         :param auto_resolve: Unused, kept for API compatibility
         :return: List of top 3000 symbols ranked by average dollar volume
         """
-        self.logger.info(f"Fetching recent data on {day} for {len(symbols)} symbols using alpaca...")
+        end_date = dt.datetime.strptime(day, "%Y-%m-%d").date()
 
-        recent_data = self.alpaca_fetcher.recent_daily_ticks(symbols, end_day=day)
+        # Check if local ticks exist and use them preferentially
+        # Also check that security_master is available (needed for symbol resolution)
+        use_local = hasattr(self, 'security_master') and self._verify_ticks_exist()
 
-        self.logger.info(f"Data fetched for {len(recent_data)} symbols, calculating liquidity...")
+        if use_local:
+            self.logger.debug(f"Calculating ADV from local ticks for {len(symbols)} symbols...")
+            adv_map = self._calculate_adv_from_local_ticks(symbols, end_date)
+        else:
+            self.logger.debug(f"Fetching recent data on {day} for {len(symbols)} symbols using alpaca...")
+            recent_data = self.alpaca_fetcher.recent_daily_ticks(symbols, end_day=day)
+            self.logger.debug(f"Data fetched for {len(recent_data)} symbols, calculating liquidity...")
 
-        # Calculate average dollar volume for each symbol
-        liquidity_data = []
-        for symbol, df in recent_data.items():
-            if len(df) > 0:
-                # Calculate average dollar volume: avg(close * volume)
-                avg_dollar_vol = (df['close'] * df['volume']).mean()
-                liquidity_data.append({
-                    'symbol': symbol,
-                    'avg_dollar_vol': avg_dollar_vol
-                })
-        
+            adv_map = {}
+            for symbol, df in recent_data.items():
+                if len(df) > 0:
+                    adv_map[symbol] = (df['close'] * df['volume']).mean()
+
+        # Convert to list for ranking
+        liquidity_data = [
+            {'symbol': sym, 'avg_dollar_vol': adv}
+            for sym, adv in adv_map.items()
+            if adv > 0
+        ]
+
         if len(liquidity_data) == 0:
             self.logger.error("No symbols passed liquidity filter")
             return []
@@ -153,10 +291,11 @@ class UniverseManager:
         )
 
         # Log top and bottom stocks
-        top_stock = liquidity_df.row(0)
-        bottom_stock = liquidity_df.row(-1)
-        self.logger.info(f"Top Liquid Stock: {top_stock[0]} (ADV: ${top_stock[1]:,.0f})")
-        self.logger.info(f"Rank {len(liquidity_df)} Stock: {bottom_stock[0]} (ADV: ${bottom_stock[1]:,.0f})")
+        if len(liquidity_df) > 0:
+            top_stock = liquidity_df.row(0)
+            bottom_stock = liquidity_df.row(-1)
+            self.logger.debug(f"Top Liquid Stock: {top_stock[0]} (ADV: ${top_stock[1]:,.0f})")
+            self.logger.debug(f"Rank {len(liquidity_df)} Stock: {bottom_stock[0]} (ADV: ${bottom_stock[1]:,.0f})")
 
         result = liquidity_df['symbol'].to_list()
 

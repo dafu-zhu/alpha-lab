@@ -1,18 +1,19 @@
 """Unified CLI for AlphaLab.
 
 Commands:
-    al --master               Build security_master + calendar_master
-    al --all                  Master build + download all data
-    al --ticks                Download daily ticks only
-    al --fundamental          Download fundamentals only
-    al --top-3000             Download top 3000 universe only
-    al --features             Build feature wide tables only
+    alab --master               Build security_master + calendar_master
+    alab --all                  Master build + download all data
+    alab --ticks                Download daily ticks only
+    alab --fundamental          Download fundamentals only
+    alab --top-3000             Download top 3000 universe only
+    alab --features             Build feature wide tables only
 """
 
 import argparse
 import datetime as dt
 import os
 import shutil
+import time
 from pathlib import Path
 
 import requests
@@ -46,19 +47,24 @@ def _build_master(logger) -> None:
     if not working.exists():
         if source.exists():
             shutil.copy2(str(source), str(working))
-            logger.info(f"Initialized working copy from source parquet")
+            logger.debug(f"Initialized working copy from source parquet")
         else:
             raise FileNotFoundError(
                 f"No source parquet at {source}. "
                 "Run: python scripts/build_security_master.py"
             )
     else:
-        logger.info(f"Using existing working copy at {working}")
+        logger.debug(f"Using existing working copy at {working}")
 
+    start_time = time.time()
     master = SecurityMaster(local_path=working)
     result = master.update()
     master.save_local(working)
-    logger.info(f"SecurityMaster: {result}")
+    elapsed = time.time() - start_time
+    logger.info(
+        f"Successfully updated SecurityMaster in {elapsed:.1f}s "
+        f"({len(master.master_tb)} rows, {result['extended']} extended, {result['added']} added)"
+    )
 
     # --- Calendar Master ---
     console_log(logger, "Calendar Master", section=True)
@@ -88,7 +94,8 @@ def _build_calendar_master(output_path: Path, logger) -> None:
         "date_type": "TRADING",
     }
 
-    logger.info("Fetching NYSE trading calendar from Alpaca API...")
+    start_time = time.time()
+    logger.debug("Fetching NYSE trading calendar from Alpaca API...")
     resp = requests.get(
         "https://paper-api.alpaca.markets/v2/calendar",
         headers=headers,
@@ -104,7 +111,8 @@ def _build_calendar_master(output_path: Path, logger) -> None:
 
     df = pl.DataFrame({"timestamp": dates})
     df.write_parquet(output_path)
-    logger.info(f"Calendar master: {len(dates)} trading days -> {output_path}")
+    elapsed = time.time() - start_time
+    logger.info(f"Successfully built calendar in {elapsed:.1f}s ({len(dates)} trading days)")
 
 
 def _download(args, logger) -> None:
@@ -167,7 +175,7 @@ def main():
     import logging
     from alphalab.utils.logger import setup_logger
     logger = setup_logger(
-        name="al",
+        name="alab",
         log_dir=Path("data/logs"),
         level=logging.INFO,
         console_output=True,

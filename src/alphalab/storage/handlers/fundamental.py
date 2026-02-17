@@ -80,7 +80,7 @@ class FundamentalHandler(BaseHandler):
                 for sym in symbols_with_cik
             }
 
-            pbar = tqdm(as_completed(futures), total=total, desc="Fundamental", unit="sym")
+            pbar = tqdm(as_completed(futures), total=total, desc="Fundamental download", unit="sym")
             for future in pbar:
                 result = future.result()
                 self._update_stats(result)
@@ -202,7 +202,7 @@ class FundamentalHandler(BaseHandler):
         avg_rate = total / fetch_time if fetch_time > 0 else 0
 
         self.logger.info(
-            f"Fundamental upload completed in {total_time:.1f}s: "
+            f"Successfully downloaded fundamentals in {total_time:.1f}s: "
             f"{self.stats['success']} success, {self.stats['failed']} failed, "
             f"{self.stats['skipped']} skipped, {self.stats['canceled']} canceled"
         )

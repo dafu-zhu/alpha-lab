@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import date
 from typing import TYPE_CHECKING, Any
+
+from tqdm import tqdm
 
 if TYPE_CHECKING:
     from alphalab.features.builder import FeatureBuilder
@@ -41,6 +44,8 @@ class FeaturesHandler:
         Returns:
             Dict with field_name → output path mappings.
         """
+        start_time = time.time()
+
         # Collect trading days
         start = date(start_year, 1, 1)
         end = date(end_year, 12, 31)
@@ -58,13 +63,19 @@ class FeaturesHandler:
                     pass
 
         security_ids = sorted(all_sids)
-        self.logger.info(
+        self.logger.debug(
             f"Building features: {len(trading_days)} trading days, "
             f"{len(security_ids)} securities, {start_year}-{end_year}"
         )
 
-        return self.feature_builder.build_all(
+        result = self.feature_builder.build_all(
             trading_days=trading_days,
             security_ids=security_ids,
             overwrite=overwrite,
         )
+
+        elapsed = time.time() - start_time
+        self.logger.info(
+            f"Successfully built features in {elapsed:.1f}s ({len(result)} fields)"
+        )
+        return result

@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.scripts]
-al = "alphalab.cli:main"
+alab = "alphalab.cli:main"
 
 [tool.uv]
 package = true
