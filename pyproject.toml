@@ -34,3 +34,17 @@ dev = [
     "pytest-mock>=3.10.0",
     "pytest-timeout>=2.1.0",
 ]
+
+[tool.coverage.run]
+omit = [
+    "src/alphalab/cli.py",
+    "src/alphalab/master/cli.py",
+    "src/alphalab/storage/utils/config.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]

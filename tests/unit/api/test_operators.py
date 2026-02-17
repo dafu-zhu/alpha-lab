@@ -2047,3 +2047,146 @@ class TestTradeWhen:
         result = trade_when(trigger, alpha, -1)
         assert result["A"][0] == 10.0
         assert result["B"][1] == 200.0
+
+
+# =============================================================================
+# ADDITIONAL COVERAGE TESTS
+# =============================================================================
+
+
+class TestTimeSeriesEdgeCases:
+    """Tests for time series operator edge cases to improve coverage."""
+
+    def test_ts_arg_max_with_nulls(self) -> None:
+        """Test ts_arg_max when window has null values."""
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, i) for i in range(1, 6)],
+            "A": [1.0, None, 3.0, 2.0, 5.0],
+        })
+        result = ts_arg_max(df, 3)
+        assert result.columns == df.columns
+
+    def test_ts_arg_min_with_nulls(self) -> None:
+        """Test ts_arg_min when window has null values."""
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, i) for i in range(1, 6)],
+            "A": [5.0, None, 3.0, 2.0, 1.0],
+        })
+        result = ts_arg_min(df, 3)
+        assert result.columns == df.columns
+
+    def test_last_diff_value_all_same(self) -> None:
+        """Test last_diff_value when all values are the same."""
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, i) for i in range(1, 6)],
+            "A": [5.0, 5.0, 5.0, 5.0, 5.0],
+        })
+        result = last_diff_value(df, 3)
+        assert result.columns == df.columns
+
+    def test_last_diff_value_short_window(self) -> None:
+        """Test last_diff_value with very short data."""
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, 1)],
+            "A": [5.0],
+        })
+        result = last_diff_value(df, 3)
+        assert result.columns == df.columns
+
+    def test_ts_decay_linear_dense_true(self) -> None:
+        """Test ts_decay_linear with dense=True to skip nulls."""
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, i) for i in range(1, 6)],
+            "A": [1.0, None, 3.0, None, 5.0],
+        })
+        result = ts_decay_linear(df, 3, dense=True)
+        assert result.columns == df.columns
+
+    def test_ts_decay_linear_dense_false_with_nulls(self) -> None:
+        """Test ts_decay_linear with dense=False returns null when window has nulls."""
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, i) for i in range(1, 6)],
+            "A": [1.0, None, 3.0, 4.0, 5.0],
+        })
+        result = ts_decay_linear(df, 3, dense=False)
+        assert result.columns == df.columns
+
+    def test_ts_rank_single_value(self) -> None:
+        """Test ts_rank with single value in window."""
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, i) for i in range(1, 4)],
+            "A": [5.0, 5.0, 5.0],
+        })
+        result = ts_rank(df, 3, constant=0.0)
+        assert result.columns == df.columns
+
+    def test_ts_rank_with_null_current(self) -> None:
+        """Test ts_rank when current value is null."""
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, i) for i in range(1, 4)],
+            "A": [1.0, 2.0, None],
+        })
+        result = ts_rank(df, 3)
+        assert result.columns == df.columns
+
+    def test_ts_quantile_gaussian_edge_values(self) -> None:
+        """Test ts_quantile with extreme values to cover inv_norm branches."""
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, i) for i in range(1, 11)],
+            "A": [float(i) for i in range(1, 11)],
+        })
+        result = ts_quantile(df, 10, driver="gaussian")
+        assert result.columns == df.columns
+
+    def test_ts_quantile_uniform_driver(self) -> None:
+        """Test ts_quantile with uniform driver."""
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, i) for i in range(1, 6)],
+            "A": [1.0, 2.0, 3.0, 4.0, 5.0],
+        })
+        result = ts_quantile(df, 5, driver="uniform")
+        assert result.columns == df.columns
+
+    def test_ts_quantile_single_value_window(self) -> None:
+        """Test ts_quantile with single valid value in window."""
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, i) for i in range(1, 4)],
+            "A": [5.0, 5.0, 5.0],
+        })
+        result = ts_quantile(df, 3)
+        assert result.columns == df.columns
+
+
+class TestCrossSectionalEdgeCases:
+    """Tests for cross-sectional operator edge cases."""
+
+    def test_quantile_with_single_valid_value(self) -> None:
+        """Test quantile when only one valid value per row."""
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, 1)],
+            "A": [1.0],
+            "B": [None],
+        })
+        result = quantile(df, driver="gaussian")
+        assert result.columns == df.columns
+
+    def test_quantile_uniform_driver(self) -> None:
+        """Test quantile with uniform driver."""
+        df = pl.DataFrame({
+            "Date": [date(2024, 1, 1)],
+            "A": [1.0],
+            "B": [2.0],
+            "C": [3.0],
+        })
+        result = quantile(df, driver="uniform")
+        assert result.columns == df.columns
+
+    def test_rank_bucket_single_valid(self) -> None:
+        """Test bucket rank with single valid value."""
+        n_symbols = 40
+        data = {"Date": [date(2024, 1, 1)]}
+        for i in range(n_symbols):
+            data[f"S{i:03d}"] = [None] if i > 0 else [1.0]
+        df = pl.DataFrame(data)
+        result = rank(df, rate=2)
+        assert result.columns == df.columns
