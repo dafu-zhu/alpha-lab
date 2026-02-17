@@ -100,11 +100,22 @@ uv run alab --fundamental --max-workers 25
 - `builders/groups.py`: `GroupFeatureBuilder` — GICS/exchange group masks
 - Output: `data/features/{field}.arrow` (Arrow IPC, cols: timestamp + security_ids)
 
-**6. Upload App** (`src/alphalab/storage/`)
+**6. Alpha DSL** (`src/alphalab/alpha/`)
+- `core.py`: `Alpha` class with operator overloading
+- `parser.py`: AST-based expression parser, `SafeEvaluator`, internal `_evaluate()`
+- `types.py`: Type definitions (`AlphaLike`, `Scalar`)
+- Internal module — use `alphalab.api.dsl` for public interface
+
+**7. Public API** (`src/alphalab/api/`)
+- `client.py`: `AlphaLabClient` — data access with auto-field loading
+- `dsl.py`: `compute()` — standalone DSL for custom DataFrames
+- `operators/`: 68 operators (time-series, cross-sectional, group, etc.)
+
+**8. Upload App** (`src/alphalab/storage/`)
 - `app.py`: `UploadApp` orchestrates full backfill uploads
 - `handlers/features.py`: `FeaturesHandler` — builds feature wide tables
 
-**7. Unified CLI** (`src/alphalab/cli.py`)
+**9. Unified CLI** (`src/alphalab/cli.py`)
 - Entry point: `alab` command
 - Commands: `--master`, `--all`, `--ticks`, `--fundamental`, `--top-3000`, `--features`
 
