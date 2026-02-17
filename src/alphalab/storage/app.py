@@ -7,6 +7,7 @@ Coordinates data upload workflows using specialized handlers.
 import os
 import datetime as dt
 import logging
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -53,7 +54,8 @@ class UploadApp:
         # Data fetchers
         self.alpaca_ticks = Ticks()
 
-        # SecurityMaster: local only
+        # SecurityMaster: auto-install from source if not exists
+        self._ensure_security_master(local_path)
         self.security_master = SecurityMaster()
 
         # Universe and CIK resolution
@@ -95,6 +97,27 @@ class UploadApp:
     # ===========================
     # Handler factory methods
     # ===========================
+
+    def _ensure_security_master(self, local_path: str) -> None:
+        """Auto-install security_master from source if working copy doesn't exist."""
+        local_path = Path(os.path.expanduser(local_path))
+        working = local_path / "data" / "meta" / "master" / "security_master.parquet"
+
+        if working.exists():
+            return
+
+        # Source parquet bundled with the package
+        source = Path(__file__).resolve().parent.parent / "data" / "security_master.parquet"
+
+        if source.exists():
+            working.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(source), str(working))
+            self.logger.info(f"Auto-installed security_master from source")
+        else:
+            raise FileNotFoundError(
+                f"Security master not found. Run 'alab --master' first, "
+                f"or ensure source exists at {source}"
+            )
 
     def _get_daily_ticks_handler(self):
         from alphalab.storage.handlers.ticks import DailyTicksHandler
