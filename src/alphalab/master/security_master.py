@@ -500,7 +500,7 @@ class SecurityMaster:
 
             best_match = min(active_securities, key=distance_to_date)
             sid = best_match['sid']
-            self.logger.info(f"auto_resolve: Multiple candidates found, selected security_id={sid}")
+            self.logger.debug(f"auto_resolve: Multiple candidates found, selected security_id={sid}")
 
         try:
             cik = self.sid_to_info(sid, day, info='cik')
