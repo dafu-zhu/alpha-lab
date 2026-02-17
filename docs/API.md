@@ -105,3 +105,51 @@ Returned by `client.lookup()`.
 | `sector` | str | GICS sector |
 | `industry` | str | GICS industry |
 | `subindustry` | str | GICS sub-industry |
+
+## Standalone DSL
+
+For evaluating alpha expressions with custom data (not from AlphaLab storage), use the standalone DSL:
+
+```python
+from alphalab.api.dsl import compute
+
+# Single variable
+result = compute("rank(-ts_delta(x, 5))", x=my_price_df)
+
+# Multiple variables
+result = compute("rank(x - y)", x=close_df, y=vwap_df)
+
+# Multi-line with assignments
+result = compute("""
+momentum = ts_delta(close, 5)
+volatility = ts_std(returns, 20)
+rank(momentum / volatility)
+""", close=close_df, returns=returns_df)
+```
+
+**Parameters:**
+- `expr` (str) — Alpha expression (see [Expression Guide](ALPHA-GUIDE.md))
+- `**variables` — Variable name to DataFrame mappings
+
+**Returns:** `pl.DataFrame` — Wide table with computed result
+
+### Architecture
+
+```mermaid
+flowchart TD
+    A[User Code] --> B{Entry Point}
+    B -->|"dsl.compute(expr, **vars)"| C[api/dsl.py]
+    B -->|"client.query(expr)"| D[api/client.py]
+    D -->|auto-load fields| E[client.get]
+    D --> C
+    C -->|auto-inject ops| F[alpha/parser._evaluate]
+    F --> G[SafeEvaluator]
+    G --> H[Result DataFrame]
+```
+
+**When to use which:**
+
+| Use Case | Function |
+|----------|----------|
+| AlphaLab data with auto-loading | `client.query()` |
+| Custom DataFrames | `dsl.compute()` |
