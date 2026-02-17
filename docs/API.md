@@ -135,17 +135,7 @@ rank(momentum / volatility)
 
 ### Architecture
 
-```mermaid
-flowchart TD
-    A[User Code] --> B{Entry Point}
-    B -->|"dsl.compute(expr, **vars)"| C[api/dsl.py]
-    B -->|"client.query(expr)"| D[api/client.py]
-    D -->|auto-load fields| E[client.get]
-    D --> C
-    C -->|auto-inject ops| F[alpha/parser._evaluate]
-    F --> G[SafeEvaluator]
-    G --> H[Result DataFrame]
-```
+![DSL Architecture](../assets/image/dsl-architecture.svg)
 
 **When to use which:**
 
