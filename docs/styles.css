@@ -1,0 +1,30 @@
+/* Table horizontal scroll */
+.table-responsive {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+table {
+  display: block;
+  overflow-x: auto;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* Better table styling */
+table th, table td {
+  white-space: normal;
+  word-wrap: break-word;
+}
+
+/* Prevent title overflow in TOC */
+.sidebar nav[role=doc-toc] a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Code blocks in headings */
+h3 code {
+  font-size: 0.85em;
+}

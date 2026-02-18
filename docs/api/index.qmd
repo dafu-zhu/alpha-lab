@@ -1,0 +1,54 @@
+---
+title: "API Reference"
+---
+
+AlphaLab provides two main entry points for alpha research:
+
+## Core API
+
+| Module | Description |
+|--------|-------------|
+| [AlphaLabClient](client.qmd) | Main client for data access and alpha evaluation with auto-loading |
+| [Standalone DSL](dsl.qmd) | Evaluate expressions on custom DataFrames |
+| [Operators](operators.qmd) | 68 operators: time-series, cross-sectional, group, logical |
+
+## Quick Comparison
+
+```python
+from alphalab.api.client import AlphaLabClient
+from alphalab.api.dsl import compute
+
+# Option 1: AlphaLabClient (auto-loads data)
+client = AlphaLabClient(data_path="/path/to/data")
+alpha = client.query("rank(-ts_delta(close, 5))")
+
+# Option 2: Standalone DSL (custom DataFrames)
+alpha = compute("rank(-ts_delta(x, 5))", x=my_price_df)
+```
+
+## When to Use Which
+
+| Use Case | API |
+|----------|-----|
+| Working with AlphaLab data | `client.query()` |
+| Custom external data | `dsl.compute()` |
+| Need date/symbol filtering | `client.query()` or `client.get()` |
+| Quick expression testing | `dsl.compute()` |
+
+## Data Flow
+
+```
+AlphaLabClient
+    ├── get(field)      → Load pre-built features
+    ├── query(expr)     → Auto-load + evaluate
+    └── lookup(symbol)  → Security master lookup
+
+dsl.compute(expr, **vars)
+    └── Evaluate on user-provided DataFrames
+```
+
+## See Also
+
+- [Data Fields](../fields.qmd) — 66 pre-built fields
+- [Operators](../operators.qmd) — 68 DSL operators
+- [Tutorials](../tutorials/01_quickstart.ipynb) — Step-by-step examples

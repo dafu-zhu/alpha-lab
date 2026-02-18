@@ -12,7 +12,9 @@ client = AlphaLabClient(data_path="/path/to/your/data")
 
 ## Methods
 
-### `client.lookup(identifier, as_of=None)`
+### `lookup`
+
+`client.lookup(identifier, as_of=None)`
 
 Resolve a symbol, CIK, or security_id to a `SecurityInfo` object.
 
@@ -31,7 +33,9 @@ info = client.lookup("FB", as_of="2022-01-01")
 
 **Returns:** `SecurityInfo | None`
 
-### `client.get(field, symbols=None, universe=None, start=None, end=None)`
+### `get`
+
+`client.get(field, symbols=None, universe=None, start=None, end=None)`
 
 Load a pre-built feature wide table.
 
@@ -56,7 +60,9 @@ df = client.get("returns", universe="top3000", start="2024-01-01")
 
 **Returns:** `pl.DataFrame` — Wide table with `Date` column + one column per security
 
-### `client.query(expr, symbols=None, universe=None, start=None, end=None)`
+### `query`
+
+`client.query(expr, symbols=None, universe=None, start=None, end=None)`
 
 Evaluate an alpha expression with auto-field loading.
 
@@ -83,7 +89,9 @@ df = client.query("rank(volume)", symbols=["AAPL", "MSFT"], start="2024-01-01")
 
 **Returns:** `pl.DataFrame` — Wide table with computed alpha values
 
-### `client.universe(name="top3000")`
+### `universe`
+
+`client.universe(name="top3000")`
 
 Load a named universe of symbols.
 

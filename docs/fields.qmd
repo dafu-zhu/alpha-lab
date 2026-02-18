@@ -4,7 +4,7 @@ title: "Data Fields"
 
 66 pre-built data fields stored as wide matrices (Date x security_id) in Arrow IPC format at `data/features/{field}.arrow`. Use any field name directly in alpha expressions.
 
-Source: [`src/alphalab/features/registry.py`](../src/alphalab/features/registry.py)
+Source: [`src/alphalab/features/registry.py`](https://github.com/dafu-zhu/alpha-lab/blob/main/src/alphalab/features/registry.py)
 
 ---
 

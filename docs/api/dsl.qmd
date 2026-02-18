@@ -4,7 +4,9 @@ title: "Standalone DSL"
 
 For evaluating alpha expressions with custom data (not from AlphaLab storage), use the standalone DSL.
 
-## `compute(expr, **variables)`
+## `compute`
+
+`compute(expr, **variables)`
 
 ```python
 from alphalab.api.dsl import compute
@@ -32,7 +34,7 @@ rank(momentum / volatility)
 
 ## Architecture
 
-![DSL Architecture](../../assets/image/dsl-architecture.svg)
+![DSL Architecture](../assets/image/dsl-architecture.svg)
 
 ## When to Use Which
 
