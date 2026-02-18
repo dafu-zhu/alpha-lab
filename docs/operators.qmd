@@ -2,7 +2,7 @@
 title: "Operators"
 ---
 
-68 operators aligned with [WorldQuant BRAIN conventions](https://platform.worldquantbrain.com/learn/documentation/discover-brain/operators-702).
+68 operators aligned with [WorldQuant BRAIN conventions](https://platform.worldquantbrain.com/learn/operators).
 
 All operators work on wide DataFrames where the first column is the date and remaining columns are security values. Parameters named `x`, `y` are `pl.DataFrame` unless noted otherwise.
 
