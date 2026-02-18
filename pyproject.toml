@@ -33,6 +33,9 @@ dev = [
     "pytest-xdist>=3.0.0",
     "pytest-mock>=3.10.0",
     "pytest-timeout>=2.1.0",
+    "jupyter>=1.1.1",
+    "nbconvert>=7.17.0",
+    "ipykernel>=7.2.0",
 ]
 
 [tool.coverage.run]
