@@ -1,21 +1,20 @@
-/* Table horizontal scroll */
-.table-responsive {
-  overflow-x: auto;
-  max-width: 100%;
-}
-
+/* Table styling - fixed layout with text wrapping */
 table {
-  display: block;
-  overflow-x: auto;
-  white-space: nowrap;
-  max-width: 100%;
+  width: 100%;
+  table-layout: fixed;
 }
 
-/* Better table styling */
 table th, table td {
   white-space: normal;
   word-wrap: break-word;
+  overflow-wrap: break-word;
+  vertical-align: top;
 }
+
+/* Column width hints for fields.qmd tables */
+table th:nth-child(1) { width: 15%; }  /* Field */
+table th:nth-child(2) { width: 55%; }  /* XBRL Concepts / Formula */
+table th:nth-child(3) { width: 30%; }  /* Description */
 
 /* Prevent title overflow in TOC */
 .sidebar nav[role=doc-toc] a {
