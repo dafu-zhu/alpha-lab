@@ -279,3 +279,20 @@ Key libraries:
 - Fundamentals: ~7.5 GB for 5000 symbols × 15 years
 - Use threading for I/O-bound operations (local reads/writes)
 - Rate limiting: Alpaca API (200 symbols/batch), SEC EDGAR (10 req/sec limit)
+
+## Documentation Style (Quarto)
+
+**Tables:**
+- Wrap in `<div class="table-wrapper">` for horizontal scrolling (like code blocks)
+- No border lines on containers
+- Field/code names use inline code (backticks): `field_name`
+- Multi-value cells (e.g., XBRL concepts) use `<br>` for line breaks, not commas
+
+**Navigation:**
+- "Next Steps" section only links to subsequent pages, not previous
+- Last page in a sequence has no "Next Steps" section
+
+**Column conventions:**
+- Field tables: Field (inline code) | other columns...
+- Fundamental tables: Field | WQ Field | Description | XBRL Concepts
+- Derived tables: Field | Formula | Dependencies | Description
