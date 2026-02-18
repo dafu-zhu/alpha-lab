@@ -4,12 +4,15 @@ title: "API Reference"
 
 AlphaLab provides two main entry points for alpha research:
 
-## Core API
+| Entry Point | Description |
+|-------------|-------------|
+| [AlphaLabClient](client.qmd) | Main client for data access and alpha evaluation with auto-loading |
+| [Standalone DSL](dsl.qmd) | Evaluate expressions on custom DataFrames |
+
+## Reference
 
 | Module | Description |
 |--------|-------------|
-| [AlphaLabClient](client.qmd) | Main client for data access and alpha evaluation with auto-loading |
-| [Standalone DSL](dsl.qmd) | Evaluate expressions on custom DataFrames |
 | [Operators](operators.qmd) | 68 operators: time-series, cross-sectional, group, logical |
 
 ## Quick Comparison

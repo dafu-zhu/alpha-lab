@@ -27,3 +27,29 @@ table th:nth-child(3) { width: 30%; }  /* Description */
 h3 code {
   font-size: 0.85em;
 }
+
+/* Code blocks: preserve newlines and enable horizontal scroll */
+pre {
+  white-space: pre;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+pre code {
+  white-space: pre;
+  display: block;
+}
+
+/* Jupyter notebook code cells */
+.cell-code pre {
+  white-space: pre;
+  overflow-x: auto;
+}
+
+div.sourceCode {
+  overflow-x: auto;
+}
+
+div.sourceCode pre {
+  white-space: pre;
+}
