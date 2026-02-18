@@ -16,12 +16,12 @@ Sourced from raw daily ticks (Alpaca API, 2017+). One value per trading day per 
 
 | Field | Ticks Column | Description |
 |-------|--------------|-------------|
-| close | close | Adjusted close price |
-| open | open | Adjusted open price |
-| high | high | Intraday high |
-| low | low | Intraday low |
-| volume | volume | Daily share volume |
-| vwap | vwap | Volume-weighted average price |
+| `close` | close | Adjusted close price |
+| `open` | open | Adjusted open price |
+| `high` | high | Intraday high |
+| `low` | low | Intraday low |
+| `volume` | volume | Daily share volume |
+| `vwap` | vwap | Volume-weighted average price |
 
 </div>
 
@@ -35,10 +35,10 @@ Derived from direct price/volume fields at build time.
 
 | Field | Formula | Dependencies | Description |
 |-------|---------|--------------|-------------|
-| returns | close / close.shift(1) - 1 | close | Daily simple returns |
-| adv20 | volume.rolling_mean(20) | volume | 20-day average daily volume |
-| cap | close * sharesout | close, sharesout | Market capitalization |
-| split | 1.0 (stub) | -- | Split adjustment factor (placeholder) |
+| `returns` | close / close.shift(1) - 1 | close | Daily simple returns |
+| `adv20` | volume.rolling_mean(20) | volume | 20-day average daily volume |
+| `cap` | close * sharesout | close, sharesout | Market capitalization |
+| `split` | 1.0 (stub) | -- | Split adjustment factor (placeholder) |
 
 </div>
 
@@ -52,44 +52,44 @@ Raw concepts from SEC EDGAR XBRL filings (2009+). Forward-filled across trading 
 
 | Field | WQ Field | Description | XBRL Concepts |
 |-------|----------|-------------|---------------|
-| sharesout | sharesout | Shares outstanding | dei:EntityCommonStockSharesOutstanding<br>us-gaap:CommonStockSharesOutstanding<br>us-gaap:SharesOutstanding<br>ifrs-full:NumberOfSharesOutstanding |
-| dividend | dividend | Dividends paid | us-gaap:PaymentsOfDividendsCommonStock<br>us-gaap:PaymentsOfDividends<br>us-gaap:DividendsCommonStockCash<br>ifrs-full:DividendsPaidOrdinaryShares |
-| assets | assets | Total assets | us-gaap:Assets<br>ifrs-full:Assets |
-| liabilities | liabilities | Total liabilities | us-gaap:Liabilities<br>ifrs-full:Liabilities |
-| operating_income | operating_income | Operating income | us-gaap:OperatingIncomeLoss<br>ifrs-full:ProfitLossFromOperatingActivities |
-| sales | sales | Total revenue | us-gaap:SalesRevenueNet<br>us-gaap:Revenues<br>ifrs-full:Revenue<br>us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax |
-| capex | capex | Capital expenditures | us-gaap:CapitalExpendituresIncurredButNotYetPaid<br>us-gaap:PaymentsToAcquirePropertyPlantAndEquipment<br>ifrs-full:PurchaseOfPropertyPlantAndEquipment |
-| equity | equity | Total stockholders' equity | us-gaap:StockholdersEquity<br>ifrs-full:Equity |
-| debt_lt | debt_lt | Long-term debt | us-gaap:LongTermDebt<br>us-gaap:LongTermDebtNoncurrent<br>ifrs-full:LongtermBorrowings |
-| assets_curr | assets_curr | Current assets | us-gaap:AssetsCurrent<br>us-gaap:PrepaidExpenseAndOtherAssetsCurrent<br>ifrs-full:CurrentAssets |
-| goodwill | goodwill | Goodwill | us-gaap:Goodwill<br>ifrs-full:Goodwill |
-| income | income | Net income | us-gaap:NetIncomeLoss<br>ifrs-full:ProfitLoss<br>us-gaap:NetIncomeLossAvailableToCommonStockholdersBasic |
-| revenue | revenue | Total revenue (alias of sales) | us-gaap:SalesRevenueNet<br>us-gaap:Revenues<br>ifrs-full:Revenue<br>us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax |
-| cashflow_op | cashflow_op | Operating cash flow | us-gaap:NetCashProvidedByUsedInOperatingActivities<br>ifrs-full:CashFlowsFromUsedInOperatingActivities |
-| cash | cash | Cash and equivalents | us-gaap:CashAndCashEquivalentsAtCarryingValue<br>ifrs-full:CashAndCashEquivalents |
-| cogs | cogs | Cost of goods sold | us-gaap:CostOfRevenue<br>us-gaap:CostOfGoodsSold<br>ifrs-full:CostOfSales |
-| liabilities_curr | liabilities_curr | Current liabilities | us-gaap:LiabilitiesCurrent<br>us-gaap:OtherLiabilitiesCurrent<br>ifrs-full:LiabilitiesCurrent |
-| debt_st | debt_st | Short-term debt | us-gaap:ShortTermBorrowings<br>ifrs-full:CurrentBorrowingsAndCurrentPortionOfNoncurrentBorrowings |
-| ppent | ppent | PP&E net | us-gaap:PropertyPlantAndEquipmentNet<br>us-gaap:PropertyPlantAndEquipmentGross<br>ifrs-full:PropertyPlantAndEquipment |
-| cashflow | cashflow | Operating cash flow (alias) | us-gaap:NetCashProvidedByUsedInOperatingActivities<br>ifrs-full:CashFlowsFromUsedInOperatingActivities |
-| inventory | inventory | Inventory | us-gaap:InventoryNet<br>ifrs-full:Inventories |
-| cash_st | cash_st | Cash and equivalents (alias) | us-gaap:CashAndCashEquivalentsAtCarryingValue<br>ifrs-full:CashAndCashEquivalents |
-| receivable | receivable | Accounts receivable | us-gaap:AccountsReceivableNetCurrent<br>us-gaap:NotesReceivableNet<br>ifrs-full:TradeAndOtherCurrentReceivables |
-| sga_expense | sga_expense | SG&A expense | us-gaap:SellingGeneralAndAdministrativeExpense<br>ifrs-full:SellingGeneralAndAdministrativeExpense |
-| retained_earnings | retained_earnings | Retained earnings | us-gaap:RetainedEarningsAccumulatedDeficit |
-| cashflow_fin | cashflow_fin | Financing cash flow | us-gaap:NetCashProvidedByUsedInFinancingActivities<br>ifrs-full:CashFlowsFromUsedInFinancingActivities |
-| income_tax | income_tax | Income tax expense | us-gaap:IncomeTaxExpenseBenefit<br>us-gaap:DeferredIncomeTaxExpenseBenefit<br>ifrs-full:IncomeTaxExpenseContinuingOperations |
-| pretax_income | pretax_income | Pretax income | us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest<br>ifrs-full:ProfitLossBeforeTax |
-| cashflow_invest | cashflow_invest | Investing cash flow | us-gaap:NetCashProvidedByUsedInInvestingActivities<br>ifrs-full:CashFlowsFromUsedInInvestingActivities |
-| cashflow_dividends | cashflow_dividends | Dividends paid (alias) | us-gaap:PaymentsOfDividendsCommonStock<br>us-gaap:PaymentsOfDividends<br>us-gaap:DividendsCommonStockCash<br>ifrs-full:DividendsPaidOrdinaryShares |
-| depre_amort | depre_amort | Depreciation and amortization | us-gaap:DepreciationDepletionAndAmortization<br>us-gaap:Depreciation<br>us-gaap:DepreciationAndAmortization<br>ifrs-full:DepreciationAndAmortisationExpense |
-| fnd6_drft | dr_lt | Deferred revenue (long-term) | us-gaap:DeferredRevenueNoncurrent<br>us-gaap:ContractWithCustomerLiabilityNoncurrent |
-| fnd6_drc | dr_st | Deferred revenue (current) | us-gaap:DeferredRevenueCurrent<br>us-gaap:ContractWithCustomerLiabilityCurrent |
-| fnd6_ivaco | invest_activity_other | Investing activities (other) | us-gaap:PaymentsForProceedsFromOtherInvestingActivities<br>us-gaap:OtherPaymentsToAcquireBusinesses<br>us-gaap:ProceedsFromSaleOfOtherInvestments |
-| income_beforeextra | income_before_extra | Income before extraordinary items | us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest<br>us-gaap:IncomeLossFromContinuingOperations |
-| fnd6_acdo | assets_discontinued | Discontinued operations assets | us-gaap:AssetsOfDisposalGroupIncludingDiscontinuedOperationCurrent |
-| fnd6_clother | other_income_nt | Other comprehensive income (net of tax) | us-gaap:OtherComprehensiveIncomeLossNetOfTax |
-| fnd6_xrent | rental_expense | Rental/lease expense | us-gaap:OperatingLeaseExpense<br>us-gaap:LeaseAndRentalExpense |
+| `sharesout` | sharesout | Shares outstanding | dei:EntityCommonStockSharesOutstanding<br>us-gaap:CommonStockSharesOutstanding<br>us-gaap:SharesOutstanding<br>ifrs-full:NumberOfSharesOutstanding |
+| `dividend` | dividend | Dividends paid | us-gaap:PaymentsOfDividendsCommonStock<br>us-gaap:PaymentsOfDividends<br>us-gaap:DividendsCommonStockCash<br>ifrs-full:DividendsPaidOrdinaryShares |
+| `assets` | assets | Total assets | us-gaap:Assets<br>ifrs-full:Assets |
+| `liabilities` | liabilities | Total liabilities | us-gaap:Liabilities<br>ifrs-full:Liabilities |
+| `operating_income` | operating_income | Operating income | us-gaap:OperatingIncomeLoss<br>ifrs-full:ProfitLossFromOperatingActivities |
+| `sales` | sales | Total revenue | us-gaap:SalesRevenueNet<br>us-gaap:Revenues<br>ifrs-full:Revenue<br>us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax |
+| `capex` | capex | Capital expenditures | us-gaap:CapitalExpendituresIncurredButNotYetPaid<br>us-gaap:PaymentsToAcquirePropertyPlantAndEquipment<br>ifrs-full:PurchaseOfPropertyPlantAndEquipment |
+| `equity` | equity | Total stockholders' equity | us-gaap:StockholdersEquity<br>ifrs-full:Equity |
+| `debt_lt` | debt_lt | Long-term debt | us-gaap:LongTermDebt<br>us-gaap:LongTermDebtNoncurrent<br>ifrs-full:LongtermBorrowings |
+| `assets_curr` | assets_curr | Current assets | us-gaap:AssetsCurrent<br>us-gaap:PrepaidExpenseAndOtherAssetsCurrent<br>ifrs-full:CurrentAssets |
+| `goodwill` | goodwill | Goodwill | us-gaap:Goodwill<br>ifrs-full:Goodwill |
+| `income` | income | Net income | us-gaap:NetIncomeLoss<br>ifrs-full:ProfitLoss<br>us-gaap:NetIncomeLossAvailableToCommonStockholdersBasic |
+| `revenue` | revenue | Total revenue (alias of sales) | us-gaap:SalesRevenueNet<br>us-gaap:Revenues<br>ifrs-full:Revenue<br>us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax |
+| `cashflow_op` | cashflow_op | Operating cash flow | us-gaap:NetCashProvidedByUsedInOperatingActivities<br>ifrs-full:CashFlowsFromUsedInOperatingActivities |
+| `cash` | cash | Cash and equivalents | us-gaap:CashAndCashEquivalentsAtCarryingValue<br>ifrs-full:CashAndCashEquivalents |
+| `cogs` | cogs | Cost of goods sold | us-gaap:CostOfRevenue<br>us-gaap:CostOfGoodsSold<br>ifrs-full:CostOfSales |
+| `liabilities_curr` | liabilities_curr | Current liabilities | us-gaap:LiabilitiesCurrent<br>us-gaap:OtherLiabilitiesCurrent<br>ifrs-full:LiabilitiesCurrent |
+| `debt_st` | debt_st | Short-term debt | us-gaap:ShortTermBorrowings<br>ifrs-full:CurrentBorrowingsAndCurrentPortionOfNoncurrentBorrowings |
+| `ppent` | ppent | PP&E net | us-gaap:PropertyPlantAndEquipmentNet<br>us-gaap:PropertyPlantAndEquipmentGross<br>ifrs-full:PropertyPlantAndEquipment |
+| `cashflow` | cashflow | Operating cash flow (alias) | us-gaap:NetCashProvidedByUsedInOperatingActivities<br>ifrs-full:CashFlowsFromUsedInOperatingActivities |
+| `inventory` | inventory | Inventory | us-gaap:InventoryNet<br>ifrs-full:Inventories |
+| `cash_st` | cash_st | Cash and equivalents (alias) | us-gaap:CashAndCashEquivalentsAtCarryingValue<br>ifrs-full:CashAndCashEquivalents |
+| `receivable` | receivable | Accounts receivable | us-gaap:AccountsReceivableNetCurrent<br>us-gaap:NotesReceivableNet<br>ifrs-full:TradeAndOtherCurrentReceivables |
+| `sga_expense` | sga_expense | SG&A expense | us-gaap:SellingGeneralAndAdministrativeExpense<br>ifrs-full:SellingGeneralAndAdministrativeExpense |
+| `retained_earnings` | retained_earnings | Retained earnings | us-gaap:RetainedEarningsAccumulatedDeficit |
+| `cashflow_fin` | cashflow_fin | Financing cash flow | us-gaap:NetCashProvidedByUsedInFinancingActivities<br>ifrs-full:CashFlowsFromUsedInFinancingActivities |
+| `income_tax` | income_tax | Income tax expense | us-gaap:IncomeTaxExpenseBenefit<br>us-gaap:DeferredIncomeTaxExpenseBenefit<br>ifrs-full:IncomeTaxExpenseContinuingOperations |
+| `pretax_income` | pretax_income | Pretax income | us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest<br>ifrs-full:ProfitLossBeforeTax |
+| `cashflow_invest` | cashflow_invest | Investing cash flow | us-gaap:NetCashProvidedByUsedInInvestingActivities<br>ifrs-full:CashFlowsFromUsedInInvestingActivities |
+| `cashflow_dividends` | cashflow_dividends | Dividends paid (alias) | us-gaap:PaymentsOfDividendsCommonStock<br>us-gaap:PaymentsOfDividends<br>us-gaap:DividendsCommonStockCash<br>ifrs-full:DividendsPaidOrdinaryShares |
+| `depre_amort` | depre_amort | Depreciation and amortization | us-gaap:DepreciationDepletionAndAmortization<br>us-gaap:Depreciation<br>us-gaap:DepreciationAndAmortization<br>ifrs-full:DepreciationAndAmortisationExpense |
+| `fnd6_drft` | dr_lt | Deferred revenue (long-term) | us-gaap:DeferredRevenueNoncurrent<br>us-gaap:ContractWithCustomerLiabilityNoncurrent |
+| `fnd6_drc` | dr_st | Deferred revenue (current) | us-gaap:DeferredRevenueCurrent<br>us-gaap:ContractWithCustomerLiabilityCurrent |
+| `fnd6_ivaco` | invest_activity_other | Investing activities (other) | us-gaap:PaymentsForProceedsFromOtherInvestingActivities<br>us-gaap:OtherPaymentsToAcquireBusinesses<br>us-gaap:ProceedsFromSaleOfOtherInvestments |
+| `income_beforeextra` | income_before_extra | Income before extraordinary items | us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest<br>us-gaap:IncomeLossFromContinuingOperations |
+| `fnd6_acdo` | assets_discontinued | Discontinued operations assets | us-gaap:AssetsOfDisposalGroupIncludingDiscontinuedOperationCurrent |
+| `fnd6_clother` | other_income_nt | Other comprehensive income (net of tax) | us-gaap:OtherComprehensiveIncomeLossNetOfTax |
+| `fnd6_xrent` | rental_expense | Rental/lease expense | us-gaap:OperatingLeaseExpense<br>us-gaap:LeaseAndRentalExpense |
 
 </div>
 
@@ -103,20 +103,20 @@ Arithmetic combinations of fundamental and price fields. Built after dependencie
 
 | Field | Formula | Dependencies | Description |
 |-------|---------|--------------|-------------|
-| debt | debt_lt + debt_st | debt_lt, debt_st | Total debt |
-| invested_capital | equity + debt_lt - cash | equity, debt_lt, cash | Invested capital |
-| enterprise_value | cap + debt_lt - cash | cap, debt_lt, cash | Enterprise value |
-| ebitda | operating_income + depre_amort | operating_income, depre_amort | EBITDA |
-| eps | income / sharesout | income, sharesout | Earnings per share |
-| bookvalue_ps | equity / sharesout | equity, sharesout | Book value per share |
-| operating_expense | cogs + sga_expense + depre_amort | cogs, sga_expense, depre_amort | Total operating expense |
-| current_ratio | assets_curr / liabilities_curr | assets_curr, liabilities_curr | Current ratio |
-| return_equity | income / equity | income, equity | Return on equity |
-| return_assets | income / assets | income, assets | Return on assets |
-| sales_ps | sales / sharesout | sales, sharesout | Sales per share |
-| inventory_turnover | cogs / inventory | cogs, inventory | Inventory turnover |
-| working_capital | assets_curr - liabilities_curr | assets_curr, liabilities_curr | Working capital |
-| sales_growth | sales / sales.shift(63) - 1 | sales | Quarterly sales growth (~63 trading days) |
+| `debt` | debt_lt + debt_st | debt_lt, debt_st | Total debt |
+| `invested_capital` | equity + debt_lt - cash | equity, debt_lt, cash | Invested capital |
+| `enterprise_value` | cap + debt_lt - cash | cap, debt_lt, cash | Enterprise value |
+| `ebitda` | operating_income + depre_amort | operating_income, depre_amort | EBITDA |
+| `eps` | income / sharesout | income, sharesout | Earnings per share |
+| `bookvalue_ps` | equity / sharesout | equity, sharesout | Book value per share |
+| `operating_expense` | cogs + sga_expense + depre_amort | cogs, sga_expense, depre_amort | Total operating expense |
+| `current_ratio` | assets_curr / liabilities_curr | assets_curr, liabilities_curr | Current ratio |
+| `return_equity` | income / equity | income, equity | Return on equity |
+| `return_assets` | income / assets | income, assets | Return on assets |
+| `sales_ps` | sales / sharesout | sales, sharesout | Sales per share |
+| `inventory_turnover` | cogs / inventory | cogs, inventory | Inventory turnover |
+| `working_capital` | assets_curr - liabilities_curr | assets_curr, liabilities_curr | Working capital |
+| `sales_growth` | sales / sales.shift(63) - 1 | sales | Quarterly sales growth (~63 trading days) |
 
 </div>
 
@@ -132,10 +132,10 @@ Categorical labels from SecurityMaster. Constant per security across all trading
 
 | Field | Source Column | Description |
 |-------|---------------|-------------|
-| sector | sector | GICS sector classification |
-| industry | industry | GICS industry classification |
-| subindustry | subindustry | GICS sub-industry classification |
-| exchange | exchange | Listing exchange (NYSE, NASDAQ, etc.) |
+| `sector` | sector | GICS sector classification |
+| `industry` | industry | GICS industry classification |
+| `subindustry` | subindustry | GICS sub-industry classification |
+| `exchange` | exchange | Listing exchange (NYSE, NASDAQ, etc.) |
 
 </div>
 

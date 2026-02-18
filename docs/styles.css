@@ -1,10 +1,8 @@
-/* Table styling - scrollable container like code blocks */
+/* Table styling - scrollable container */
 .table-wrapper {
   overflow-x: auto;
   max-width: 100%;
   margin-bottom: 1rem;
-  border: 1px solid #dee2e6;
-  border-radius: 4px;
 }
 
 table {
@@ -20,11 +18,9 @@ table th, table td {
   overflow-wrap: break-word;
   vertical-align: top;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #dee2e6;
 }
 
 table th {
-  background-color: #f8f9fa;
   font-weight: 600;
 }
 
