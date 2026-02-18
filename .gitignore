@@ -228,3 +228,6 @@ tmpclaude-*
 
 # Temporary script
 tmp.py
+
+# Git worktrees
+.worktrees/
