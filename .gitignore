@@ -230,4 +230,4 @@ tmpclaude-*
 tmp.py
 
 # Git worktrees
-.worktrees/
+.worktrees/plans/
