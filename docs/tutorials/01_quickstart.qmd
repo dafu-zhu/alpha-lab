@@ -1,0 +1,70 @@
+---
+title: "AlphaLab Quickstart"
+---
+
+This tutorial demonstrates basic AlphaLab usage.
+
+```{python}
+#| eval: false
+from alphalab.api.client import AlphaLabClient
+import os
+
+data_path = os.environ.get("LOCAL_STORAGE_PATH", "/path/to/your/data")
+client = AlphaLabClient(data_path=data_path)
+
+# Date range: 1 year for quick tutorials
+START = "2024-01-01"
+END = "2024-12-31"
+```
+
+## Look Up Securities
+
+Use `client.lookup()` to resolve symbols to security info.
+
+```{python}
+#| eval: false
+# Look up a single symbol
+aapl = client.lookup("AAPL")
+print(aapl)
+
+# Look up multiple symbols
+for symbol in ["AAPL", "MSFT", "GOOGL"]:
+    print(client.lookup(symbol))
+```
+
+## Load Data
+
+Use `client.get()` to load pre-built feature tables.
+
+```{python}
+#| eval: false
+# Load close prices (filtered by date)
+close = client.get("close", start=START, end=END)
+print(f"Shape: {close.shape}")
+print(close.head())
+
+# Load volume
+volume = client.get("volume", start=START, end=END)
+print(volume.head())
+```
+
+## Your First Alpha
+
+Use `client.query()` to evaluate alpha expressions.
+
+```{python}
+#| eval: false
+# Calculate 5-day price change
+alpha = client.query("ts_delta(close, 5)", start=START, end=END)
+print(alpha.head())
+
+# Rank price change across all securities
+ranked_alpha = client.query("rank(ts_delta(close, 5))", start=START, end=END)
+print(ranked_alpha.head())
+```
+
+## Next Steps
+
+- [Alpha Expressions](02_expressions.qmd) — Multi-line expressions with variables
+- [Group Operations](03_group_operations.qmd) — Sector-relative operations
+- [Standalone DSL](04_standalone_dsl.qmd) — Use DSL with your own DataFrames
