@@ -1,0 +1,34 @@
+---
+title: "AlphaLab"
+subtitle: "Local-first alpha research platform"
+---
+
+A local-first alpha research platform that brings [WorldQuant BRAIN](https://platform.worldquantbrain.com/)-style development to your own machine — same expression syntax, same operators, no latency, no transfer costs, no platform limits.
+
+## Quick Example
+
+```python
+from alphalab.api.client import AlphaLabClient
+
+client = AlphaLabClient(data_path="/path/to/your/data")
+
+alpha = client.query("""
+regime = ts_rank(ts_sum(volume, 5)/ts_sum(volume, 60), 60) > 0.5;
+fundamental = group_rank(ts_delta(income/sharesout, 21), subindustry);
+timing = group_rank(-ts_delta(vwap, 5), subindustry);
+trade_when(regime, 2*fundamental + timing, -1)
+""")
+```
+
+## Features
+
+- **68 operators** — time-series, cross-sectional, group operations
+- **66 data fields** — price/volume, fundamentals, GICS classifications
+- **Zero latency** — data lives on disk, expressions run in-process
+- **Zero cost** — free data sources (Alpaca, SEC EDGAR)
+
+## Get Started
+
+1. [Installation](getting-started/installation.qmd)
+2. [Quick Start](getting-started/quickstart.qmd)
+3. [Tutorials](tutorials/01_quickstart.ipynb)

@@ -1,0 +1,54 @@
+project:
+  type: website
+  output-dir: _site
+
+website:
+  title: "AlphaLab"
+  description: "Local-first alpha research platform"
+  navbar:
+    left:
+      - text: "Getting Started"
+        href: getting-started/installation.qmd
+      - text: "Tutorials"
+        href: tutorials/01_quickstart.ipynb
+      - text: "API Reference"
+        href: api/client.qmd
+      - text: "Operators"
+        href: operators.qmd
+      - text: "Fields"
+        href: fields.qmd
+    right:
+      - icon: github
+        href: https://github.com/dafu-zhu/alpha-lab
+  sidebar:
+    - title: "Getting Started"
+      contents:
+        - getting-started/installation.qmd
+        - getting-started/quickstart.qmd
+        - getting-started/data-setup.qmd
+    - title: "Tutorials"
+      contents:
+        - tutorials/01_quickstart.ipynb
+        - tutorials/02_expressions.ipynb
+        - tutorials/03_group_operations.ipynb
+        - tutorials/04_standalone_dsl.ipynb
+    - title: "API Reference"
+      contents:
+        - api/client.qmd
+        - api/dsl.qmd
+        - api/operators.qmd
+    - title: "Reference"
+      contents:
+        - operators.qmd
+        - fields.qmd
+        - cli.qmd
+
+format:
+  html:
+    theme: cosmo
+    toc: true
+    code-copy: true
+    code-overflow: wrap
+
+execute:
+  freeze: auto
