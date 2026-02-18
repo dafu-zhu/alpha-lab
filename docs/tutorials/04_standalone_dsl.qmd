@@ -103,8 +103,3 @@ Both approaches support:
 - Multi-line expressions with variables
 - Boolean conditions and `trade_when`
 
-## Next Steps
-
-- [Operators](../operators.qmd) — All 68 DSL operators
-- [Data Fields](../fields.qmd) — 66 pre-built fields
-- [API Reference](../api/index.qmd) — Full API documentation
