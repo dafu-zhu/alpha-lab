@@ -10,7 +10,7 @@ website:
       - text: "Getting Started"
         href: getting-started/installation.qmd
       - text: "Tutorials"
-        href: tutorials/01_quickstart.ipynb
+        href: tutorials/01_quickstart.qmd
       - text: "API Reference"
         href: api/index.qmd
       - text: "Reference"
@@ -32,10 +32,10 @@ website:
         - getting-started/data-setup.qmd
     - title: "Tutorials"
       contents:
-        - tutorials/01_quickstart.ipynb
-        - tutorials/02_expressions.ipynb
-        - tutorials/03_group_operations.ipynb
-        - tutorials/04_standalone_dsl.ipynb
+        - tutorials/01_quickstart.qmd
+        - tutorials/02_expressions.qmd
+        - tutorials/03_group_operations.qmd
+        - tutorials/04_standalone_dsl.qmd
     - title: "API Reference"
       contents:
         - api/index.qmd
