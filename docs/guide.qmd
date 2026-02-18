@@ -1,4 +1,6 @@
-# Expression Guide
+---
+title: "Expression Guide"
+---
 
 Write alpha factors as string expressions, just like on [WorldQuant BRAIN](https://platform.worldquantbrain.com/).
 
@@ -71,10 +73,10 @@ trade_when(regime, signal, -1)
 
 `client.query()` automatically detects field names in the expression and loads them via `client.get()`. You don't need to pre-load data.
 
-Recognized field names are those in the [data field registry](FIELDS.md). Operator names and user-defined variables are excluded from auto-loading.
+Recognized field names are those in the [data field registry](fields.qmd). Operator names and user-defined variables are excluded from auto-loading.
 
 ## Available Functions
 
-All 68 operators are available directly in expressions. See the [Operator Reference](OPERATORS.md) for the full list.
+All 68 operators are available directly in expressions. See the [Operator Reference](operators.qmd) for the full list.
 
 Built-in functions also available: `abs`, `min`, `max`, `log`, `sqrt`, `sign`.

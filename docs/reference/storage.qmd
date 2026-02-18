@@ -1,4 +1,6 @@
-# Storage Layout
+---
+title: "Storage Layout"
+---
 
 All data is stored under `$LOCAL_STORAGE_PATH`:
 
@@ -38,6 +40,12 @@ $LOCAL_STORAGE_PATH/
 
 ## File Sizes (approximate)
 
-- Daily ticks: ~1.2 GB for 5000 symbols x 8 years
-- Fundamentals: ~7.5 GB for 5000 symbols x 15 years
-- Features: ~50 MB per field (66 fields = ~3.3 GB total)
+<div class="table-wrapper">
+
+| Component | Size |
+|-----------|------|
+| Daily ticks | ~1.2 GB for 5000 symbols x 8 years |
+| Fundamentals | ~7.5 GB for 5000 symbols x 15 years |
+| Features | ~50 MB per field (66 fields = ~3.3 GB total) |
+
+</div>

@@ -29,6 +29,7 @@ website:
       contents:
         - getting-started/installation.qmd
         - getting-started/quickstart.qmd
+        - guide.qmd
         - getting-started/data-setup.qmd
     - title: "Tutorials"
       contents:
@@ -47,6 +48,8 @@ website:
         - operators.qmd
         - fields.qmd
         - cli.qmd
+        - reference/storage.qmd
+        - reference/backtest.qmd
 
 format:
   html:
