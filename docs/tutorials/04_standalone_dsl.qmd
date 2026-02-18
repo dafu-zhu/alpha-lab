@@ -1,5 +1,7 @@
 ---
 title: "Standalone DSL"
+execute:
+  enabled: false
 ---
 
 Use `dsl.compute()` with your own DataFrames.

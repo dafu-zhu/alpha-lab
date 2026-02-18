@@ -1,5 +1,7 @@
 ---
 title: "AlphaLab Quickstart"
+execute:
+  enabled: false
 ---
 
 This tutorial demonstrates basic AlphaLab usage.

@@ -1,5 +1,7 @@
 ---
 title: "Group Operations"
+execute:
+  enabled: false
 ---
 
 Sector-relative operations: `group_rank`, `group_neutralize`, and more.

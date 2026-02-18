@@ -1,5 +1,7 @@
 ---
 title: "Alpha Expressions"
+execute:
+  enabled: false
 ---
 
 Learn to write multi-line expressions with variables.
