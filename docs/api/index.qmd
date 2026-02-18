@@ -54,4 +54,4 @@ dsl.compute(expr, **vars)
 
 - [Data Fields](../fields.qmd) — 66 pre-built fields
 - [Operators](../operators.qmd) — 68 DSL operators
-- [Tutorials](../tutorials/01_quickstart.ipynb) — Step-by-step examples
+- [Tutorials](../tutorials/01_quickstart.qmd) — Step-by-step examples

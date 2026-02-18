@@ -25,6 +25,6 @@ print(alpha.head())
 
 ## Next Steps
 
-- [Tutorials](../tutorials/01_quickstart.ipynb) — Step-by-step notebooks
+- [Tutorials](../tutorials/01_quickstart.qmd) — Step-by-step guides
 - [API Reference](../api/client.qmd) — Full API documentation
 - [Operators](../operators.qmd) — All 68 operators

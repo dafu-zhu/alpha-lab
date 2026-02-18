@@ -31,4 +31,4 @@ trade_when(regime, 2*fundamental + timing, -1)
 
 1. [Installation](getting-started/installation.qmd)
 2. [Quick Start](getting-started/quickstart.qmd)
-3. [Tutorials](tutorials/01_quickstart.ipynb)
+3. [Tutorials](tutorials/01_quickstart.qmd)
