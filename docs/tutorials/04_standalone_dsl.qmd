@@ -1,0 +1,108 @@
+---
+title: "Standalone DSL"
+---
+
+Use `dsl.compute()` with your own DataFrames.
+
+```{python}
+#| eval: false
+from alphalab.api.dsl import compute
+import polars as pl
+import numpy as np
+```
+
+## Create Sample Data
+
+Wide format: Date column + one column per security.
+
+```{python}
+#| eval: false
+# Create sample price data (wide format)
+np.random.seed(42)
+dates = pl.date_range(pl.date(2024, 1, 1), pl.date(2024, 3, 31), eager=True)
+
+# Generate random walk prices for 3 securities
+n_days = len(dates)
+price_data = {
+    "Date": dates,
+    "AAPL": 100 + np.cumsum(np.random.randn(n_days) * 2),
+    "MSFT": 150 + np.cumsum(np.random.randn(n_days) * 2),
+    "GOOGL": 120 + np.cumsum(np.random.randn(n_days) * 2),
+}
+prices = pl.DataFrame(price_data)
+print(prices.head())
+```
+
+## Single Variable
+
+```{python}
+#| eval: false
+# Calculate 5-day price change using standalone DSL
+price_change = compute(
+    "ts_delta(close, 5)",
+    close=prices
+)
+print(price_change.head())
+```
+
+## Multiple Variables
+
+```{python}
+#| eval: false
+# Create sample volume data
+volume_data = {
+    "Date": dates,
+    "AAPL": np.random.randint(1000000, 5000000, n_days),
+    "MSFT": np.random.randint(800000, 4000000, n_days),
+    "GOOGL": np.random.randint(600000, 3000000, n_days),
+}
+volume = pl.DataFrame(volume_data)
+print(volume.head())
+```
+
+```{python}
+#| eval: false
+# VWAP-like calculation with both price and volume
+result = compute(
+    "ts_mean(close * volume, 5) / ts_mean(volume, 5)",
+    close=prices,
+    volume=volume
+)
+print(result.head())
+```
+
+## Multi-Line Expressions
+
+```{python}
+#| eval: false
+# Complex alpha with intermediate variables
+alpha = compute(
+    """
+    momentum = ts_delta(close, 20);
+    vol_signal = ts_zscore(volume, 20);
+    rank(momentum) + rank(vol_signal)
+    """,
+    close=prices,
+    volume=volume
+)
+print(alpha.head())
+```
+
+## When to Use Each Approach
+
+| Approach | Use When |
+|----------|----------|
+| `client.query()` | Working with AlphaLab's pre-built feature tables |
+| `dsl.compute()` | Using your own DataFrames or external data sources |
+
+Both approaches support:
+
+- All 68 operators (time-series, cross-sectional, group, etc.)
+- Multi-line expressions with variables
+- Boolean conditions and `trade_when`
+
+## Next Steps
+
+- [Quickstart](01_quickstart.qmd) — Basic AlphaLab usage
+- [Alpha Expressions](02_expressions.qmd) — Multi-line expressions with variables
+- [Group Operations](03_group_operations.qmd) — Sector-relative operations
