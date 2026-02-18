@@ -74,6 +74,5 @@ print(alpha.head())
 
 ## Next Steps
 
-- [Quickstart](01_quickstart.qmd) — Basic AlphaLab usage
 - [Group Operations](03_group_operations.qmd) — Sector-relative operations
 - [Standalone DSL](04_standalone_dsl.qmd) — Use DSL with your own DataFrames

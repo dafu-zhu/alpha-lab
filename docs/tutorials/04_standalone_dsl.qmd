@@ -105,6 +105,6 @@ Both approaches support:
 
 ## Next Steps
 
-- [Quickstart](01_quickstart.qmd) — Basic AlphaLab usage
-- [Alpha Expressions](02_expressions.qmd) — Multi-line expressions with variables
-- [Group Operations](03_group_operations.qmd) — Sector-relative operations
+- [Operators](../operators.qmd) — All 68 DSL operators
+- [Data Fields](../fields.qmd) — 66 pre-built fields
+- [API Reference](../api/index.qmd) — Full API documentation

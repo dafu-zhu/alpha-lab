@@ -71,6 +71,4 @@ print(alpha.head())
 
 ## Next Steps
 
-- [Quickstart](01_quickstart.qmd) — Basic AlphaLab usage
-- [Alpha Expressions](02_expressions.qmd) — Multi-line expressions with variables
 - [Standalone DSL](04_standalone_dsl.qmd) — Use DSL with your own DataFrames
