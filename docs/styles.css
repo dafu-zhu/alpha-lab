@@ -1,7 +1,11 @@
-/* Table styling - fixed layout with text wrapping */
+/* Table styling - scrollable with min-widths */
+.quarto-section-identifier + table,
+section > table,
 table {
+  display: block;
+  overflow-x: auto;
   width: 100%;
-  table-layout: fixed;
+  min-width: max-content;
 }
 
 table th, table td {
@@ -9,16 +13,21 @@ table th, table td {
   word-wrap: break-word;
   overflow-wrap: break-word;
   vertical-align: top;
+  padding: 0.5rem;
 }
 
-/* Two-column tables: wider first column for variable names */
-table:has(th:nth-child(2):last-child) th:nth-child(1) { width: 35%; }
-table:has(th:nth-child(2):last-child) th:nth-child(2) { width: 65%; }
+/* Field column - wide enough for code tags */
+table th:first-child,
+table td:first-child {
+  min-width: 140px;
+  white-space: nowrap;
+}
 
-/* Three-column tables (fields.qmd) */
-table:has(th:nth-child(3)) th:nth-child(1) { width: 15%; }
-table:has(th:nth-child(3)) th:nth-child(2) { width: 55%; }
-table:has(th:nth-child(3)) th:nth-child(3) { width: 30%; }
+/* XBRL Concepts column (second column in 3-col fundamental tables) */
+table th:nth-child(2),
+table td:nth-child(2) {
+  min-width: 280px;
+}
 
 /* Prevent code from wrapping in table cells */
 table td code {
