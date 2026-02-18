@@ -4,10 +4,8 @@ import os
 
 def quality_alpha(client):
     """ROA-based quality factor, sector-neutralized."""
-    return client.query("""
-roa = income / assets;
-group_neutralize(rank(roa), sector)
-""")
+    # Use pre-computed return_assets field (ROA)
+    return client.query("group_neutralize(rank(return_assets), sector)")
 
 if __name__ == "__main__":
     client = AlphaLabClient(data_path=os.environ["LOCAL_STORAGE_PATH"])
