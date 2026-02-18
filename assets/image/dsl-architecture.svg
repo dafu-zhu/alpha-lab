@@ -72,8 +72,8 @@
   <text x="620" y="194" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#666">rank, ts_delta, ...</text>
 
   <!-- Curved arrows from User Code -->
-  <path d="M 420 80 Q 300 90 280 128" stroke="#666" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
-  <path d="M 480 80 Q 500 120 470 143" stroke="#666" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 420 80 Q 350 100 280 128" stroke="#666" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 480 80 Q 480 110 470 143" stroke="#666" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
 
   <!-- Arrow from query to dsl.compute -->
   <path d="M 265 172 Q 330 160 398 172" stroke="#1976d2" stroke-width="1.5" fill="none" marker-end="url(#arrow-blue)"/>
@@ -116,13 +116,13 @@
   <text x="630" y="322" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#558b2f">secure execution</text>
 
   <!-- Curved arrows from client methods to internal -->
-  <path d="M 90 185 Q 70 230 90 273" stroke="#388e3c" stroke-width="1.5" fill="none" marker-end="url(#arrow-green)"/>
-  <path d="M 162 185 Q 280 220 340 273" stroke="#388e3c" stroke-width="1.5" fill="none" marker-end="url(#arrow-green)"/>
-  <path d="M 232 185 Q 200 210 200 243" stroke="#388e3c" stroke-width="1.5" fill="none" stroke-dasharray="3,2"/>
-  <text x="180" y="218" font-family="Arial, sans-serif" font-size="9" fill="#388e3c">uses get()</text>
+  <path d="M 90 185 Q 90 230 90 273" stroke="#388e3c" stroke-width="1.5" fill="none" marker-end="url(#arrow-green)"/>
+  <path d="M 162 185 Q 200 230 340 273" stroke="#388e3c" stroke-width="1.5" fill="none" marker-end="url(#arrow-green)"/>
+  <path d="M 232 185 Q 232 210 232 243" stroke="#388e3c" stroke-width="1.5" fill="none" stroke-dasharray="3,2"/>
+  <text x="248" y="218" font-family="Arial, sans-serif" font-size="9" fill="#388e3c">uses get()</text>
 
   <!-- Curved arrow from dsl.compute to _evaluate -->
-  <path d="M 470 200 Q 450 240 485 273" stroke="#388e3c" stroke-width="1.5" fill="none" marker-end="url(#arrow-green)"/>
+  <path d="M 470 200 Q 475 240 485 273" stroke="#388e3c" stroke-width="1.5" fill="none" marker-end="url(#arrow-green)"/>
 
   <!-- Arrow from _evaluate to SafeEvaluator -->
   <path d="M 560 302 Q 567 302 573 302" stroke="#388e3c" stroke-width="1.5" fill="none" marker-end="url(#arrow-green)"/>
@@ -177,9 +177,9 @@
   <text x="792" y="450" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#f57c00">fundamental.parquet</text>
 
   <!-- Curved arrows from internal to data -->
-  <path d="M 100 330 Q 80 365 115 393" stroke="#f57c00" stroke-width="1.5" fill="none" marker-end="url(#arrow-orange)"/>
-  <path d="M 230 330 Q 210 365 260 393" stroke="#f57c00" stroke-width="1.5" fill="none" marker-end="url(#arrow-orange)"/>
-  <path d="M 355 330 Q 340 365 420 393" stroke="#f57c00" stroke-width="1.5" fill="none" marker-end="url(#arrow-orange)"/>
+  <path d="M 100 330 Q 100 360 115 393" stroke="#f57c00" stroke-width="1.5" fill="none" marker-end="url(#arrow-orange)"/>
+  <path d="M 230 330 Q 250 360 260 393" stroke="#f57c00" stroke-width="1.5" fill="none" marker-end="url(#arrow-orange)"/>
+  <path d="M 355 330 Q 380 360 420 393" stroke="#f57c00" stroke-width="1.5" fill="none" marker-end="url(#arrow-orange)"/>
 
   <!-- Output annotation -->
   <rect x="720" y="510" width="160" height="70" rx="5" fill="#e0f7fa" stroke="#0097a7" stroke-width="2"/>
@@ -189,5 +189,5 @@
   <text x="800" y="575" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#006064">Date + symbol columns</text>
 
   <!-- Curved arrow from Alpha to Output -->
-  <path d="M 800 330 Q 860 420 800 508" stroke="#0097a7" stroke-width="1.5" fill="none" marker-end="url(#arrow-cyan)"/>
+  <path d="M 800 330 Q 820 420 800 508" stroke="#0097a7" stroke-width="1.5" fill="none" marker-end="url(#arrow-cyan)"/>
 </svg>
