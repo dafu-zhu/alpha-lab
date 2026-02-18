@@ -1,0 +1,30 @@
+---
+title: "Quick Start"
+---
+
+## Download Data
+
+```bash
+uv run alab --master                         # Build security master + calendar
+uv run alab --all --start 2017 --end 2025    # Download everything (~45 min)
+```
+
+Or pick what you need: `--ticks`, `--fundamental`, `--top-3000`, `--features`.
+
+## Your First Alpha
+
+```python
+from alphalab.api.client import AlphaLabClient
+
+client = AlphaLabClient(data_path="/path/to/your/data")
+
+# Simple momentum alpha
+alpha = client.query("rank(-ts_delta(close, 5))")
+print(alpha.head())
+```
+
+## Next Steps
+
+- [Tutorials](../tutorials/01_quickstart.ipynb) — Step-by-step notebooks
+- [API Reference](../api/client.qmd) — Full API documentation
+- [Operators](../operators.qmd) — All 68 operators

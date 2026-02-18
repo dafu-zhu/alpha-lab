@@ -1,0 +1,37 @@
+---
+title: "Operators Reference"
+---
+
+AlphaLab provides 68 operators aligned with WorldQuant BRAIN.
+
+See the [full operator reference](../operators.qmd) for complete documentation.
+
+## Categories
+
+- **Time-Series (26)**: `ts_mean`, `ts_delta`, `ts_rank`, etc.
+- **Cross-Sectional (7)**: `rank`, `zscore`, `scale`, etc.
+- **Group (6)**: `group_rank`, `group_neutralize`, etc.
+- **Arithmetic (15)**: `add`, `multiply`, `abs`, `log`, etc.
+- **Logical (11)**: `if_else`, `and_`, `or_`, etc.
+- **Transformational (1)**: `trade_when`
+- **Vector (2)**: `vec_avg`, `vec_sum`
+
+## Quick Examples
+
+```python
+# Time-series: 5-day momentum
+ts_delta(close, 5)
+
+# Cross-sectional: rank across all stocks
+rank(-returns)
+
+# Group: neutralize by sector
+group_neutralize(close, sector)
+
+# Conditional: only trade when volume is high
+trade_when(volume > adv20, rank(returns), -1)
+```
+
+## Full Reference
+
+For detailed documentation of each operator, including parameters and return types, see [Operators](../operators.qmd).

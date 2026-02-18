@@ -1,0 +1,36 @@
+---
+title: "Data Setup"
+---
+
+## Data Sources
+
+| Source | Data | Coverage |
+|--------|------|----------|
+| Alpaca | Daily OHLCV | 2017+ |
+| SEC EDGAR | Fundamentals | 2009+ |
+| Security Master | Symbols, GICS | 1986+ |
+
+## Download Commands
+
+```bash
+# Full backfill (recommended first time)
+uv run alab --all --start 2017 --end 2025
+
+# Individual data types
+uv run alab --ticks          # Daily prices
+uv run alab --fundamental    # SEC filings
+uv run alab --top-3000       # Universe lists
+uv run alab --features       # Pre-built matrices
+```
+
+## Storage Layout
+
+```
+$LOCAL_STORAGE_PATH/
+├── data/
+│   ├── meta/master/          # Security master, calendar
+│   ├── meta/universe/        # Monthly top 3000
+│   ├── raw/ticks/            # Daily OHLCV per security
+│   ├── raw/fundamental/      # SEC filings per security
+│   └── features/             # Wide matrices (Date x securities)
+```

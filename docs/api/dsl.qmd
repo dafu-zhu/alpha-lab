@@ -1,0 +1,44 @@
+---
+title: "Standalone DSL"
+---
+
+For evaluating alpha expressions with custom data (not from AlphaLab storage), use the standalone DSL.
+
+## `compute(expr, **variables)`
+
+```python
+from alphalab.api.dsl import compute
+
+# Single variable
+result = compute("rank(-ts_delta(x, 5))", x=my_price_df)
+
+# Multiple variables
+result = compute("rank(x - y)", x=close_df, y=vwap_df)
+
+# Multi-line with assignments
+result = compute("""
+momentum = ts_delta(close, 5)
+volatility = ts_std(returns, 20)
+rank(momentum / volatility)
+""", close=close_df, returns=returns_df)
+```
+
+**Parameters:**
+
+- `expr` (str) — Alpha expression (see [Operators](../operators.qmd))
+- `**variables` — Variable name to DataFrame mappings
+
+**Returns:** `pl.DataFrame` — Wide table with computed result
+
+## Architecture
+
+![DSL Architecture](../../assets/image/dsl-architecture.svg)
+
+## When to Use Which
+
+| Use Case | Function |
+|----------|----------|
+| AlphaLab data with auto-loading | `client.query()` |
+| Custom DataFrames | `dsl.compute()` |
+
+Use `client.query()` when working with AlphaLab's pre-built feature tables. Use `dsl.compute()` when you have your own DataFrames from external sources.
