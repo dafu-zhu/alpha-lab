@@ -1,11 +1,17 @@
-/* Table styling - scrollable with min-widths */
-.quarto-section-identifier + table,
-section > table,
-table {
-  display: block;
+/* Table styling - scrollable container like code blocks */
+.table-wrapper {
   overflow-x: auto;
-  width: 100%;
-  min-width: max-content;
+  max-width: 100%;
+  margin-bottom: 1rem;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+}
+
+table {
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  border-collapse: collapse;
 }
 
 table th, table td {
@@ -13,20 +19,18 @@ table th, table td {
   word-wrap: break-word;
   overflow-wrap: break-word;
   vertical-align: top;
-  padding: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #dee2e6;
 }
 
-/* Field column - wide enough for code tags */
-table th:first-child,
+table th {
+  background-color: #f8f9fa;
+  font-weight: 600;
+}
+
+/* Field column - no wrapping */
 table td:first-child {
-  min-width: 140px;
   white-space: nowrap;
-}
-
-/* XBRL Concepts column (second column in 3-col fundamental tables) */
-table th:nth-child(2),
-table td:nth-child(2) {
-  min-width: 280px;
 }
 
 /* Prevent code from wrapping in table cells */
