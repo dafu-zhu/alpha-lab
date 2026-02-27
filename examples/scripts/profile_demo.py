@@ -1,10 +1,10 @@
 """Demo: Operator profiling with real data."""
-from dotenv import load_dotenv
-load_dotenv()
-
 import os
 from alphalab.api.client import AlphaLabClient
 from alphalab.api.profiler import profile
+
+from dotenv import load_dotenv
+load_dotenv()
 
 client = AlphaLabClient(data_path=os.environ["LOCAL_STORAGE_PATH"])
 

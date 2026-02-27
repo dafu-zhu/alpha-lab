@@ -1,0 +1,44 @@
+{
+  "date": "2026-02-27",
+  "operators": [
+    {
+      "name": "vec_sum",
+      "category": "vector",
+      "time_s": 0.0,
+      "peak_memory_mb": 0.0,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        0,
+        0
+      ],
+      "status": "error",
+      "error": "expected List or Array type, got dtype: f64"
+    },
+    {
+      "name": "vec_avg",
+      "category": "vector",
+      "time_s": 0.0,
+      "peak_memory_mb": 0.0,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        0,
+        0
+      ],
+      "status": "error",
+      "error": "expected List or Array type, got dtype: f64"
+    }
+  ],
+  "slow_operators": [],
+  "summary": {
+    "total": 2,
+    "fast": 0,
+    "slow": 0,
+    "error": 2
+  }
+}

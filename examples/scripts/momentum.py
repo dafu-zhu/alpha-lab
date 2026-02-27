@@ -2,6 +2,9 @@
 from alphalab.api.client import AlphaLabClient
 import os
 
+from dotenv import load_dotenv
+load_dotenv()
+
 def momentum_alpha(client, lookback=5):
     """5-day price momentum, cross-sectionally ranked."""
     return client.query(f"rank(-ts_delta(close, {lookback}))")

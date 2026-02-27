@@ -2,6 +2,9 @@
 from alphalab.api.client import AlphaLabClient
 import os
 
+from dotenv import load_dotenv
+load_dotenv()
+
 def quality_alpha(client):
     """ROA-based quality factor, sector-neutralized."""
     # Use pre-computed return_assets field (ROA)

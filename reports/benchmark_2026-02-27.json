@@ -1,0 +1,442 @@
+{
+  "date": "2026-02-27",
+  "operators": [
+    {
+      "name": "ts_mean",
+      "category": "time-series",
+      "time_s": 0.11942445900058374,
+      "peak_memory_mb": 2.866710662841797,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "ts_sum",
+      "category": "time-series",
+      "time_s": 0.09412704100395786,
+      "peak_memory_mb": 2.8604698181152344,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "ts_std",
+      "category": "time-series",
+      "time_s": 0.12047695799992653,
+      "peak_memory_mb": 2.860454559326172,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "ts_min",
+      "category": "time-series",
+      "time_s": 0.11890058299468365,
+      "peak_memory_mb": 2.8604393005371094,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "ts_max",
+      "category": "time-series",
+      "time_s": 0.11294387499947334,
+      "peak_memory_mb": 2.8604164123535156,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "ts_delta",
+      "category": "time-series",
+      "time_s": 0.1330380840008729,
+      "peak_memory_mb": 2.8602867126464844,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "ts_delay",
+      "category": "time-series",
+      "time_s": 0.12741241699404782,
+      "peak_memory_mb": 2.860271453857422,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "ts_product",
+      "category": "time-series",
+      "time_s": 483.4552364589981,
+      "peak_memory_mb": 5.089191436767578,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "slow",
+      "error": null
+    },
+    {
+      "name": "ts_count_nans",
+      "category": "time-series",
+      "time_s": 0.1998582499945769,
+      "peak_memory_mb": 2.860462188720703,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "ts_zscore",
+      "category": "time-series",
+      "time_s": 0.35127887500129873,
+      "peak_memory_mb": 2.8604393005371094,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "ts_scale",
+      "category": "time-series",
+      "time_s": 0.7451367500034394,
+      "peak_memory_mb": 2.860431671142578,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "ts_av_diff",
+      "category": "time-series",
+      "time_s": 0.17717316700145602,
+      "peak_memory_mb": 2.8603172302246094,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "ts_step",
+      "category": "time-series",
+      "time_s": 1.357067459000973,
+      "peak_memory_mb": 2.9453954696655273,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "slow",
+      "error": null
+    },
+    {
+      "name": "ts_arg_max",
+      "category": "time-series",
+      "time_s": 547.0212537500047,
+      "peak_memory_mb": 5.249797821044922,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "slow",
+      "error": null
+    },
+    {
+      "name": "ts_arg_min",
+      "category": "time-series",
+      "time_s": 615.7677548750071,
+      "peak_memory_mb": 5.258876800537109,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "slow",
+      "error": null
+    },
+    {
+      "name": "ts_backfill",
+      "category": "time-series",
+      "time_s": 0.1227060410019476,
+      "peak_memory_mb": 2.860210418701172,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "kth_element",
+      "category": "time-series",
+      "time_s": 0.16137300000991672,
+      "peak_memory_mb": 2.8603248596191406,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "last_diff_value",
+      "category": "time-series",
+      "time_s": 539.3797406249942,
+      "peak_memory_mb": 4.118198394775391,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "slow",
+      "error": null
+    },
+    {
+      "name": "days_from_last_change",
+      "category": "time-series",
+      "time_s": 21.90203866700176,
+      "peak_memory_mb": 192.61155319213867,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "slow",
+      "error": null
+    },
+    {
+      "name": "hump",
+      "category": "time-series",
+      "time_s": 35.08042758300144,
+      "peak_memory_mb": 403.79770278930664,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "slow",
+      "error": null
+    },
+    {
+      "name": "ts_decay_linear",
+      "category": "time-series",
+      "time_s": 661.6574059999984,
+      "peak_memory_mb": 4.127902984619141,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "slow",
+      "error": null
+    },
+    {
+      "name": "ts_rank",
+      "category": "time-series",
+      "time_s": 460.5956295419892,
+      "peak_memory_mb": 4.118427276611328,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "slow",
+      "error": null
+    },
+    {
+      "name": "ts_quantile",
+      "category": "time-series",
+      "time_s": 507.7431962499977,
+      "peak_memory_mb": 5.249599456787109,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "slow",
+      "error": null
+    },
+    {
+      "name": "ts_corr",
+      "category": "time-series",
+      "time_s": 658.6591607919981,
+      "peak_memory_mb": 297.9156951904297,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "slow",
+      "error": null
+    },
+    {
+      "name": "ts_covariance",
+      "category": "time-series",
+      "time_s": 478.7192840829957,
+      "peak_memory_mb": 302.24832916259766,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "slow",
+      "error": null
+    },
+    {
+      "name": "ts_regression",
+      "category": "time-series",
+      "time_s": 1970.0145610840118,
+      "peak_memory_mb": 300.3789520263672,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "slow",
+      "error": null
+    }
+  ],
+  "slow_operators": [
+    "ts_product",
+    "ts_step",
+    "ts_arg_max",
+    "ts_arg_min",
+    "last_diff_value",
+    "days_from_last_change",
+    "hump",
+    "ts_decay_linear",
+    "ts_rank",
+    "ts_quantile",
+    "ts_corr",
+    "ts_covariance",
+    "ts_regression"
+  ],
+  "summary": {
+    "total": 26,
+    "fast": 13,
+    "slow": 13,
+    "error": 0
+  }
+}

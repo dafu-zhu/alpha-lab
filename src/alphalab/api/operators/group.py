@@ -3,10 +3,13 @@
 All operators work on groups defined by a separate group DataFrame:
 - First column (date) is unchanged
 - Operations applied within groups across symbols at each date
+
+Uses numpy row-wise operations for performance.
 """
 
 import numpy as np
 import polars as pl
+from numba import njit
 
 
 def _get_value_cols(df: pl.DataFrame) -> list[str]:
@@ -14,33 +17,281 @@ def _get_value_cols(df: pl.DataFrame) -> list[str]:
     return df.columns[1:]
 
 
-def _to_long_with_group(
+def _align_and_extract(
     x: pl.DataFrame,
     group: pl.DataFrame,
-) -> tuple[pl.DataFrame, str, list[str]]:
-    """Convert x and group to long format and join.
-
-    Returns joined long DataFrame, date column name, and original value columns.
-    """
+) -> tuple[np.ndarray, np.ndarray, str, list[str]]:
+    """Align x and group DataFrames, extract numpy arrays with integer group IDs."""
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
+    group_cols = _get_value_cols(group)
 
-    x_long = x.unpivot(
-        index=date_col,
-        on=value_cols,
-        variable_name="symbol",
-        value_name="value",
-    )
+    # Align columns - use x's columns, get corresponding group values
+    values = x.select(value_cols).to_numpy().astype(np.float64)
 
-    g_long = group.unpivot(
-        index=date_col,
-        on=_get_value_cols(group),
-        variable_name="symbol",
-        value_name="group_id",
-    )
+    # Build group array aligned to x's columns
+    group_df = group.select(group_cols)
+    n_rows = group_df.height
 
-    joined = x_long.join(g_long, on=[date_col, "symbol"])
-    return joined, date_col, value_cols
+    # Map columns from x to group (handle different column orders/subsets)
+    x_col_set = set(value_cols)
+    group_col_set = set(group_cols)
+    common_cols = x_col_set & group_col_set
+
+    # Build column index mapping: x column index -> group column index
+    group_col_to_idx = {col: i for i, col in enumerate(group_cols)}
+
+    # Extract group values, map strings to integers
+    first_col_dtype = group_df[group_cols[0]].dtype
+    is_string = first_col_dtype == pl.Utf8 or first_col_dtype == pl.Categorical
+
+    if is_string:
+        # Collect all unique group values
+        all_values = set()
+        for col in group_cols:
+            all_values.update(v for v in group_df[col].to_list() if v is not None)
+        group_map = {v: i for i, v in enumerate(sorted(all_values))}
+        n_groups = len(group_map)
+
+        # Build aligned group array
+        groups = np.full((n_rows, len(value_cols)), -1, dtype=np.int32)
+        for j, col in enumerate(value_cols):
+            if col in common_cols:
+                g_idx = group_col_to_idx[col]
+                col_values = group_df[group_cols[g_idx]].to_list()
+                for i, v in enumerate(col_values):
+                    if v is not None:
+                        groups[i, j] = group_map[v]
+    else:
+        # Numeric group IDs
+        groups = np.full((n_rows, len(value_cols)), -1, dtype=np.int32)
+        for j, col in enumerate(value_cols):
+            if col in common_cols:
+                g_idx = group_col_to_idx[col]
+                col_values = group_df[group_cols[g_idx]].to_numpy()
+                for i, v in enumerate(col_values):
+                    if not np.isnan(v):
+                        groups[i, j] = int(v)
+
+    return values, groups, date_col, value_cols
+
+
+@njit(cache=True)
+def _group_neutralize_rows(values: np.ndarray, groups: np.ndarray) -> np.ndarray:
+    """Subtract group mean from each value, row by row."""
+    n_rows, n_cols = values.shape
+    result = np.empty_like(values)
+
+    for i in range(n_rows):
+        # Find max group ID in this row
+        max_gid = -1
+        for j in range(n_cols):
+            if groups[i, j] > max_gid:
+                max_gid = groups[i, j]
+
+        if max_gid < 0:
+            # No valid groups
+            for j in range(n_cols):
+                result[i, j] = np.nan
+            continue
+
+        # Compute group sums and counts
+        n_groups = max_gid + 1
+        group_sum = np.zeros(n_groups, dtype=np.float64)
+        group_count = np.zeros(n_groups, dtype=np.int32)
+
+        for j in range(n_cols):
+            gid = groups[i, j]
+            val = values[i, j]
+            if gid >= 0 and not np.isnan(val):
+                group_sum[gid] += val
+                group_count[gid] += 1
+
+        # Compute means
+        group_mean = np.empty(n_groups, dtype=np.float64)
+        for g in range(n_groups):
+            if group_count[g] > 0:
+                group_mean[g] = group_sum[g] / group_count[g]
+            else:
+                group_mean[g] = np.nan
+
+        # Subtract means
+        for j in range(n_cols):
+            gid = groups[i, j]
+            val = values[i, j]
+            if gid >= 0 and not np.isnan(val):
+                result[i, j] = val - group_mean[gid]
+            else:
+                result[i, j] = np.nan
+
+    return result
+
+
+@njit(cache=True)
+def _group_zscore_rows(values: np.ndarray, groups: np.ndarray) -> np.ndarray:
+    """Z-score within groups, row by row."""
+    n_rows, n_cols = values.shape
+    result = np.empty_like(values)
+
+    for i in range(n_rows):
+        max_gid = -1
+        for j in range(n_cols):
+            if groups[i, j] > max_gid:
+                max_gid = groups[i, j]
+
+        if max_gid < 0:
+            for j in range(n_cols):
+                result[i, j] = np.nan
+            continue
+
+        n_groups = max_gid + 1
+        group_sum = np.zeros(n_groups, dtype=np.float64)
+        group_sum_sq = np.zeros(n_groups, dtype=np.float64)
+        group_count = np.zeros(n_groups, dtype=np.int32)
+
+        for j in range(n_cols):
+            gid = groups[i, j]
+            val = values[i, j]
+            if gid >= 0 and not np.isnan(val):
+                group_sum[gid] += val
+                group_sum_sq[gid] += val * val
+                group_count[gid] += 1
+
+        group_mean = np.empty(n_groups, dtype=np.float64)
+        group_std = np.empty(n_groups, dtype=np.float64)
+        for g in range(n_groups):
+            if group_count[g] > 0:
+                mean = group_sum[g] / group_count[g]
+                group_mean[g] = mean
+                variance = group_sum_sq[g] / group_count[g] - mean * mean
+                group_std[g] = np.sqrt(max(0.0, variance))
+            else:
+                group_mean[g] = np.nan
+                group_std[g] = np.nan
+
+        for j in range(n_cols):
+            gid = groups[i, j]
+            val = values[i, j]
+            if gid >= 0 and not np.isnan(val):
+                std = group_std[gid]
+                if std > 0:
+                    result[i, j] = (val - group_mean[gid]) / std
+                else:
+                    result[i, j] = np.nan
+            else:
+                result[i, j] = np.nan
+
+    return result
+
+
+@njit(cache=True)
+def _group_scale_rows(values: np.ndarray, groups: np.ndarray) -> np.ndarray:
+    """Min-max scale within groups to [0, 1], row by row."""
+    n_rows, n_cols = values.shape
+    result = np.empty_like(values)
+
+    for i in range(n_rows):
+        max_gid = -1
+        for j in range(n_cols):
+            if groups[i, j] > max_gid:
+                max_gid = groups[i, j]
+
+        if max_gid < 0:
+            for j in range(n_cols):
+                result[i, j] = np.nan
+            continue
+
+        n_groups = max_gid + 1
+        group_min = np.full(n_groups, np.inf, dtype=np.float64)
+        group_max = np.full(n_groups, -np.inf, dtype=np.float64)
+
+        for j in range(n_cols):
+            gid = groups[i, j]
+            val = values[i, j]
+            if gid >= 0 and not np.isnan(val):
+                if val < group_min[gid]:
+                    group_min[gid] = val
+                if val > group_max[gid]:
+                    group_max[gid] = val
+
+        for j in range(n_cols):
+            gid = groups[i, j]
+            val = values[i, j]
+            if gid >= 0 and not np.isnan(val):
+                rng = group_max[gid] - group_min[gid]
+                if rng > 0:
+                    result[i, j] = (val - group_min[gid]) / rng
+                else:
+                    result[i, j] = np.nan
+            else:
+                result[i, j] = np.nan
+
+    return result
+
+
+@njit(cache=True)
+def _group_rank_rows(values: np.ndarray, groups: np.ndarray) -> np.ndarray:
+    """Rank within groups normalized to [0, 1], row by row."""
+    n_rows, n_cols = values.shape
+    result = np.empty_like(values)
+
+    for i in range(n_rows):
+        max_gid = -1
+        for j in range(n_cols):
+            if groups[i, j] > max_gid:
+                max_gid = groups[i, j]
+
+        if max_gid < 0:
+            for j in range(n_cols):
+                result[i, j] = np.nan
+            continue
+
+        n_groups = max_gid + 1
+
+        # Count valid values per group
+        group_count = np.zeros(n_groups, dtype=np.int32)
+        for j in range(n_cols):
+            gid = groups[i, j]
+            val = values[i, j]
+            if gid >= 0 and not np.isnan(val):
+                group_count[gid] += 1
+
+        # For each column, count how many in same group have smaller value
+        for j in range(n_cols):
+            gid = groups[i, j]
+            val = values[i, j]
+            if gid < 0 or np.isnan(val):
+                result[i, j] = np.nan
+                continue
+
+            count = group_count[gid]
+            if count == 1:
+                result[i, j] = 0.5
+                continue
+
+            # Count values less than val in same group
+            rank = 0
+            for k in range(n_cols):
+                if groups[i, k] == gid and not np.isnan(values[i, k]):
+                    if values[i, k] < val:
+                        rank += 1
+
+            result[i, j] = rank / (count - 1)
+
+    return result
+
+
+def _rebuild_dataframe(
+    result: np.ndarray,
+    x: pl.DataFrame,
+    date_col: str,
+    value_cols: list[str],
+) -> pl.DataFrame:
+    """Rebuild DataFrame from numpy result array."""
+    return pl.DataFrame({
+        date_col: x[date_col],
+        **{col: result[:, j] for j, col in enumerate(value_cols)}
+    })
 
 
 def _pivot_back(
@@ -63,14 +314,9 @@ def group_neutralize(x: pl.DataFrame, group: pl.DataFrame) -> pl.DataFrame:
     Returns:
         Wide DataFrame with group-neutralized values
     """
-    joined, date_col, value_cols = _to_long_with_group(x, group)
-
-    result = joined.with_columns(
-        (pl.col("value") - pl.col("value").mean().over([date_col, "group_id"]))
-        .alias("value")
-    )
-
-    return _pivot_back(result, date_col, value_cols)
+    values, groups, date_col, value_cols = _align_and_extract(x, group)
+    result = _group_neutralize_rows(values, groups)
+    return _rebuild_dataframe(result, x, date_col, value_cols)
 
 
 def group_zscore(x: pl.DataFrame, group: pl.DataFrame) -> pl.DataFrame:
@@ -83,15 +329,9 @@ def group_zscore(x: pl.DataFrame, group: pl.DataFrame) -> pl.DataFrame:
     Returns:
         Wide DataFrame with group z-scored values
     """
-    joined, date_col, value_cols = _to_long_with_group(x, group)
-
-    result = joined.with_columns(
-        ((pl.col("value") - pl.col("value").mean().over([date_col, "group_id"]))
-         / pl.col("value").std().over([date_col, "group_id"]))
-        .alias("value")
-    )
-
-    return _pivot_back(result, date_col, value_cols)
+    values, groups, date_col, value_cols = _align_and_extract(x, group)
+    result = _group_zscore_rows(values, groups)
+    return _rebuild_dataframe(result, x, date_col, value_cols)
 
 
 def group_scale(x: pl.DataFrame, group: pl.DataFrame) -> pl.DataFrame:
@@ -104,16 +344,9 @@ def group_scale(x: pl.DataFrame, group: pl.DataFrame) -> pl.DataFrame:
     Returns:
         Wide DataFrame with group-scaled values in [0, 1]
     """
-    joined, date_col, value_cols = _to_long_with_group(x, group)
-
-    result = joined.with_columns(
-        ((pl.col("value") - pl.col("value").min().over([date_col, "group_id"]))
-         / (pl.col("value").max().over([date_col, "group_id"])
-            - pl.col("value").min().over([date_col, "group_id"])))
-        .alias("value")
-    )
-
-    return _pivot_back(result, date_col, value_cols)
+    values, groups, date_col, value_cols = _align_and_extract(x, group)
+    result = _group_scale_rows(values, groups)
+    return _rebuild_dataframe(result, x, date_col, value_cols)
 
 
 def group_rank(x: pl.DataFrame, group: pl.DataFrame) -> pl.DataFrame:
@@ -128,19 +361,9 @@ def group_rank(x: pl.DataFrame, group: pl.DataFrame) -> pl.DataFrame:
     Returns:
         Wide DataFrame with group rank values in [0, 1]
     """
-    joined, date_col, value_cols = _to_long_with_group(x, group)
-
-    result = joined.with_columns(
-        pl.when(pl.col("value").count().over([date_col, "group_id"]) == 1)
-        .then(0.5)
-        .otherwise(
-            (pl.col("value").rank(method="ordinal").over([date_col, "group_id"]) - 1)
-            / (pl.col("value").count().over([date_col, "group_id"]) - 1)
-        )
-        .alias("value")
-    )
-
-    return _pivot_back(result, date_col, value_cols)
+    values, groups, date_col, value_cols = _align_and_extract(x, group)
+    result = _group_rank_rows(values, groups)
+    return _rebuild_dataframe(result, x, date_col, value_cols)
 
 
 def group_mean(

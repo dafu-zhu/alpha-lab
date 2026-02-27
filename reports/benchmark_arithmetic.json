@@ -1,0 +1,254 @@
+{
+  "date": "2026-02-27",
+  "operators": [
+    {
+      "name": "add",
+      "category": "arithmetic",
+      "time_s": 0.16646620900428388,
+      "peak_memory_mb": 2.8605003356933594,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "subtract",
+      "category": "arithmetic",
+      "time_s": 0.15823170900694095,
+      "peak_memory_mb": 2.8604393005371094,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "multiply",
+      "category": "arithmetic",
+      "time_s": 0.15940433299692813,
+      "peak_memory_mb": 2.8607521057128906,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "divide",
+      "category": "arithmetic",
+      "time_s": 0.6730182089959271,
+      "peak_memory_mb": 2.908916473388672,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "abs",
+      "category": "arithmetic",
+      "time_s": 0.09321295899280813,
+      "peak_memory_mb": 2.8603858947753906,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "log",
+      "category": "arithmetic",
+      "time_s": 0.5704617080045864,
+      "peak_memory_mb": 2.860370635986328,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "sqrt",
+      "category": "arithmetic",
+      "time_s": 0.43507320899516344,
+      "peak_memory_mb": 2.8603477478027344,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "power",
+      "category": "arithmetic",
+      "time_s": 0.24734325001190882,
+      "peak_memory_mb": 2.860950469970703,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "sign",
+      "category": "arithmetic",
+      "time_s": 0.0892086669919081,
+      "peak_memory_mb": 2.8603782653808594,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "inverse",
+      "category": "arithmetic",
+      "time_s": 0.6034183339943411,
+      "peak_memory_mb": 2.8603782653808594,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "signed_power",
+      "category": "arithmetic",
+      "time_s": 0.5630667920049746,
+      "peak_memory_mb": 2.862407684326172,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "min",
+      "category": "arithmetic",
+      "time_s": 0.26100262500403915,
+      "peak_memory_mb": 2.860546112060547,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "max",
+      "category": "arithmetic",
+      "time_s": 0.24904091699863784,
+      "peak_memory_mb": 2.860431671142578,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "reverse",
+      "category": "arithmetic",
+      "time_s": 0.08688720800273586,
+      "peak_memory_mb": 2.8603248596191406,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "densify",
+      "category": "arithmetic",
+      "time_s": 107.97994479199406,
+      "peak_memory_mb": 1.3463554382324219,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "slow",
+      "error": null
+    }
+  ],
+  "slow_operators": [
+    "densify"
+  ],
+  "summary": {
+    "total": 15,
+    "fast": 14,
+    "slow": 1,
+    "error": 0
+  }
+}

@@ -1,0 +1,188 @@
+{
+  "date": "2026-02-27",
+  "operators": [
+    {
+      "name": "gt",
+      "category": "logical",
+      "time_s": 0.17295300000114366,
+      "peak_memory_mb": 2.860454559326172,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "lt",
+      "category": "logical",
+      "time_s": 0.17727554200973827,
+      "peak_memory_mb": 2.8604393005371094,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "ge",
+      "category": "logical",
+      "time_s": 0.15686158298922237,
+      "peak_memory_mb": 2.8604164123535156,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "le",
+      "category": "logical",
+      "time_s": 0.1507054999965476,
+      "peak_memory_mb": 2.860401153564453,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "eq",
+      "category": "logical",
+      "time_s": 0.1591392920090584,
+      "peak_memory_mb": 2.8603858947753906,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "ne",
+      "category": "logical",
+      "time_s": 0.1495175830059452,
+      "peak_memory_mb": 2.860370635986328,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "and_",
+      "category": "logical",
+      "time_s": 0.5266694580059266,
+      "peak_memory_mb": 2.8618507385253906,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "or_",
+      "category": "logical",
+      "time_s": 0.49789162501110695,
+      "peak_memory_mb": 2.861591339111328,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "not_",
+      "category": "logical",
+      "time_s": 0.2612160829885397,
+      "peak_memory_mb": 2.8609657287597656,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "is_nan",
+      "category": "logical",
+      "time_s": 0.17313949999515899,
+      "peak_memory_mb": 2.8603248596191406,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    },
+    {
+      "name": "if_else",
+      "category": "logical",
+      "time_s": 0.4334417920035776,
+      "peak_memory_mb": 2.863666534423828,
+      "input_shape": [
+        2262,
+        5705
+      ],
+      "output_shape": [
+        2262,
+        5705
+      ],
+      "status": "fast",
+      "error": null
+    }
+  ],
+  "slow_operators": [],
+  "summary": {
+    "total": 11,
+    "fast": 11,
+    "slow": 0,
+    "error": 0
+  }
+}
