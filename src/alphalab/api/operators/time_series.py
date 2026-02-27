@@ -461,27 +461,36 @@ def last_diff_value(x: pl.DataFrame, d: int) -> pl.DataFrame:
     )
 
 
+def _compute_days_from_last_change(col_data: list) -> list[int]:
+    """Compute days since last change for a single column."""
+    days: list[int] = []
+    last_change_idx = 0
+    for i, val in enumerate(col_data):
+        if i == 0:
+            days.append(0)
+        elif val != col_data[i - 1]:
+            last_change_idx = i
+            days.append(0)
+        else:
+            days.append(i - last_change_idx)
+    return days
+
+
 def days_from_last_change(x: pl.DataFrame) -> pl.DataFrame:
-    """Days since value changed."""
+    """Days since value changed (column-parallel)."""
+    from concurrent.futures import ThreadPoolExecutor
+
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
-    result_data: dict[str, pl.Series | list[int]] = {date_col: x[date_col]}
 
-    for c in value_cols:
-        col_data = x[c].to_list()
-        days: list[int] = []
-        last_change_idx = 0
-        for i, val in enumerate(col_data):
-            if i == 0:
-                days.append(0)
-            elif val != col_data[i - 1]:
-                last_change_idx = i
-                days.append(0)
-            else:
-                days.append(i - last_change_idx)
-        result_data[c] = days
+    def process_col(c: str) -> tuple[str, list[int]]:
+        return (c, _compute_days_from_last_change(x[c].to_list()))
 
-    return pl.DataFrame(result_data)
+    # Parallelize across columns
+    with ThreadPoolExecutor(max_workers=min(8, len(value_cols))) as executor:
+        col_results = dict(executor.map(process_col, value_cols))
+
+    return pl.DataFrame({date_col: x[date_col], **col_results})
 
 
 # Phase 4: Stateful Ops
