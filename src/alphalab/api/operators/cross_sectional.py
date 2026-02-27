@@ -5,6 +5,8 @@ All operators work row-wise across symbols at each date:
 - Operations applied across symbol columns within each row
 """
 
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
 import polars as pl
 from scipy import stats
@@ -17,6 +19,36 @@ def _get_value_cols(df: pl.DataFrame) -> list[str]:
 
 # Module-level RNG for reproducibility
 _bucket_rank_rng = np.random.default_rng(seed=42)
+
+# Thread pool for row-parallel operations
+_RANK_MAX_WORKERS = 8
+
+
+def _rank_row(row: np.ndarray) -> np.ndarray:
+    """Rank a single row using argsort (faster than scipy.stats.rankdata).
+
+    Args:
+        row: 1D array of values
+
+    Returns:
+        Array of rank values in [0, 1], NaN for invalid inputs
+    """
+    mask = ~np.isnan(row)
+    n_valid = mask.sum()
+    result = np.full_like(row, np.nan)
+
+    if n_valid == 0:
+        return result
+    if n_valid == 1:
+        result[mask] = 0.0
+        return result
+
+    valid_vals = row[mask]
+    order = np.argsort(valid_vals)
+    ranks = np.empty(n_valid)
+    ranks[order] = np.arange(n_valid)
+    result[mask] = ranks / (n_valid - 1)
+    return result
 
 
 def _bucket_rank(values: np.ndarray, rate: int) -> np.ndarray:
@@ -133,33 +165,17 @@ def rank(x: pl.DataFrame, rate: int = 2) -> pl.DataFrame:
 
     # Extract values as numpy array (rows × symbols)
     values = x.select(value_cols).to_numpy().astype(np.float64)
-    n_rows, n_cols = values.shape
 
     # Choose ranking method
     use_precise = rate == 0 or n_symbols < 32
 
     if use_precise:
-        # Vectorized precise ranking using scipy (axis=1 for row-wise)
-        # scipy.stats.rankdata handles NaN by assigning them NaN in result
-        result = np.empty_like(values)
-        valid_mask = ~np.isnan(values)
-
-        # Count valid values per row
-        valid_counts = valid_mask.sum(axis=1)
-
-        # Process rows with valid data
-        for i in range(n_rows):
-            n_valid = valid_counts[i]
-            if n_valid <= 1:
-                result[i] = np.where(valid_mask[i], 0.0, np.nan)
-            else:
-                # Rank only valid values
-                row_valid = valid_mask[i]
-                ranks = stats.rankdata(values[i, row_valid], method="ordinal")
-                result[i] = np.nan
-                result[i, row_valid] = (ranks - 1) / (n_valid - 1)
+        # Parallel precise ranking using ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=_RANK_MAX_WORKERS) as executor:
+            results = list(executor.map(_rank_row, values))
+        result = np.array(results)
     else:
-        # Vectorized bucket ranking
+        # Parallel bucket ranking
         result = _bucket_rank_2d(values, rate)
 
     # Rebuild DataFrame efficiently
@@ -169,39 +185,56 @@ def rank(x: pl.DataFrame, rate: int = 2) -> pl.DataFrame:
     })
 
 
-def _bucket_rank_2d(values: np.ndarray, rate: int) -> np.ndarray:
-    """Vectorized bucket ranking for 2D array (rows x cols).
+def _bucket_rank_row(row: np.ndarray, rate: int) -> np.ndarray:
+    """Bucket rank a single row.
 
-    Processes all rows using vectorized operations.
+    Args:
+        row: 1D array of values
+        rate: Controls number of buckets (n_buckets ≈ n_valid / 2^rate)
+
+    Returns:
+        Array of rank values in [0, 1], NaN for invalid inputs
     """
-    n_rows, n_cols = values.shape
-    result = np.full_like(values, np.nan, dtype=np.float64)
+    mask = ~np.isnan(row)
+    n_valid = mask.sum()
+    result = np.full_like(row, np.nan)
 
-    valid_mask = ~np.isnan(values)
-    valid_counts = valid_mask.sum(axis=1)
+    if n_valid == 0:
+        return result
+    if n_valid <= 1:
+        result[mask] = 0.0
+        return result
 
-    for i in range(n_rows):
-        n_valid = valid_counts[i]
-        if n_valid <= 1:
-            result[i, valid_mask[i]] = 0.0
-            continue
+    # Number of buckets based on rate
+    n_buckets = max(2, int(n_valid / (2 ** rate)))
 
-        # Number of buckets based on rate
-        n_buckets = max(2, int(n_valid / (2 ** rate)))
+    valid_vals = row[mask]
 
-        valid_vals = values[i, valid_mask[i]]
+    # Random sample for pivot selection (use thread-local RNG)
+    rng = np.random.default_rng()
+    sample_size = min(n_buckets, n_valid)
+    sample_idx = rng.choice(n_valid, size=sample_size, replace=False)
+    thresholds = np.sort(valid_vals[sample_idx])
 
-        # Random sample for pivot selection
-        sample_size = min(n_buckets, n_valid)
-        sample_idx = _bucket_rank_rng.choice(n_valid, size=sample_size, replace=False)
-        thresholds = np.sort(valid_vals[sample_idx])
-
-        # Assign each value to a bucket via searchsorted
-        bucket_indices = np.searchsorted(thresholds, valid_vals, side="right")
-
-        result[i, valid_mask[i]] = bucket_indices / n_buckets
+    # Assign each value to a bucket via searchsorted
+    bucket_indices = np.searchsorted(thresholds, valid_vals, side="right")
+    result[mask] = bucket_indices / n_buckets
 
     return result
+
+
+def _bucket_rank_2d(values: np.ndarray, rate: int) -> np.ndarray:
+    """Parallel bucket ranking for 2D array (rows x cols).
+
+    Processes rows in parallel using ThreadPoolExecutor.
+    """
+    def rank_with_rate(row: np.ndarray) -> np.ndarray:
+        return _bucket_rank_row(row, rate)
+
+    with ThreadPoolExecutor(max_workers=_RANK_MAX_WORKERS) as executor:
+        results = list(executor.map(rank_with_rate, values))
+
+    return np.array(results)
 
 
 def zscore(x: pl.DataFrame) -> pl.DataFrame:
