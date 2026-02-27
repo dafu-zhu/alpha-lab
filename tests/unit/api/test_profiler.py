@@ -103,3 +103,24 @@ def test_profiled_decorator_noop_when_inactive():
 
     assert call_count == 1
     assert result.equals(df)
+
+
+def test_operators_are_profiled():
+    """All operators in alphalab.api.operators are wrapped with @profiled."""
+    from alphalab.api import operators
+    from alphalab.api.profiler import profile
+    import polars as pl
+
+    df = pl.DataFrame({
+        "Date": [1, 2, 3, 4, 5],
+        "A": [1.0, 2.0, 3.0, 4.0, 5.0],
+        "B": [5.0, 4.0, 3.0, 2.0, 1.0],
+    })
+
+    with profile() as p:
+        _ = operators.rank(df)
+        _ = operators.ts_mean(df, 2)
+
+    op_names = {r.operator for r in p.records}
+    assert "rank" in op_names
+    assert "ts_mean" in op_names
