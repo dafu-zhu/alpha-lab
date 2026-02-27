@@ -1,6 +1,7 @@
 """Transformational operators for wide tables.
 
-These operators transform data based on conditional logic (e.g., trade signals).
+Transform data based on conditional logic (e.g., trade signals).
+Uses numba-optimized kernels for performance.
 """
 
 import numpy as np
@@ -24,6 +25,8 @@ def trade_when(
       - elif trigger_trade > 0: result = alpha (enter/update position)
       - else: result = previous result (carry forward)
 
+    Uses numba-optimized column processing with parallel execution.
+
     Args:
         trigger_trade: Wide DataFrame with trade entry signals (>0 = enter)
         alpha: Wide DataFrame with alpha values to use on entry
@@ -33,37 +36,34 @@ def trade_when(
     Returns:
         Wide DataFrame with conditional alpha values
     """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from alphalab.api.operators._numba_kernels import trade_when_column
+
     date_col = trigger_trade.columns[0]
     value_cols = _get_value_cols(trigger_trade)
 
-    # Scalar exit: constant for all rows
-    scalar_exit = None
+    # Extract arrays
+    trade_values = trigger_trade.select(value_cols).to_numpy().astype(np.float64)
+    alpha_values = alpha.select(value_cols).to_numpy().astype(np.float64)
+
+    # Handle scalar exit
     if isinstance(trigger_exit, (int, float)):
-        scalar_exit = trigger_exit
+        exit_values = np.full_like(trade_values, trigger_exit)
+    else:
+        exit_values = trigger_exit.select(value_cols).to_numpy().astype(np.float64)
 
-    result_cols = [trigger_trade[date_col]]
+    def process_col(idx: int) -> tuple[str, np.ndarray]:
+        return (
+            value_cols[idx],
+            trade_when_column(
+                trade_values[:, idx],
+                alpha_values[:, idx],
+                exit_values[:, idx],
+            ),
+        )
 
-    for col in value_cols:
-        trade_arr = trigger_trade[col].to_numpy().astype(np.float64)
-        alpha_arr = alpha[col].to_numpy().astype(np.float64)
+    with ThreadPoolExecutor(max_workers=min(8, len(value_cols))) as executor:
+        col_results = dict(executor.map(process_col, range(len(value_cols))))
 
-        if scalar_exit is not None:
-            exit_arr = np.full(len(trade_arr), scalar_exit, dtype=np.float64)
-        else:
-            exit_arr = trigger_exit[col].to_numpy().astype(np.float64)
-
-        out = np.full(len(trade_arr), np.nan)
-        prev = np.nan
-        for i in range(len(trade_arr)):
-            if exit_arr[i] > 0:
-                prev = np.nan
-                out[i] = np.nan
-            elif trade_arr[i] > 0:
-                prev = alpha_arr[i]
-                out[i] = prev
-            else:
-                out[i] = prev
-
-        result_cols.append(pl.Series(col, out))
-
-    return pl.DataFrame(result_cols)
+    return pl.DataFrame({date_col: trigger_trade[date_col], **col_results})

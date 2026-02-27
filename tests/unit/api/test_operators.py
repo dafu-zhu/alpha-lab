@@ -432,7 +432,7 @@ class TestCrossSectionalOperators:
 
     def test_scale(self, wide_df: pl.DataFrame) -> None:
         """Test scaling to target."""
-        result = scale(wide_df, scale=1.0)
+        result = scale(wide_df, scale_factor=1.0)
 
         # Sum of absolute values should be ~1.0 for each row
         for i in range(len(result)):
@@ -441,7 +441,7 @@ class TestCrossSectionalOperators:
 
     def test_scale_custom_booksize(self, wide_df: pl.DataFrame) -> None:
         """Test scaling to custom book size."""
-        result = scale(wide_df, scale=4.0)
+        result = scale(wide_df, scale_factor=4.0)
 
         # Sum of absolute values should be ~4.0 for each row
         for i in range(len(result)):
@@ -1427,7 +1427,7 @@ class TestOperatorComposition:
     def test_normalize_then_scale(self, wide_df: pl.DataFrame) -> None:
         """Test composing cross-sectional operators."""
         normalized = normalize(wide_df)
-        scaled = scale(normalized, scale=1.0)
+        scaled = scale(normalized, scale_factor=1.0)
 
         # Should still sum to ~0 (normalize preserved)
         # But absolute sum should be ~1 (scale)

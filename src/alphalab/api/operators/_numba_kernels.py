@@ -983,3 +983,250 @@ def days_since_change_with_null(x: np.ndarray, is_null: np.ndarray) -> np.ndarra
             last_change_idx = i
 
     return result
+
+
+# =============================================================================
+# Group Operations - Row-wise with group assignments
+# =============================================================================
+
+
+@njit(cache=True)
+def group_neutralize_row(values: np.ndarray, groups: np.ndarray) -> np.ndarray:
+    """Subtract group mean from each value in a single row.
+
+    Args:
+        values: Row values (1D array)
+        groups: Group assignments (1D array of integers)
+
+    Returns:
+        Neutralized values
+    """
+    n = len(values)
+    result = np.empty(n, dtype=np.float64)
+
+    # Find unique groups and compute means
+    max_group = -1
+    for i in range(n):
+        if not np.isnan(groups[i]) and groups[i] > max_group:
+            max_group = int(groups[i])
+
+    if max_group < 0:
+        result[:] = np.nan
+        return result
+
+    # Allocate arrays for group sums and counts
+    group_sums = np.zeros(max_group + 1, dtype=np.float64)
+    group_counts = np.zeros(max_group + 1, dtype=np.int64)
+
+    # First pass: compute group sums and counts
+    for i in range(n):
+        if not np.isnan(values[i]) and not np.isnan(groups[i]):
+            g = int(groups[i])
+            group_sums[g] += values[i]
+            group_counts[g] += 1
+
+    # Second pass: subtract group mean
+    for i in range(n):
+        if np.isnan(values[i]) or np.isnan(groups[i]):
+            result[i] = np.nan
+        else:
+            g = int(groups[i])
+            if group_counts[g] > 0:
+                result[i] = values[i] - group_sums[g] / group_counts[g]
+            else:
+                result[i] = np.nan
+
+    return result
+
+
+@njit(cache=True)
+def group_zscore_row(values: np.ndarray, groups: np.ndarray) -> np.ndarray:
+    """Z-score within groups for a single row.
+
+    Args:
+        values: Row values (1D array)
+        groups: Group assignments (1D array of integers)
+
+    Returns:
+        Z-scored values
+    """
+    n = len(values)
+    result = np.empty(n, dtype=np.float64)
+
+    max_group = -1
+    for i in range(n):
+        if not np.isnan(groups[i]) and groups[i] > max_group:
+            max_group = int(groups[i])
+
+    if max_group < 0:
+        result[:] = np.nan
+        return result
+
+    # First pass: compute group sums and counts
+    group_sums = np.zeros(max_group + 1, dtype=np.float64)
+    group_sq_sums = np.zeros(max_group + 1, dtype=np.float64)
+    group_counts = np.zeros(max_group + 1, dtype=np.int64)
+
+    for i in range(n):
+        if not np.isnan(values[i]) and not np.isnan(groups[i]):
+            g = int(groups[i])
+            group_sums[g] += values[i]
+            group_sq_sums[g] += values[i] * values[i]
+            group_counts[g] += 1
+
+    # Compute group means and stds
+    group_means = np.zeros(max_group + 1, dtype=np.float64)
+    group_stds = np.zeros(max_group + 1, dtype=np.float64)
+
+    for g in range(max_group + 1):
+        if group_counts[g] > 0:
+            group_means[g] = group_sums[g] / group_counts[g]
+            variance = group_sq_sums[g] / group_counts[g] - group_means[g] ** 2
+            if variance > 0:
+                group_stds[g] = np.sqrt(variance)
+
+    # Second pass: compute z-scores
+    for i in range(n):
+        if np.isnan(values[i]) or np.isnan(groups[i]):
+            result[i] = np.nan
+        else:
+            g = int(groups[i])
+            if group_counts[g] > 0 and group_stds[g] > 0:
+                result[i] = (values[i] - group_means[g]) / group_stds[g]
+            else:
+                result[i] = np.nan
+
+    return result
+
+
+@njit(cache=True)
+def group_scale_row(values: np.ndarray, groups: np.ndarray) -> np.ndarray:
+    """Min-max scale within groups for a single row.
+
+    Args:
+        values: Row values (1D array)
+        groups: Group assignments (1D array of integers)
+
+    Returns:
+        Scaled values in [0, 1]
+    """
+    n = len(values)
+    result = np.empty(n, dtype=np.float64)
+
+    max_group = -1
+    for i in range(n):
+        if not np.isnan(groups[i]) and groups[i] > max_group:
+            max_group = int(groups[i])
+
+    if max_group < 0:
+        result[:] = np.nan
+        return result
+
+    # First pass: find group min/max
+    group_mins = np.full(max_group + 1, np.inf, dtype=np.float64)
+    group_maxs = np.full(max_group + 1, -np.inf, dtype=np.float64)
+
+    for i in range(n):
+        if not np.isnan(values[i]) and not np.isnan(groups[i]):
+            g = int(groups[i])
+            if values[i] < group_mins[g]:
+                group_mins[g] = values[i]
+            if values[i] > group_maxs[g]:
+                group_maxs[g] = values[i]
+
+    # Second pass: scale values
+    for i in range(n):
+        if np.isnan(values[i]) or np.isnan(groups[i]):
+            result[i] = np.nan
+        else:
+            g = int(groups[i])
+            range_val = group_maxs[g] - group_mins[g]
+            if range_val > 0:
+                result[i] = (values[i] - group_mins[g]) / range_val
+            else:
+                result[i] = np.nan  # All same value in group (0/0)
+
+    return result
+
+
+@njit(cache=True)
+def group_rank_row(values: np.ndarray, groups: np.ndarray) -> np.ndarray:
+    """Rank within groups for a single row, normalized to [0, 1].
+
+    Args:
+        values: Row values (1D array)
+        groups: Group assignments (1D array of integers)
+
+    Returns:
+        Rank values in [0, 1], 0.5 for single-member groups
+    """
+    n = len(values)
+    result = np.empty(n, dtype=np.float64)
+
+    max_group = -1
+    for i in range(n):
+        if not np.isnan(groups[i]) and groups[i] > max_group:
+            max_group = int(groups[i])
+
+    if max_group < 0:
+        result[:] = np.nan
+        return result
+
+    # Count valid values per group
+    group_counts = np.zeros(max_group + 1, dtype=np.int64)
+    for i in range(n):
+        if not np.isnan(values[i]) and not np.isnan(groups[i]):
+            group_counts[int(groups[i])] += 1
+
+    # Compute rank for each element
+    for i in range(n):
+        if np.isnan(values[i]) or np.isnan(groups[i]):
+            result[i] = np.nan
+        else:
+            g = int(groups[i])
+            count = group_counts[g]
+            if count <= 1:
+                result[i] = 0.5  # Single member group
+            else:
+                # Count elements in same group that are less than current
+                rank = 0
+                for j in range(n):
+                    if j != i and not np.isnan(values[j]) and not np.isnan(groups[j]):
+                        if int(groups[j]) == g and values[j] < values[i]:
+                            rank += 1
+                result[i] = rank / (count - 1)
+
+    return result
+
+
+@njit(cache=True)
+def trade_when_column(
+    trade_arr: np.ndarray,
+    alpha_arr: np.ndarray,
+    exit_arr: np.ndarray,
+) -> np.ndarray:
+    """Apply trade_when logic to a single column.
+
+    Args:
+        trade_arr: Trade entry signals (>0 = enter)
+        alpha_arr: Alpha values to use on entry
+        exit_arr: Exit signals (>0 = exit)
+
+    Returns:
+        Conditional alpha values with carry-forward
+    """
+    n = len(trade_arr)
+    result = np.full(n, np.nan, dtype=np.float64)
+    prev = np.nan
+
+    for i in range(n):
+        if exit_arr[i] > 0:
+            prev = np.nan
+            result[i] = np.nan
+        elif trade_arr[i] > 0:
+            prev = alpha_arr[i]
+            result[i] = prev
+        else:
+            result[i] = prev
+
+    return result

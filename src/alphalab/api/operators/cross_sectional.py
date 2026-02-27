@@ -208,6 +208,7 @@ def zscore(x: pl.DataFrame) -> pl.DataFrame:
     """Cross-sectional z-score within each row (date).
 
     Computes (x - mean) / std across symbols for each date.
+    Uses numpy for fast row-wise operations.
 
     Args:
         x: Wide DataFrame with date + symbol columns
@@ -215,39 +216,45 @@ def zscore(x: pl.DataFrame) -> pl.DataFrame:
     Returns:
         Wide DataFrame with z-scored values
     """
+    date_col = x.columns[0]
     value_cols = _get_value_cols(x)
 
-    # Compute row-wise mean and std
-    row_mean = pl.mean_horizontal(*[pl.col(c) for c in value_cols])
-    row_std = pl.concat_list([pl.col(c) for c in value_cols]).list.eval(
-        pl.element().std()
-    ).list.first()
+    # Use numpy for fast row-wise operations
+    values = x.select(value_cols).to_numpy()
 
-    return x.with_columns([
-        ((pl.col(c) - row_mean) / row_std).alias(c)
-        for c in value_cols
-    ])
+    row_mean = np.nanmean(values, axis=1, keepdims=True)
+    row_std = np.nanstd(values, axis=1, keepdims=True)
+    # Avoid division by zero
+    row_std = np.where(row_std == 0, np.nan, row_std)
+
+    result = (values - row_mean) / row_std
+
+    return pl.DataFrame({
+        date_col: x[date_col],
+        **{col: result[:, j] for j, col in enumerate(value_cols)}
+    })
 
 
 def scale(
     x: pl.DataFrame,
-    scale: float = 1.0,
+    scale_factor: float = 1.0,
     longscale: float = 0.0,
     shortscale: float = 0.0,
 ) -> pl.DataFrame:
     """Scale values so that sum of absolute values equals target book size.
 
     Scales the input to the book size. The default scales so that sum(abs(x))
-    equals 1. Use `scale` parameter to set a different book size.
+    equals 1. Use `scale_factor` parameter to set a different book size.
 
     For separate long/short scaling, use `longscale` and `shortscale` parameters
     to scale positive and negative positions independently.
 
     This operator may help reduce outliers.
+    Uses numpy for fast row-wise operations.
 
     Args:
         x: Wide DataFrame with date + symbol columns
-        scale: Target sum of absolute values (default: 1.0). When longscale or
+        scale_factor: Target sum of absolute values (default: 1.0). When longscale or
             shortscale are specified, this is ignored.
         longscale: Target sum of positive values (default: 0.0, meaning no scaling).
             When > 0, positive values are scaled so their sum equals this value.
@@ -259,47 +266,46 @@ def scale(
         Wide DataFrame with scaled values
 
     Examples:
-        >>> scale(returns, scale=4)  # Scale to book size 4
-        >>> scale(returns, scale=1) + scale(close, scale=20)  # Combine scaled alphas
+        >>> scale(returns, scale_factor=4)  # Scale to book size 4
+        >>> scale(returns, scale_factor=1) + scale(close, scale_factor=20)
         >>> scale(returns, longscale=4, shortscale=3)  # Asymmetric long/short scaling
     """
+    date_col = x.columns[0]
     value_cols = _get_value_cols(x)
+
+    # Use numpy for fast row-wise operations
+    values = x.select(value_cols).to_numpy().astype(np.float64)
 
     # Check if using long/short scaling
     use_asymmetric = longscale > 0 or shortscale > 0
 
     if use_asymmetric:
-        # Scale long and short positions separately
-        # Sum of positive values across row
-        long_sum = pl.sum_horizontal(
-            *[pl.when(pl.col(c) > 0).then(pl.col(c)).otherwise(0.0) for c in value_cols]
-        )
-        # Sum of absolute negative values across row
-        short_sum = pl.sum_horizontal(
-            *[pl.when(pl.col(c) < 0).then(-pl.col(c)).otherwise(0.0) for c in value_cols]
-        )
+        # Sum of positive values per row
+        pos_mask = values > 0
+        long_sum = np.nansum(np.where(pos_mask, values, 0), axis=1, keepdims=True)
+
+        # Sum of absolute negative values per row
+        neg_mask = values < 0
+        short_sum = np.nansum(np.where(neg_mask, -values, 0), axis=1, keepdims=True)
 
         # Scale factors (avoid division by zero)
-        long_factor = pl.when(long_sum > 0).then(longscale / long_sum).otherwise(0.0)
-        short_factor = pl.when(short_sum > 0).then(shortscale / short_sum).otherwise(0.0)
+        long_factor = np.where(long_sum > 0, longscale / long_sum, 0.0)
+        short_factor = np.where(short_sum > 0, shortscale / short_sum, 0.0)
 
-        return x.with_columns([
-            pl.when(pl.col(c) > 0)
-            .then(pl.col(c) * long_factor)
-            .when(pl.col(c) < 0)
-            .then(pl.col(c) * short_factor)
-            .otherwise(0.0)
-            .alias(c)
-            for c in value_cols
-        ])
+        # Apply scaling
+        result = np.where(pos_mask, values * long_factor,
+                         np.where(neg_mask, values * short_factor, 0.0))
     else:
-        # Standard scaling: sum of absolute values equals scale
-        abs_sum = pl.sum_horizontal(*[pl.col(c).abs() for c in value_cols])
+        # Standard scaling: sum of absolute values equals scale_factor
+        abs_sum = np.nansum(np.abs(values), axis=1, keepdims=True)
+        # Avoid division by zero
+        abs_sum = np.where(abs_sum == 0, np.nan, abs_sum)
+        result = values * scale_factor / abs_sum
 
-        return x.with_columns([
-            (pl.col(c) * scale / abs_sum).alias(c)
-            for c in value_cols
-        ])
+    return pl.DataFrame({
+        date_col: x[date_col],
+        **{col: result[:, j] for j, col in enumerate(value_cols)}
+    })
 
 
 def normalize(
@@ -403,6 +409,7 @@ def winsorize(x: pl.DataFrame, std: float = 4.0) -> pl.DataFrame:
     """Cross-sectional winsorization within each row (date).
 
     Clips values to [mean - std*SD, mean + std*SD].
+    Uses numpy for fast row-wise operations.
 
     Args:
         x: Wide DataFrame with date + symbol columns
@@ -415,20 +422,24 @@ def winsorize(x: pl.DataFrame, std: float = 4.0) -> pl.DataFrame:
         >>> # x = (2,4,5,6,3,8,10), mean=5.42, SD=2.61
         >>> winsorize(x, std=1)  # (2.81,4,5,6,3,8,8.03)
     """
+    date_col = x.columns[0]
     value_cols = _get_value_cols(x)
 
-    row_mean = pl.mean_horizontal(*[pl.col(c) for c in value_cols])
-    row_std = pl.concat_list([pl.col(c) for c in value_cols]).list.eval(
-        pl.element().std()
-    ).list.first()
+    # Use numpy for fast row-wise operations
+    values = x.select(value_cols).to_numpy()
+
+    row_mean = np.nanmean(values, axis=1, keepdims=True)
+    row_std = np.nanstd(values, axis=1, keepdims=True)
 
     lower = row_mean - std * row_std
     upper = row_mean + std * row_std
 
-    return x.with_columns([
-        pl.col(c).clip(lower, upper).alias(c)
-        for c in value_cols
-    ])
+    result = np.clip(values, lower, upper)
+
+    return pl.DataFrame({
+        date_col: x[date_col],
+        **{col: result[:, j] for j, col in enumerate(value_cols)}
+    })
 
 
 def bucket(x: pl.DataFrame, range_spec: str) -> pl.DataFrame:

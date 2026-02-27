@@ -5,6 +5,7 @@ All operators work on groups defined by a separate group DataFrame:
 - Operations applied within groups across symbols at each date
 """
 
+import numpy as np
 import polars as pl
 
 
@@ -274,7 +275,6 @@ def group_backfill(
         if len(group_vals) == 0:
             fill_value = None
         else:
-            import numpy as np
             vals = np.array(group_vals)
             mean = np.mean(vals)
             std_val = np.std(vals)
