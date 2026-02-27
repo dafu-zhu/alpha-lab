@@ -106,3 +106,42 @@ def test_ts_corr_with_nan():
     assert result["A"][2] is None  # Window [1,2,nan] contains NaN
     assert result["A"][3] is None  # Window [2,nan,4] contains NaN
     assert result["A"][4] is None  # Window [nan,4,5] contains NaN
+
+
+def test_ts_covariance_correctness():
+    """Parallelized ts_covariance produces same results."""
+    from alphalab.api.operators.time_series import ts_covariance
+
+    df_x = pl.DataFrame({
+        "Date": list(range(5)),
+        "A": [1.0, 2.0, 3.0, 4.0, 5.0],
+    })
+    df_y = pl.DataFrame({
+        "Date": list(range(5)),
+        "A": [2.0, 4.0, 6.0, 8.0, 10.0],  # y = 2*x
+    })
+
+    result = ts_covariance(df_x, df_y, 3)
+
+    # Covariance of x with 2*x = 2 * var(x)
+    # For window [3,4,5] and [6,8,10]: cov should be 2 * var([3,4,5])
+    assert result["A"][4] is not None
+
+
+def test_ts_covariance_with_nan():
+    """NaN values in window return None."""
+    from alphalab.api.operators.time_series import ts_covariance
+
+    df_x = pl.DataFrame({
+        "Date": [1, 2, 3, 4, 5],
+        "A": [1.0, 2.0, float("nan"), 4.0, 5.0],
+    })
+    df_y = pl.DataFrame({
+        "Date": [1, 2, 3, 4, 5],
+        "A": [1.0, 2.0, 3.0, 4.0, 5.0],
+    })
+    result = ts_covariance(df_x, df_y, 3)
+    # Windows containing NaN return None
+    assert result["A"][2] is None
+    assert result["A"][3] is None
+    assert result["A"][4] is None

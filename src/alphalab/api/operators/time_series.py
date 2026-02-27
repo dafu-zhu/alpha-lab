@@ -637,32 +637,39 @@ def ts_corr(x: pl.DataFrame, y: pl.DataFrame, d: int) -> pl.DataFrame:
     return pl.DataFrame({date_col: x[date_col], **col_results})
 
 
-def ts_covariance(x: pl.DataFrame, y: pl.DataFrame, d: int) -> pl.DataFrame:
-    """Rolling covariance between matching columns of x and y."""
-    date_col = x.columns[0]
-    value_cols = _get_value_cols(x)
-    result_data: dict[str, pl.Series | list[float | None]] = {date_col: x[date_col]}
-
-    for c in value_cols:
-        x_vals = x[c].to_list()
-        y_vals = y[c].to_list()
-        covs: list[float | None] = []
-        for i in range(len(x_vals)):
-            if i < d - 1:
+def _compute_rolling_cov(x_vals: list, y_vals: list, d: int) -> list[float | None]:
+    """Compute rolling covariance for a single column pair."""
+    covs: list[float | None] = []
+    for i in range(len(x_vals)):
+        if i < d - 1:
+            covs.append(None)
+        else:
+            x_win = x_vals[i - d + 1 : i + 1]
+            y_win = y_vals[i - d + 1 : i + 1]
+            if any(_is_invalid(v) for v in x_win) or any(_is_invalid(v) for v in y_win):
                 covs.append(None)
             else:
-                x_win = x_vals[i - d + 1 : i + 1]
-                y_win = y_vals[i - d + 1 : i + 1]
-                if any(v is None for v in x_win) or any(v is None for v in y_win):
-                    covs.append(None)
-                else:
-                    x_mean = sum(x_win) / d
-                    y_mean = sum(y_win) / d
-                    cov = sum((xv - x_mean) * (yv - y_mean) for xv, yv in zip(x_win, y_win, strict=True)) / d
-                    covs.append(cov)
-        result_data[c] = covs
+                x_mean = sum(x_win) / d
+                y_mean = sum(y_win) / d
+                cov = sum((xv - x_mean) * (yv - y_mean) for xv, yv in zip(x_win, y_win, strict=True)) / d
+                covs.append(cov)
+    return covs
 
-    return pl.DataFrame(result_data)
+
+def ts_covariance(x: pl.DataFrame, y: pl.DataFrame, d: int) -> pl.DataFrame:
+    """Rolling covariance (column-parallel)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    date_col = x.columns[0]
+    value_cols = _get_value_cols(x)
+
+    def process_col(c: str) -> tuple[str, list[float | None]]:
+        return (c, _compute_rolling_cov(x[c].to_list(), y[c].to_list(), d))
+
+    with ThreadPoolExecutor(max_workers=min(8, len(value_cols))) as executor:
+        col_results = dict(executor.map(process_col, value_cols))
+
+    return pl.DataFrame({date_col: x[date_col], **col_results})
 
 
 def ts_quantile(x: pl.DataFrame, d: int, driver: str = "gaussian") -> pl.DataFrame:
