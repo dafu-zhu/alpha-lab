@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 import tracemalloc
 from collections.abc import Callable
@@ -18,6 +19,7 @@ load_dotenv()
 import polars as pl
 
 from alphalab.api.client import AlphaLabClient
+from alphalab.api import operators as ops
 
 # Threshold for marking an operator as "slow"
 SLOW_THRESHOLD_S = 1.0
@@ -36,20 +38,20 @@ class BenchmarkResult:
     error: str | None = None
 
 
-def benchmark_operator(name: str, category: str, fn: Callable[..., pl.DataFrame], *args, **kwargs) -> BenchmarkResult:
+def benchmark_operator(
+    name: str,
+    category: str,
+    fn: Callable[[], pl.DataFrame],
+    input_df: pl.DataFrame | None = None,
+) -> BenchmarkResult:
     """Benchmark a single operator call."""
-    # Get input shape from first DataFrame arg
-    input_shape = (0, 0)
-    for arg in args:
-        if isinstance(arg, pl.DataFrame):
-            input_shape = (arg.height, arg.width)
-            break
+    input_shape = (input_df.height, input_df.width) if input_df is not None else (0, 0)
 
     tracemalloc.start()
     start = time.perf_counter()
 
     try:
-        result = fn(*args, **kwargs)
+        result = fn()
         duration = time.perf_counter() - start
         _, peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
@@ -110,6 +112,20 @@ def print_results(results: list[BenchmarkResult], category: str | None = None) -
         print(f"\nSlow operators (>{SLOW_THRESHOLD_S}s): {', '.join(r.name for r in slow)}")
 
 
+def run_benchmarks(
+    benchmarks: list[tuple[str, Callable[[], pl.DataFrame]]],
+    category: str,
+    input_df: pl.DataFrame,
+    results: list[BenchmarkResult],
+) -> None:
+    """Run a list of benchmarks and append results."""
+    for name, fn in benchmarks:
+        print(f"  {name}...", end=" ", flush=True)
+        result = benchmark_operator(name, category, fn, input_df)
+        results.append(result)
+        print(f"{result.time_s:.3f}s")
+
+
 def save_results(results: list[BenchmarkResult], output_path: Path) -> None:
     """Save benchmark results to JSON file."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -138,16 +154,62 @@ def main():
     parser.add_argument("--output", default=f"reports/benchmark_{date.today()}.json")
     args = parser.parse_args()
 
+    print("Loading data...")
     data_path = os.environ.get("LOCAL_STORAGE_PATH")
     if not data_path:
         print("Error: LOCAL_STORAGE_PATH environment variable not set")
-        print("Set it in .env or export LOCAL_STORAGE_PATH=/path/to/data")
-        return
-
-    print("Loading data...")
+        print("Set it in .env file or export LOCAL_STORAGE_PATH=/path/to/data")
+        sys.exit(1)
     client = AlphaLabClient(data_path=data_path)
-    # Load test data - will be filled in Task 2
-    print("Benchmark script ready. Run Task 2 to add operator benchmarks.")
+
+    # Load test data
+    close = client.get("close")
+    volume = client.get("volume")
+    print(f"Data shape: {close.shape}")
+
+    results: list[BenchmarkResult] = []
+
+    # Time-series operators (1-arg)
+    if args.category is None or args.category == "time-series":
+        print("\nBenchmarking time-series operators...")
+
+        ts_1arg = [
+            ("ts_mean", lambda: ops.ts_mean(close, 20)),
+            ("ts_sum", lambda: ops.ts_sum(close, 20)),
+            ("ts_std", lambda: ops.ts_std(close, 20)),
+            ("ts_min", lambda: ops.ts_min(close, 20)),
+            ("ts_max", lambda: ops.ts_max(close, 20)),
+            ("ts_delta", lambda: ops.ts_delta(close, 5)),
+            ("ts_delay", lambda: ops.ts_delay(close, 5)),
+            ("ts_product", lambda: ops.ts_product(close, 5)),
+            ("ts_count_nans", lambda: ops.ts_count_nans(close, 20)),
+            ("ts_zscore", lambda: ops.ts_zscore(close, 20)),
+            ("ts_scale", lambda: ops.ts_scale(close, 20)),
+            ("ts_av_diff", lambda: ops.ts_av_diff(close, 20)),
+            ("ts_step", lambda: ops.ts_step(close)),
+            ("ts_arg_max", lambda: ops.ts_arg_max(close, 20)),
+            ("ts_arg_min", lambda: ops.ts_arg_min(close, 20)),
+            ("ts_backfill", lambda: ops.ts_backfill(close, 5)),
+            ("kth_element", lambda: ops.kth_element(close, 20, 5)),
+            ("last_diff_value", lambda: ops.last_diff_value(close, 20)),
+            ("days_from_last_change", lambda: ops.days_from_last_change(close)),
+            ("hump", lambda: ops.hump(close, 0.01)),
+            ("ts_decay_linear", lambda: ops.ts_decay_linear(close, 10)),
+            ("ts_rank", lambda: ops.ts_rank(close, 20)),
+            ("ts_quantile", lambda: ops.ts_quantile(close, 20)),
+        ]
+        run_benchmarks(ts_1arg, "time-series", close, results)
+
+        # Time-series operators (2-arg)
+        ts_2arg = [
+            ("ts_corr", lambda: ops.ts_corr(close, volume, 20)),
+            ("ts_covariance", lambda: ops.ts_covariance(close, volume, 20)),
+            ("ts_regression", lambda: ops.ts_regression(close, volume, 20)),
+        ]
+        run_benchmarks(ts_2arg, "time-series", close, results)
+
+    print_results(results, args.category)
+    save_results(results, Path(args.output))
 
 
 if __name__ == "__main__":
