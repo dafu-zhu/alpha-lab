@@ -60,3 +60,46 @@ def test_profile_context_manager(capsys):
     assert _get_profiler() is None
     captured = capsys.readouterr()
     assert "test_op" in captured.out
+
+
+def test_profiled_decorator_records_when_active():
+    """@profiled decorator records timing when profiler active."""
+    from alphalab.api.profiler import profile, profiled
+    import polars as pl
+
+    @profiled
+    def my_operator(x: pl.DataFrame) -> pl.DataFrame:
+        return x
+
+    df = pl.DataFrame({"Date": [1, 2], "A": [1.0, 2.0], "B": [3.0, 4.0]})
+
+    with profile() as p:
+        result = my_operator(df)
+
+    assert len(p.records) == 1
+    assert p.records[0].operator == "my_operator"
+    assert p.records[0].duration > 0
+    assert p.records[0].input_shape == (2, 3)
+
+
+def test_profiled_decorator_noop_when_inactive():
+    """@profiled decorator has no effect when profiler not active."""
+    from alphalab.api.profiler import profiled, _get_profiler
+    import polars as pl
+
+    call_count = 0
+
+    @profiled
+    def my_operator(x: pl.DataFrame) -> pl.DataFrame:
+        nonlocal call_count
+        call_count += 1
+        return x
+
+    df = pl.DataFrame({"Date": [1], "A": [1.0]})
+
+    # No profiler active
+    assert _get_profiler() is None
+    result = my_operator(df)
+
+    assert call_count == 1
+    assert result.equals(df)

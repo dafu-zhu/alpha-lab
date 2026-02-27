@@ -9,10 +9,16 @@ Example:
 
 from __future__ import annotations
 
+import functools
 import threading
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Generator
+from typing import Callable, Generator, TypeVar
+
+import polars as pl
+
+F = TypeVar("F", bound=Callable)
 
 _local = threading.local()
 
@@ -101,3 +107,35 @@ def profile() -> Generator[Profiler, None, None]:
     finally:
         _local.profiler = None
         p.summary()
+
+
+def _get_input_shape(args: tuple) -> tuple[int, int] | None:
+    """Extract shape from first DataFrame argument."""
+    for arg in args:
+        if isinstance(arg, pl.DataFrame):
+            return (arg.height, arg.width)
+    return None
+
+
+def profiled(fn: F) -> F:
+    """Decorator to profile operator function calls.
+
+    When a profiler is active (via `with profile():`), records the operator
+    name, execution time, and input shape. When no profiler is active,
+    passes through with minimal overhead (~50ns).
+    """
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        p = _get_profiler()
+        if p is None:
+            return fn(*args, **kwargs)
+
+        shape = _get_input_shape(args)
+        start = time.perf_counter()
+        result = fn(*args, **kwargs)
+        duration = time.perf_counter() - start
+        p.record(fn.__name__, duration, shape)
+        return result
+
+    return wrapper  # type: ignore[return-value]
