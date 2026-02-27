@@ -554,17 +554,26 @@ def hump(x: pl.DataFrame, hump: float = 0.01) -> pl.DataFrame:
 
 
 def ts_decay_linear(x: pl.DataFrame, d: int, dense: bool = False) -> pl.DataFrame:
-    """Weighted average with linear decay weights [1, 2, ..., d]."""
+    """Weighted average with linear decay weights [1, 2, ..., d].
+
+    Uses O(n) online algorithm with numba JIT for dense=False case.
+    Falls back to rolling_map for dense=True (which skips NaN values).
+    """
+    import numpy as np
+    from concurrent.futures import ThreadPoolExecutor
+    from alphalab.api.operators._numba_kernels import rolling_decay_linear_online
+
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
-    weights = list(range(1, d + 1))
-    weight_sum = sum(weights)
 
-    def weighted_avg(s: pl.Series) -> float | None:
-        if len(s) < d:
-            return None
-        vals = s.to_list()
-        if dense:
+    if dense:
+        # dense=True: skip NaN values and reweight (use original implementation)
+        weights = list(range(1, d + 1))
+
+        def weighted_avg(s: pl.Series) -> float | None:
+            if len(s) < d:
+                return None
+            vals = s.to_list()
             # Only use non-null values
             valid: list[tuple[int, float]] = [
                 (w, v) for w, v in zip(weights, vals, strict=True) if v is not None
@@ -573,15 +582,21 @@ def ts_decay_linear(x: pl.DataFrame, d: int, dense: bool = False) -> pl.DataFram
                 return None
             w_sum = sum(w for w, _ in valid)
             return float(sum(w * v for w, v in valid) / w_sum)
-        else:
-            if any(v is None for v in vals):
-                return None
-            return float(sum(w * v for w, v in zip(weights, vals, strict=True)) / weight_sum)
 
-    return x.select(
-        pl.col(date_col),
-        *[pl.col(c).rolling_map(weighted_avg, window_size=d).alias(c) for c in value_cols],
-    )
+        return x.select(
+            pl.col(date_col),
+            *[pl.col(c).rolling_map(weighted_avg, window_size=d).alias(c) for c in value_cols],
+        )
+    else:
+        # dense=False: use fast numba kernel (NaN propagation)
+        def process_col(c: str) -> tuple[str, np.ndarray]:
+            x_arr = x[c].to_numpy().astype(np.float64)
+            return (c, rolling_decay_linear_online(x_arr, d))
+
+        with ThreadPoolExecutor(max_workers=min(8, len(value_cols))) as executor:
+            col_results = dict(executor.map(process_col, value_cols))
+
+        return pl.DataFrame({date_col: x[date_col], **col_results})
 
 
 def ts_rank(x: pl.DataFrame, d: int, constant: float = 0) -> pl.DataFrame:

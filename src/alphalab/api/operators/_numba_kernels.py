@@ -364,6 +364,75 @@ def rolling_std_online(x: np.ndarray, d: int) -> np.ndarray:
     return result
 
 
+@njit(cache=True)
+def rolling_decay_linear_online(x: np.ndarray, d: int) -> np.ndarray:
+    """O(n) rolling weighted average with linear decay weights [1, 2, ..., d].
+
+    Online update: wsum_new = wsum_old - sx_old + d * new_x
+    Tracks NaN count in window to handle NaN propagation correctly.
+    """
+    n = len(x)
+    result = np.empty(n, dtype=np.float64)
+    result[:d-1] = np.nan
+
+    if n < d:
+        result[:] = np.nan
+        return result
+
+    weight_sum = d * (d + 1) / 2
+
+    # Initialize running sums for first window
+    wsum = 0.0  # weighted sum: sum(w[j] * x[j])
+    sx = 0.0    # simple sum: sum(x[j])
+    nan_count = 0
+
+    # Initialize first window (weight j+1 for position j)
+    for j in range(d):
+        if np.isnan(x[j]):
+            nan_count += 1
+        else:
+            wsum += (j + 1) * x[j]
+            sx += x[j]
+
+    if nan_count > 0:
+        result[d-1] = np.nan
+    else:
+        result[d-1] = wsum / weight_sum
+
+    # Slide window: O(1) per step
+    for i in range(d, n):
+        old_x = x[i - d]
+        new_x = x[i]
+        old_is_nan = np.isnan(old_x)
+        new_is_nan = np.isnan(new_x)
+
+        # Update NaN count
+        if old_is_nan:
+            nan_count -= 1
+        if new_is_nan:
+            nan_count += 1
+
+        # Update wsum (must use sx BEFORE updating it)
+        if not new_is_nan:
+            wsum = wsum - sx + d * new_x
+        else:
+            wsum = wsum - sx
+
+        # Update sx
+        if not old_is_nan:
+            sx -= old_x
+        if not new_is_nan:
+            sx += new_x
+
+        # Compute result only if no NaN in window
+        if nan_count > 0:
+            result[i] = np.nan
+        else:
+            result[i] = wsum / weight_sum
+
+    return result
+
+
 # Batch processing for multiple columns
 def process_columns_corr(
     x_arrays: list[np.ndarray], y_arrays: list[np.ndarray], d: int

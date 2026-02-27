@@ -1676,8 +1676,8 @@ class TestTsDecayLinearEdgeCases:
             "A": [1.0, None, 3.0, 4.0, 5.0],
         })
         result = ts_decay_linear(df, 3, dense=False)
-        # Non-dense mode: window with null returns None
-        assert result["A"][2] is None
+        # Non-dense mode: window with null returns missing (None or NaN)
+        assert is_missing(result["A"][2])
 
 
 class TestOtherOperatorEdgeCases:
