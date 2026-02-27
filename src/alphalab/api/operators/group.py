@@ -34,52 +34,47 @@ def _align_and_extract(
     value_cols = _get_value_cols(x)
     group_cols = _get_value_cols(group)
 
-    # Align columns - use x's columns, get corresponding group values
+    # Extract values as numpy
     values = x.select(value_cols).to_numpy().astype(np.float64)
 
-    # Build group array aligned to x's columns
-    group_df = group.select(group_cols)
-    n_rows = group_df.height
-
-    # Map columns from x to group (handle different column orders/subsets)
-    x_col_set = set(value_cols)
-    group_col_set = set(group_cols)
-    common_cols = x_col_set & group_col_set
-
-    # Build column index mapping: x column index -> group column index
-    group_col_to_idx = {col: i for i, col in enumerate(group_cols)}
-
-    # Extract group values, map strings to integers
-    first_col_dtype = group_df[group_cols[0]].dtype
+    # Check first column dtype
+    first_col_dtype = group[group_cols[0]].dtype
     is_string = first_col_dtype == pl.Utf8 or first_col_dtype == pl.Categorical
 
     if is_string:
-        # Collect all unique group values
-        all_values = set()
-        for col in group_cols:
-            all_values.update(v for v in group_df[col].to_list() if v is not None)
-        group_map = {v: i for i, v in enumerate(sorted(all_values))}
-        n_groups = len(group_map)
+        # Build global enum from all unique values for consistent encoding
+        all_vals: set[str] = set()
+        for c in group_cols:
+            all_vals.update(group[c].drop_nulls().unique().to_list())
+        enum_type = pl.Enum(sorted(all_vals))
 
-        # Build aligned group array
-        groups = np.full((n_rows, len(value_cols)), -1, dtype=np.int32)
-        for j, col in enumerate(value_cols):
-            if col in common_cols:
-                g_idx = group_col_to_idx[col]
-                col_values = group_df[group_cols[g_idx]].to_list()
-                for i, v in enumerate(col_values):
-                    if v is not None:
-                        groups[i, j] = group_map[v]
+        # Encode all columns with global enum
+        encoded = group.select([
+            group.columns[0],
+            *[pl.col(c).cast(enum_type).to_physical().cast(pl.Int32).fill_null(-1)
+              for c in group_cols]
+        ])
     else:
-        # Numeric group IDs
-        groups = np.full((n_rows, len(value_cols)), -1, dtype=np.int32)
-        for j, col in enumerate(value_cols):
-            if col in common_cols:
-                g_idx = group_col_to_idx[col]
-                col_values = group_df[group_cols[g_idx]].to_numpy()
-                for i, v in enumerate(col_values):
-                    if not np.isnan(v):
-                        groups[i, j] = int(v)
+        # Numeric - convert NaN to -1
+        encoded = group.select([
+            group.columns[0],
+            *[pl.col(c).fill_null(-1).cast(pl.Int32) for c in group_cols]
+        ])
+
+    # Fast path: columns match exactly
+    if value_cols == group_cols:
+        groups = encoded.select(value_cols).to_numpy().astype(np.int32)
+        return values, groups, date_col, value_cols
+
+    # Slow path: align columns
+    common_cols = set(value_cols) & set(group_cols)
+    groups = np.full((group.height, len(value_cols)), -1, dtype=np.int32)
+    encoded_arr = encoded.select(group_cols).to_numpy()
+    group_col_to_idx = {col: i for i, col in enumerate(group_cols)}
+
+    for j, col in enumerate(value_cols):
+        if col in common_cols:
+            groups[:, j] = encoded_arr[:, group_col_to_idx[col]]
 
     return values, groups, date_col, value_cols
 
