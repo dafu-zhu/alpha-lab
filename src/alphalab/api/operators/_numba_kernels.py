@@ -1,0 +1,389 @@
+"""Numba-optimized kernels for time-series operators.
+
+Uses online/incremental algorithms for O(n) complexity instead of O(n*d).
+"""
+
+import numpy as np
+from numba import njit
+
+
+@njit(cache=True)
+def rolling_corr_online(x: np.ndarray, y: np.ndarray, d: int) -> np.ndarray:
+    """O(n) rolling correlation using online algorithm.
+
+    Uses the formula: corr = cov(x,y) / (std(x) * std(y))
+    where cov and std are computed incrementally.
+    Tracks NaN count in window to handle NaN propagation correctly.
+    """
+    n = len(x)
+    result = np.empty(n, dtype=np.float64)
+    result[:d-1] = np.nan
+
+    if n < d:
+        result[:] = np.nan
+        return result
+
+    # Initialize running sums for first window
+    sx = 0.0   # sum of x
+    sy = 0.0   # sum of y
+    sxy = 0.0  # sum of x*y
+    sx2 = 0.0  # sum of x^2
+    sy2 = 0.0  # sum of y^2
+    nan_count = 0  # count of NaN values in current window
+
+    # Initialize first window
+    for j in range(d):
+        if np.isnan(x[j]) or np.isnan(y[j]):
+            nan_count += 1
+        else:
+            sx += x[j]
+            sy += y[j]
+            sxy += x[j] * y[j]
+            sx2 += x[j] * x[j]
+            sy2 += y[j] * y[j]
+
+    if nan_count > 0:
+        result[d-1] = np.nan
+    else:
+        # Compute correlation for first window
+        cov = (sxy - sx * sy / d) / d
+        vx = (sx2 - sx * sx / d) / d
+        vy = (sy2 - sy * sy / d) / d
+        if vx > 0 and vy > 0:
+            result[d-1] = cov / np.sqrt(vx * vy)
+        else:
+            result[d-1] = np.nan
+
+    # Slide window: O(1) per step
+    for i in range(d, n):
+        old_x, old_y = x[i-d], y[i-d]
+        new_x, new_y = x[i], y[i]
+        old_is_nan = np.isnan(old_x) or np.isnan(old_y)
+        new_is_nan = np.isnan(new_x) or np.isnan(new_y)
+
+        # Update NaN count
+        if old_is_nan:
+            nan_count -= 1
+        if new_is_nan:
+            nan_count += 1
+
+        # Update running sums (only for non-NaN values)
+        if not old_is_nan:
+            sx -= old_x
+            sy -= old_y
+            sxy -= old_x * old_y
+            sx2 -= old_x * old_x
+            sy2 -= old_y * old_y
+        if not new_is_nan:
+            sx += new_x
+            sy += new_y
+            sxy += new_x * new_y
+            sx2 += new_x * new_x
+            sy2 += new_y * new_y
+
+        # Compute result only if no NaN in window
+        if nan_count > 0:
+            result[i] = np.nan
+        else:
+            cov = (sxy - sx * sy / d) / d
+            vx = (sx2 - sx * sx / d) / d
+            vy = (sy2 - sy * sy / d) / d
+            if vx > 0 and vy > 0:
+                result[i] = cov / np.sqrt(vx * vy)
+            else:
+                result[i] = np.nan
+
+    return result
+
+
+@njit(cache=True)
+def rolling_cov_online(x: np.ndarray, y: np.ndarray, d: int) -> np.ndarray:
+    """O(n) rolling covariance using online algorithm.
+
+    Tracks NaN count in window to handle NaN propagation correctly.
+    """
+    n = len(x)
+    result = np.empty(n, dtype=np.float64)
+    result[:d-1] = np.nan
+
+    if n < d:
+        result[:] = np.nan
+        return result
+
+    # Initialize running sums
+    sx = 0.0
+    sy = 0.0
+    sxy = 0.0
+    nan_count = 0
+
+    # Initialize first window
+    for j in range(d):
+        if np.isnan(x[j]) or np.isnan(y[j]):
+            nan_count += 1
+        else:
+            sx += x[j]
+            sy += y[j]
+            sxy += x[j] * y[j]
+
+    if nan_count > 0:
+        result[d-1] = np.nan
+    else:
+        result[d-1] = (sxy - sx * sy / d) / d
+
+    # Slide window
+    for i in range(d, n):
+        old_x, old_y = x[i-d], y[i-d]
+        new_x, new_y = x[i], y[i]
+        old_is_nan = np.isnan(old_x) or np.isnan(old_y)
+        new_is_nan = np.isnan(new_x) or np.isnan(new_y)
+
+        # Update NaN count
+        if old_is_nan:
+            nan_count -= 1
+        if new_is_nan:
+            nan_count += 1
+
+        # Update running sums (only for non-NaN values)
+        if not old_is_nan:
+            sx -= old_x
+            sy -= old_y
+            sxy -= old_x * old_y
+        if not new_is_nan:
+            sx += new_x
+            sy += new_y
+            sxy += new_x * new_y
+
+        # Compute result only if no NaN in window
+        if nan_count > 0:
+            result[i] = np.nan
+        else:
+            result[i] = (sxy - sx * sy / d) / d
+
+    return result
+
+
+@njit(cache=True)
+def rolling_regression_online(
+    y: np.ndarray, x: np.ndarray, d: int, rettype: int
+) -> np.ndarray:
+    """O(n) rolling OLS regression using online algorithm.
+
+    rettype: 0=residual, 1=beta, 2=alpha, 3=predicted, 4=corr, 5=r2
+    Tracks NaN count in window to handle NaN propagation correctly.
+    """
+    n = len(y)
+    result = np.empty(n, dtype=np.float64)
+    result[:d-1] = np.nan
+
+    if n < d:
+        result[:] = np.nan
+        return result
+
+    # Running sums
+    sx = 0.0
+    sy = 0.0
+    sxy = 0.0
+    sx2 = 0.0
+    sy2 = 0.0
+    nan_count = 0
+
+    # Initialize first window
+    for j in range(d):
+        if np.isnan(x[j]) or np.isnan(y[j]):
+            nan_count += 1
+        else:
+            sx += x[j]
+            sy += y[j]
+            sxy += x[j] * y[j]
+            sx2 += x[j] * x[j]
+            sy2 += y[j] * y[j]
+
+    if nan_count > 0:
+        result[d-1] = np.nan
+    else:
+        result[d-1] = _compute_regression_result(
+            sx, sy, sxy, sx2, sy2, d, x[d-1], y[d-1], rettype
+        )
+
+    # Slide window
+    for i in range(d, n):
+        old_x, old_y = x[i-d], y[i-d]
+        new_x, new_y = x[i], y[i]
+        old_is_nan = np.isnan(old_x) or np.isnan(old_y)
+        new_is_nan = np.isnan(new_x) or np.isnan(new_y)
+
+        # Update NaN count
+        if old_is_nan:
+            nan_count -= 1
+        if new_is_nan:
+            nan_count += 1
+
+        # Update running sums (only for non-NaN values)
+        if not old_is_nan:
+            sx -= old_x
+            sy -= old_y
+            sxy -= old_x * old_y
+            sx2 -= old_x * old_x
+            sy2 -= old_y * old_y
+        if not new_is_nan:
+            sx += new_x
+            sy += new_y
+            sxy += new_x * new_y
+            sx2 += new_x * new_x
+            sy2 += new_y * new_y
+
+        # Compute result only if no NaN in window
+        if nan_count > 0:
+            result[i] = np.nan
+        else:
+            result[i] = _compute_regression_result(
+                sx, sy, sxy, sx2, sy2, d, new_x, new_y, rettype
+            )
+
+    return result
+
+
+@njit(cache=True)
+def _compute_regression_result(
+    sx: float, sy: float, sxy: float, sx2: float, sy2: float,
+    d: int, curr_x: float, curr_y: float, rettype: int
+) -> float:
+    """Compute regression statistic from running sums."""
+    x_mean = sx / d
+    y_mean = sy / d
+
+    ss_xx = sx2 - sx * sx / d
+    ss_yy = sy2 - sy * sy / d
+    ss_xy = sxy - sx * sy / d
+
+    if ss_xx == 0:
+        return np.nan
+
+    beta = ss_xy / ss_xx
+    alpha = y_mean - beta * x_mean
+
+    if rettype == 0:  # residual
+        return curr_y - (alpha + beta * curr_x)
+    elif rettype == 1:  # beta
+        return beta
+    elif rettype == 2:  # alpha
+        return alpha
+    elif rettype == 3:  # predicted
+        return alpha + beta * curr_x
+    elif rettype == 4:  # correlation
+        if ss_yy == 0:
+            return np.nan
+        return ss_xy / np.sqrt(ss_xx * ss_yy)
+    elif rettype == 5:  # r-squared
+        if ss_yy == 0:
+            return np.nan
+        # r2 = 1 - SS_res / SS_tot
+        # For simple regression: r2 = corr^2
+        corr = ss_xy / np.sqrt(ss_xx * ss_yy)
+        return corr * corr
+    else:
+        return np.nan
+
+
+@njit(cache=True)
+def rolling_mean_online(x: np.ndarray, d: int) -> np.ndarray:
+    """O(n) rolling mean."""
+    n = len(x)
+    result = np.empty(n, dtype=np.float64)
+    result[:d-1] = np.nan
+
+    if n < d:
+        result[:] = np.nan
+        return result
+
+    window_sum = 0.0
+    for j in range(d):
+        if np.isnan(x[j]):
+            window_sum = np.nan
+            break
+        window_sum += x[j]
+
+    result[d-1] = window_sum / d if not np.isnan(window_sum) else np.nan
+
+    for i in range(d, n):
+        if np.isnan(x[i]) or np.isnan(x[i-d]):
+            result[i] = np.nan
+            window_sum = np.nan
+        elif np.isnan(window_sum):
+            result[i] = np.nan
+        else:
+            window_sum += x[i] - x[i-d]
+            result[i] = window_sum / d
+
+    return result
+
+
+@njit(cache=True)
+def rolling_std_online(x: np.ndarray, d: int) -> np.ndarray:
+    """O(n) rolling standard deviation using Welford's algorithm."""
+    n = len(x)
+    result = np.empty(n, dtype=np.float64)
+    result[:d-1] = np.nan
+
+    if n < d:
+        result[:] = np.nan
+        return result
+
+    # Initialize
+    sx = 0.0
+    sx2 = 0.0
+
+    has_nan = False
+    for j in range(d):
+        if np.isnan(x[j]):
+            has_nan = True
+            break
+        sx += x[j]
+        sx2 += x[j] * x[j]
+
+    if has_nan:
+        result[d-1] = np.nan
+    else:
+        var = (sx2 - sx * sx / d) / d
+        result[d-1] = np.sqrt(var) if var > 0 else 0.0
+
+    for i in range(d, n):
+        old_x = x[i-d]
+        new_x = x[i]
+
+        if np.isnan(new_x) or np.isnan(old_x):
+            result[i] = np.nan
+            continue
+
+        sx += new_x - old_x
+        sx2 += new_x * new_x - old_x * old_x
+
+        var = (sx2 - sx * sx / d) / d
+        result[i] = np.sqrt(var) if var > 0 else 0.0
+
+    return result
+
+
+# Batch processing for multiple columns
+def process_columns_corr(
+    x_arrays: list[np.ndarray], y_arrays: list[np.ndarray], d: int
+) -> list[np.ndarray]:
+    """Process multiple column pairs for correlation."""
+    return [rolling_corr_online(x, y, d) for x, y in zip(x_arrays, y_arrays)]
+
+
+def process_columns_cov(
+    x_arrays: list[np.ndarray], y_arrays: list[np.ndarray], d: int
+) -> list[np.ndarray]:
+    """Process multiple column pairs for covariance."""
+    return [rolling_cov_online(x, y, d) for x, y in zip(x_arrays, y_arrays)]
+
+
+def process_columns_regression(
+    y_arrays: list[np.ndarray], x_arrays: list[np.ndarray], d: int, rettype: int
+) -> list[np.ndarray]:
+    """Process multiple column pairs for regression."""
+    return [
+        rolling_regression_online(y, x, d, rettype)
+        for y, x in zip(y_arrays, x_arrays)
+    ]

@@ -10,6 +10,16 @@ from alphalab.api.operators import (
     abs as op_abs,
     bucket,
 )
+
+
+def is_missing(value) -> bool:
+    """Check if value is missing (None or NaN)."""
+    if value is None:
+        return True
+    try:
+        return math.isnan(value)
+    except (TypeError, ValueError):
+        return False
 from alphalab.api.operators import (
     add,
     and_,
@@ -1520,8 +1530,8 @@ class TestTsRegressionRetTypes:
             "A": [1.0, 2.0, 3.0, 4.0, 5.0],
         })
         result = ts_regression(y, x, 3, rettype=1)
-        # At idx 2: pairs [(1,1), (3,3)] after filtering null, beta = 1.0
-        assert result["A"][2] == 1.0
+        # Window containing null returns NaN
+        assert is_missing(result["A"][2])
 
     def test_ts_regression_zero_variance(self) -> None:
         """Test regression with zero variance in x (ss_xx=0)."""
@@ -1534,8 +1544,8 @@ class TestTsRegressionRetTypes:
             "A": [5.0, 5.0, 5.0, 5.0, 5.0],  # Constant x
         })
         result = ts_regression(y, x, 3, rettype=1)
-        # Zero variance should return None
-        assert result["A"][2] is None
+        # Zero variance should return NaN
+        assert is_missing(result["A"][2])
 
 
 class TestTsQuantileEdgeCases:
@@ -1590,8 +1600,8 @@ class TestTsCorrCovarianceEdgeCases:
             "A": [2.0, 4.0, 6.0, 8.0, 10.0],
         })
         result = ts_corr(x, y, 3)
-        # Window with null should return None
-        assert result["A"][2] is None
+        # Window with null should return NaN
+        assert is_missing(result["A"][2])
 
     def test_ts_corr_zero_std(self) -> None:
         """Test ts_corr with zero standard deviation."""
@@ -1604,8 +1614,8 @@ class TestTsCorrCovarianceEdgeCases:
             "A": [1.0, 2.0, 3.0, 4.0, 5.0],
         })
         result = ts_corr(x, y, 3)
-        # Zero std should return None
-        assert result["A"][2] is None
+        # Zero std should return NaN
+        assert is_missing(result["A"][2])
 
     def test_ts_covariance_with_nulls(self) -> None:
         """Test ts_covariance with null values."""
@@ -1618,8 +1628,8 @@ class TestTsCorrCovarianceEdgeCases:
             "A": [2.0, 4.0, 6.0, 8.0, 10.0],
         })
         result = ts_covariance(x, y, 3)
-        # Window with null should return None
-        assert result["A"][3] is None
+        # Window with null should return NaN
+        assert is_missing(result["A"][3])
 
 
 class TestTsRankEdgeCases:

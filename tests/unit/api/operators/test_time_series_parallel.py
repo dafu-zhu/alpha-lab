@@ -1,8 +1,20 @@
 # tests/unit/api/operators/test_time_series_parallel.py
 """Tests for parallelized time-series operators."""
 
+import math
+
 import polars as pl
 import pytest
+
+
+def is_missing(value) -> bool:
+    """Check if value is missing (None or NaN)."""
+    if value is None:
+        return True
+    try:
+        return math.isnan(value)
+    except (TypeError, ValueError):
+        return False
 
 
 def test_days_from_last_change_correctness():
@@ -102,10 +114,10 @@ def test_ts_corr_with_nan():
         "A": [1.0, 2.0, 3.0, 4.0, 5.0],
     })
     result = ts_corr(df_x, df_y, 3)
-    # Window containing NaN returns None
-    assert result["A"][2] is None  # Window [1,2,nan] contains NaN
-    assert result["A"][3] is None  # Window [2,nan,4] contains NaN
-    assert result["A"][4] is None  # Window [nan,4,5] contains NaN
+    # Window containing NaN returns missing value
+    assert is_missing(result["A"][2])  # Window [1,2,nan] contains NaN
+    assert is_missing(result["A"][3])  # Window [2,nan,4] contains NaN
+    assert is_missing(result["A"][4])  # Window [nan,4,5] contains NaN
 
 
 def test_ts_covariance_correctness():
@@ -141,10 +153,10 @@ def test_ts_covariance_with_nan():
         "A": [1.0, 2.0, 3.0, 4.0, 5.0],
     })
     result = ts_covariance(df_x, df_y, 3)
-    # Windows containing NaN return None
-    assert result["A"][2] is None
-    assert result["A"][3] is None
-    assert result["A"][4] is None
+    # Windows containing NaN return missing value
+    assert is_missing(result["A"][2])
+    assert is_missing(result["A"][3])
+    assert is_missing(result["A"][4])
 
 
 def test_ts_regression_correctness():
@@ -182,10 +194,10 @@ def test_ts_regression_with_nan():
         "A": [1.0, 2.0, 3.0, 4.0, 5.0],
     })
     result = ts_regression(df_y, df_x, 3, rettype="beta")
-    # Windows containing NaN return None
-    assert result["A"][2] is None
-    assert result["A"][3] is None
-    assert result["A"][4] is None
+    # Windows containing NaN return missing value
+    assert is_missing(result["A"][2])
+    assert is_missing(result["A"][3])
+    assert is_missing(result["A"][4])
 
 
 def test_hump_correctness():
