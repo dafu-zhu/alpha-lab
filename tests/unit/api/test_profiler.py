@@ -26,3 +26,19 @@ def test_profiler_collects_records():
     assert p.total_time == pytest.approx(0.7, rel=1e-6)
     assert p.records[0].operator == "rank"
     assert p.records[1].operator == "ts_delta"
+
+
+def test_profiler_summary_output(capsys):
+    """Profiler prints formatted summary table."""
+    from alphalab.api.profiler import Profiler
+
+    p = Profiler()
+    p.record("rank", 0.85, (2000, 5000))
+    p.record("ts_delta", 0.15, (2000, 5000))
+    p.summary()
+
+    captured = capsys.readouterr()
+    assert "rank" in captured.out
+    assert "ts_delta" in captured.out
+    assert "85.0%" in captured.out  # rank is 85% of total
+    assert "TOTAL" in captured.out
