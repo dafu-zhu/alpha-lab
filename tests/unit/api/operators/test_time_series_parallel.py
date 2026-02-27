@@ -186,3 +186,20 @@ def test_ts_regression_with_nan():
     assert result["A"][2] is None
     assert result["A"][3] is None
     assert result["A"][4] is None
+
+
+def test_hump_correctness():
+    """Parallelized hump produces same results."""
+    from alphalab.api.operators.time_series import hump
+
+    df = pl.DataFrame({
+        "Date": [1, 2, 3],
+        "A": [1.0, 10.0, 2.0],  # Large jump at row 2
+        "B": [5.0, 5.5, 5.2],   # Small changes
+    })
+
+    result = hump(df, hump=0.1)
+
+    # First row should be unchanged
+    assert result["A"].to_list()[0] == 1.0
+    assert result["B"].to_list()[0] == 5.0

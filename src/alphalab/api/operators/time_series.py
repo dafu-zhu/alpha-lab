@@ -496,44 +496,61 @@ def days_from_last_change(x: pl.DataFrame) -> pl.DataFrame:
 # Phase 4: Stateful Ops
 
 
-def hump(x: pl.DataFrame, hump: float = 0.01) -> pl.DataFrame:
-    """Limit change magnitude per row based on hump * sum(|all values|)."""
-    date_col = x.columns[0]
-    value_cols = _get_value_cols(x)
-    result_data: dict[str, pl.Series | list[float | None]] = {date_col: x[date_col]}
+def _compute_hump_col(col_data: list, row_limits: list[float], col_idx: int) -> list[float | None]:  # noqa: ARG001
+    """Compute hump-limited values for a single column.
 
-    # Get all values as lists
-    col_lists = {c: x[c].to_list() for c in value_cols}
-    n = len(x)
-
-    # Init output with first row
-    out_lists: dict[str, list[float | None]] = {c: [] for c in value_cols}
+    Args:
+        col_data: Values for this column
+        row_limits: Pre-computed limit for each row (hump_factor * row_sum)
+        col_idx: Not used but kept for consistent interface
+    """
+    n = len(col_data)
+    out: list[float | None] = []
 
     for i in range(n):
         if i == 0:
-            for c in value_cols:
-                out_lists[c].append(col_lists[c][0])
+            out.append(col_data[0])
         else:
-            # Compute limit = hump * sum(|all current values|)
-            row_sum = sum(abs(col_lists[c][i] or 0) for c in value_cols)
-            limit = hump * row_sum
+            prev = out[i - 1]
+            curr = col_data[i]
+            limit = row_limits[i]
 
-            for c in value_cols:
-                prev = out_lists[c][i - 1]
-                curr = col_lists[c][i]
-                if prev is None or curr is None:
-                    out_lists[c].append(curr)
+            if prev is None or curr is None:
+                out.append(curr)
+            else:
+                change = curr - prev
+                if abs(change) > limit:
+                    out.append(prev + (1 if change > 0 else -1) * limit)
                 else:
-                    change = curr - prev
-                    if abs(change) > limit:
-                        out_lists[c].append(prev + (1 if change > 0 else -1) * limit)
-                    else:
-                        out_lists[c].append(prev)
+                    out.append(curr)
 
-    for c in value_cols:
-        result_data[c] = out_lists[c]
+    return out
 
-    return pl.DataFrame(result_data)
+
+def hump(x: pl.DataFrame, hump: float = 0.01) -> pl.DataFrame:
+    """Limit change magnitude (column-parallel where possible)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    date_col = x.columns[0]
+    value_cols = _get_value_cols(x)
+
+    # Pre-extract all column data for row_sum calculation
+    all_col_data = {c: x[c].to_list() for c in value_cols}
+
+    # Pre-compute row limits (this must be done sequentially since it depends on all columns)
+    n_rows = x.height
+    row_limits = []
+    for i in range(n_rows):
+        row_sum = sum(abs(all_col_data[c][i] or 0) for c in all_col_data)
+        row_limits.append(hump * row_sum)
+
+    def process_col(c: str) -> tuple[str, list[float | None]]:
+        return (c, _compute_hump_col(all_col_data[c], row_limits, 0))
+
+    with ThreadPoolExecutor(max_workers=min(8, len(value_cols))) as executor:
+        col_results = dict(executor.map(process_col, value_cols))
+
+    return pl.DataFrame({date_col: x[date_col], **col_results})
 
 
 def ts_decay_linear(x: pl.DataFrame, d: int, dense: bool = False) -> pl.DataFrame:
