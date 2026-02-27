@@ -797,6 +797,54 @@ def rolling_arg_min(x: np.ndarray, d: int) -> np.ndarray:
 
 
 @njit(cache=True)
+def rolling_last_diff(x: np.ndarray, d: int) -> np.ndarray:
+    """O(n*d) find last different value in rolling window.
+
+    For each position i, scan backwards from i-1 to find first value != x[i].
+    Window bounds: [max(0, i-d+1), i-1] (excludes current position).
+
+    Args:
+        x: Input array of float64 values
+        d: Window size (looks back up to d-1 positions)
+
+    Returns:
+        Array where each element is the last different value within the window,
+        or NaN if current is NaN or no different value found.
+    """
+    n = len(x)
+    result = np.empty(n, dtype=np.float64)
+
+    if n == 0:
+        return result
+
+    for i in range(n):
+        current = x[i]
+
+        # If current value is NaN, result is NaN
+        if np.isnan(current):
+            result[i] = np.nan
+            continue
+
+        # Define window bounds: [max(0, i-d+1), i-1]
+        # We look back at most d-1 positions (since current is at position i)
+        start = max(0, i - d + 1)
+
+        # Scan backwards from i-1 to find first different value
+        found = False
+        for j in range(i - 1, start - 1, -1):
+            val = x[j]
+            if not np.isnan(val) and val != current:
+                result[i] = val
+                found = True
+                break
+
+        if not found:
+            result[i] = np.nan
+
+    return result
+
+
+@njit(cache=True)
 def rolling_rank(x: np.ndarray, d: int, constant: float) -> np.ndarray:
     """O(n*d) rolling rank scaled to [constant, 1+constant].
 

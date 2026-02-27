@@ -509,14 +509,35 @@ def kth_element(x: pl.DataFrame, d: int, k: int) -> pl.DataFrame:  # noqa: ARG00
 
 
 def last_diff_value(x: pl.DataFrame, d: int) -> pl.DataFrame:
-    """Last value different from current within d periods."""
+    """Last value different from current within d periods.
+
+    Uses O(n*d) numba-optimized kernel with ThreadPoolExecutor for column parallelism.
+    Scans backwards from current position to find first different value.
+
+    Args:
+        x: Wide DataFrame with date + symbol columns
+        d: Window size in periods
+
+    Returns:
+        Wide DataFrame with last different value for each position,
+        NaN if current is NaN or no different value found in window.
+    """
+    import numpy as np
+    from concurrent.futures import ThreadPoolExecutor
+
+    from alphalab.api.operators._numba_kernels import rolling_last_diff
+
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
 
-    return x.select(
-        pl.col(date_col),
-        *[pl.col(c).rolling_map(_find_last_diff, window_size=d).alias(c) for c in value_cols],
-    )
+    def process_col(c: str) -> tuple[str, np.ndarray]:
+        x_arr = x[c].to_numpy().astype(np.float64)
+        return (c, rolling_last_diff(x_arr, d))
+
+    with ThreadPoolExecutor(max_workers=min(8, len(value_cols))) as executor:
+        col_results = dict(executor.map(process_col, value_cols))
+
+    return pl.DataFrame({date_col: x[date_col], **col_results})
 
 
 def _compute_days_from_last_change(col_data: list) -> list[int]:

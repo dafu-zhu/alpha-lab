@@ -1700,8 +1700,8 @@ class TestOtherOperatorEdgeCases:
             "A": [5.0, 5.0, 5.0, 5.0, 5.0],
         })
         result = last_diff_value(df, 3)
-        # No different value exists, should return None
-        assert result["A"][4] is None
+        # No different value exists, should return NaN
+        assert is_missing(result["A"][4])
 
     def test_ts_arg_max_short_window(self) -> None:
         """Test ts_arg_max when window not filled."""
@@ -2382,8 +2382,8 @@ class TestLastDiffValueCoverage:
             "A": [1.0, 2.0, 3.0, 4.0, 5.0],
         })
         result = last_diff_value(df, d=1)
-        # Window of 1 means no previous value, should be None
-        assert result["A"][-1] is None
+        # Window of 1 means no previous value, should be NaN
+        assert is_missing(result["A"][-1])
 
     def test_last_diff_value_with_nulls(self) -> None:
         """Test last_diff_value with null values in sequence."""
@@ -2393,8 +2393,8 @@ class TestLastDiffValueCoverage:
             "A": [1.0, None, None, None, 1.0],  # Current same as first
         })
         result = last_diff_value(df, d=5)
-        # Should return None since no different non-null value exists
-        assert result["A"][-1] is None
+        # Should return NaN since no different non-null value exists
+        assert is_missing(result["A"][-1])
 
     def test_last_diff_value_finds_different(self) -> None:
         """Test last_diff_value finds the last different value."""

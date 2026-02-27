@@ -1034,3 +1034,152 @@ def test_ts_arg_min_multiple_columns():
         # Rest should be 0 (current is min)
         assert result[col][2] == pytest.approx(0.0, abs=1e-9)
         assert result[col][5] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_last_diff_value_correctness():
+    """last_diff_value finds the last different value in rolling window."""
+    from alphalab.api.operators.time_series import last_diff_value
+
+    df = pl.DataFrame({
+        "Date": list(range(8)),
+        "A": [1.0, 2.0, 2.0, 3.0, 3.0, 3.0, 4.0, 4.0],
+        "B": [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0],  # All different
+    })
+
+    result = last_diff_value(df, d=3)
+
+    # Column A: [1.0, 2.0, 2.0, 3.0, 3.0, 3.0, 4.0, 4.0]
+    # Index 0: current=1.0, no previous -> NaN
+    assert is_missing(result["A"][0])
+
+    # Index 1: current=2.0, window=[1.0, 2.0], look back at 1.0 != 2.0 -> 1.0
+    assert result["A"][1] == pytest.approx(1.0, rel=1e-9)
+
+    # Index 2: current=2.0, window=[1.0, 2.0, 2.0], look back at 2.0 (same), then 1.0 != 2.0 -> 1.0
+    assert result["A"][2] == pytest.approx(1.0, rel=1e-9)
+
+    # Index 3: current=3.0, window=[2.0, 2.0, 3.0], look back at 2.0 != 3.0 -> 2.0
+    assert result["A"][3] == pytest.approx(2.0, rel=1e-9)
+
+    # Index 4: current=3.0, window=[2.0, 3.0, 3.0], look back at 3.0 (same), then 2.0 != 3.0 -> 2.0
+    assert result["A"][4] == pytest.approx(2.0, rel=1e-9)
+
+    # Index 5: current=3.0, window=[3.0, 3.0, 3.0], all same -> NaN
+    assert is_missing(result["A"][5])
+
+    # Index 6: current=4.0, window=[3.0, 3.0, 4.0], look back at 3.0 != 4.0 -> 3.0
+    assert result["A"][6] == pytest.approx(3.0, rel=1e-9)
+
+    # Index 7: current=4.0, window=[3.0, 4.0, 4.0], look back at 4.0 (same), then 3.0 != 4.0 -> 3.0
+    assert result["A"][7] == pytest.approx(3.0, rel=1e-9)
+
+    # Column B: all different values, always finds the immediately previous value
+    # Index 0: no previous -> NaN
+    assert is_missing(result["B"][0])
+
+    # Index 1: current=20.0, look back at 10.0 != 20.0 -> 10.0
+    assert result["B"][1] == pytest.approx(10.0, rel=1e-9)
+
+    # Index 2: current=30.0, look back at 20.0 != 30.0 -> 20.0
+    assert result["B"][2] == pytest.approx(20.0, rel=1e-9)
+
+    # Index 5: current=60.0, look back at 50.0 != 60.0 -> 50.0
+    assert result["B"][5] == pytest.approx(50.0, rel=1e-9)
+
+
+def test_last_diff_value_with_nan():
+    """NaN in current value returns NaN; NaN in window is skipped."""
+    from alphalab.api.operators.time_series import last_diff_value
+
+    df = pl.DataFrame({
+        "Date": [1, 2, 3, 4, 5, 6, 7],
+        "A": [1.0, 2.0, float("nan"), 3.0, 3.0, 4.0, 4.0],
+    })
+
+    result = last_diff_value(df, d=3)
+
+    # Index 0: no previous -> NaN
+    assert is_missing(result["A"][0])
+
+    # Index 1: current=2.0, look back at 1.0 != 2.0 -> 1.0
+    assert result["A"][1] == pytest.approx(1.0, rel=1e-9)
+
+    # Index 2: current is NaN -> NaN
+    assert is_missing(result["A"][2])
+
+    # Index 3: current=3.0, window=[2.0, nan, 3.0]
+    # Look back at nan (skip), then 2.0 != 3.0 -> 2.0
+    assert result["A"][3] == pytest.approx(2.0, rel=1e-9)
+
+    # Index 4: current=3.0, window=[nan, 3.0, 3.0]
+    # Look back at 3.0 (same), then nan (skip) -> NaN (no valid different value)
+    assert is_missing(result["A"][4])
+
+    # Index 5: current=4.0, window=[3.0, 3.0, 4.0]
+    # Look back at 3.0 != 4.0 -> 3.0
+    assert result["A"][5] == pytest.approx(3.0, rel=1e-9)
+
+    # Index 6: current=4.0, window=[3.0, 4.0, 4.0]
+    # Look back at 4.0 (same), then 3.0 != 4.0 -> 3.0
+    assert result["A"][6] == pytest.approx(3.0, rel=1e-9)
+
+
+def test_last_diff_value_all_same():
+    """When all values in window are the same, returns NaN."""
+    from alphalab.api.operators.time_series import last_diff_value
+
+    df = pl.DataFrame({
+        "Date": list(range(6)),
+        "A": [5.0, 5.0, 5.0, 5.0, 5.0, 5.0],  # All same
+        "B": [1.0, 1.0, 1.0, 2.0, 2.0, 2.0],  # Changes at index 3
+    })
+
+    result = last_diff_value(df, d=3)
+
+    # Column A: all values are 5.0
+    # All results should be NaN (no different value found)
+    for i in range(6):
+        assert is_missing(result["A"][i])
+
+    # Column B: [1.0, 1.0, 1.0, 2.0, 2.0, 2.0]
+    # Index 0, 1, 2: all 1.0 in window -> NaN
+    assert is_missing(result["B"][0])
+    assert is_missing(result["B"][1])
+    assert is_missing(result["B"][2])
+
+    # Index 3: current=2.0, window=[1.0, 1.0, 2.0], look back at 1.0 != 2.0 -> 1.0
+    assert result["B"][3] == pytest.approx(1.0, rel=1e-9)
+
+    # Index 4: current=2.0, window=[1.0, 2.0, 2.0], look back at 2.0 (same), then 1.0 != 2.0 -> 1.0
+    assert result["B"][4] == pytest.approx(1.0, rel=1e-9)
+
+    # Index 5: current=2.0, window=[2.0, 2.0, 2.0], all same -> NaN
+    assert is_missing(result["B"][5])
+
+
+def test_last_diff_value_multiple_columns():
+    """Verify parallel processing works correctly with multiple columns."""
+    from alphalab.api.operators.time_series import last_diff_value
+
+    # Create DataFrame with many columns to test parallel processing
+    df = pl.DataFrame({
+        "Date": list(range(5)),
+        **{f"Col_{i}": [float(j + 1) for j in range(5)] for i in range(10)},  # [1, 2, 3, 4, 5]
+    })
+
+    result = last_diff_value(df, d=3)
+
+    # Verify all columns are present
+    assert result.columns == df.columns
+
+    # All columns have monotonically increasing values [1, 2, 3, 4, 5]
+    # Each value is different from the previous
+    for col in df.columns[1:]:
+        # Index 0: no previous -> NaN
+        assert is_missing(result[col][0])
+        # Index 1: current=2, prev=1 != 2 -> 1.0
+        assert result[col][1] == pytest.approx(1.0, rel=1e-9)
+        # Index 2: current=3, prev=2 != 3 -> 2.0
+        assert result[col][2] == pytest.approx(2.0, rel=1e-9)
+        # Index 4: current=5, prev=4 != 5 -> 4.0
+        assert result[col][4] == pytest.approx(4.0, rel=1e-9)
