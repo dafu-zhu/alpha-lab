@@ -618,25 +618,34 @@ def ts_decay_linear(x: pl.DataFrame, d: int, dense: bool = False) -> pl.DataFram
 
 
 def ts_rank(x: pl.DataFrame, d: int, constant: float = 0) -> pl.DataFrame:
-    """Rank of current value in rolling window, scaled to [constant, 1+constant] (partial windows allowed)."""
+    """Rank of current value in rolling window, scaled to [constant, 1+constant] (partial windows allowed).
+
+    Uses O(n*d) numba-optimized kernel with ThreadPoolExecutor for column parallelism.
+
+    Args:
+        x: Wide DataFrame with date + symbol columns
+        d: Window size in periods
+        constant: Offset for rank scaling (default 0, gives range [0, 1])
+
+    Returns:
+        Wide DataFrame with rolling rank values in [constant, 1+constant]
+    """
+    import numpy as np
+    from concurrent.futures import ThreadPoolExecutor
+
+    from alphalab.api.operators._numba_kernels import rolling_rank
+
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
 
-    def rank_in_window(s: pl.Series) -> float | None:
-        vals = s.to_list()
-        current = vals[-1]
-        if current is None:
-            return None
-        sorted_vals = sorted([v for v in vals if v is not None])
-        if len(sorted_vals) <= 1:
-            return constant + 0.5
-        idx = sorted_vals.index(current)
-        return constant + idx / (len(sorted_vals) - 1)
+    def process_col(c: str) -> tuple[str, np.ndarray]:
+        x_arr = x[c].to_numpy().astype(np.float64)
+        return (c, rolling_rank(x_arr, d, constant))
 
-    return x.select(
-        pl.col(date_col),
-        *[pl.col(c).rolling_map(rank_in_window, window_size=d, min_samples=1).alias(c) for c in value_cols],
-    )
+    with ThreadPoolExecutor(max_workers=min(8, len(value_cols))) as executor:
+        col_results = dict(executor.map(process_col, value_cols))
+
+    return pl.DataFrame({date_col: x[date_col], **col_results})
 
 
 # Phase 5: Two-Variable Ops

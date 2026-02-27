@@ -442,3 +442,153 @@ def test_ts_product_multiple_columns():
         assert result[col][2] == pytest.approx(6.0, rel=1e-9)
         # Index 4: [3, 4, 5] -> 60.0
         assert result[col][4] == pytest.approx(60.0, rel=1e-9)
+
+
+def test_ts_rank_correctness():
+    """Parallelized ts_rank produces correct rolling ranks."""
+    from alphalab.api.operators.time_series import ts_rank
+
+    df = pl.DataFrame({
+        "Date": list(range(6)),
+        "A": [1.0, 3.0, 2.0, 5.0, 4.0, 6.0],
+        "B": [10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+    })
+
+    result = ts_rank(df, d=3)
+
+    # Partial windows (min_samples=1)
+    # Index 0: window [1.0] -> single value -> 0.5
+    assert result["A"][0] == pytest.approx(0.5, rel=1e-9)
+
+    # Index 1: window [1.0, 3.0] -> current=3.0, sorted=[1,3]
+    # count_less=1, valid=2 -> rank = 1/(2-1) = 1.0
+    assert result["A"][1] == pytest.approx(1.0, rel=1e-9)
+
+    # Index 2: window [1.0, 3.0, 2.0] -> current=2.0, sorted=[1,2,3]
+    # count_less=1, valid=3 -> rank = 1/(3-1) = 0.5
+    assert result["A"][2] == pytest.approx(0.5, rel=1e-9)
+
+    # Index 3: window [3.0, 2.0, 5.0] -> current=5.0, sorted=[2,3,5]
+    # count_less=2, valid=3 -> rank = 2/(3-1) = 1.0
+    assert result["A"][3] == pytest.approx(1.0, rel=1e-9)
+
+    # Index 4: window [2.0, 5.0, 4.0] -> current=4.0, sorted=[2,4,5]
+    # count_less=1, valid=3 -> rank = 1/(3-1) = 0.5
+    assert result["A"][4] == pytest.approx(0.5, rel=1e-9)
+
+    # Index 5: window [5.0, 4.0, 6.0] -> current=6.0, sorted=[4,5,6]
+    # count_less=2, valid=3 -> rank = 2/(3-1) = 1.0
+    assert result["A"][5] == pytest.approx(1.0, rel=1e-9)
+
+    # Column B: monotonically increasing, so current is always max in window
+    # All full windows should have rank = 1.0 (current is largest)
+    assert result["B"][2] == pytest.approx(1.0, rel=1e-9)
+    assert result["B"][5] == pytest.approx(1.0, rel=1e-9)
+
+
+def test_ts_rank_with_nan():
+    """NaN in current value returns NaN; NaN in window is skipped."""
+    from alphalab.api.operators.time_series import ts_rank
+
+    df = pl.DataFrame({
+        "Date": [1, 2, 3, 4, 5, 6],
+        "A": [1.0, 2.0, float("nan"), 4.0, 5.0, 6.0],
+    })
+
+    result = ts_rank(df, d=3)
+
+    # Index 0, 1: partial windows, no NaN
+    assert result["A"][0] == pytest.approx(0.5, rel=1e-9)  # single value
+    assert result["A"][1] == pytest.approx(1.0, rel=1e-9)  # [1,2], 2 is max
+
+    # Index 2: current is NaN -> NaN
+    assert is_missing(result["A"][2])
+
+    # Index 3: window [2, nan, 4], current=4.0 (not NaN)
+    # valid values: [2, 4], count_less=1, valid=2 -> rank=1.0
+    assert result["A"][3] == pytest.approx(1.0, rel=1e-9)
+
+    # Index 4: window [nan, 4, 5], current=5.0 (not NaN)
+    # valid values: [4, 5], count_less=1, valid=2 -> rank=1.0
+    assert result["A"][4] == pytest.approx(1.0, rel=1e-9)
+
+    # Index 5: window [4, 5, 6], no NaN
+    # valid values: [4, 5, 6], count_less=2, valid=3 -> rank=2/2=1.0
+    assert result["A"][5] == pytest.approx(1.0, rel=1e-9)
+
+
+def test_ts_rank_constant_values():
+    """Constant values (ties) handled correctly."""
+    from alphalab.api.operators.time_series import ts_rank
+
+    df = pl.DataFrame({
+        "Date": list(range(5)),
+        "A": [3.0, 3.0, 3.0, 3.0, 3.0],  # All same
+        "B": [1.0, 2.0, 2.0, 2.0, 3.0],  # Some ties
+    })
+
+    result = ts_rank(df, d=3)
+
+    # Column A: all values are 3.0 (constant)
+    # For any window, count_less=0, so rank = 0/(valid-1) = 0.0
+    assert result["A"][0] == pytest.approx(0.5, rel=1e-9)  # single value
+    assert result["A"][1] == pytest.approx(0.0, rel=1e-9)  # [3,3], 0 less
+    assert result["A"][2] == pytest.approx(0.0, rel=1e-9)  # [3,3,3], 0 less
+    assert result["A"][3] == pytest.approx(0.0, rel=1e-9)
+    assert result["A"][4] == pytest.approx(0.0, rel=1e-9)
+
+    # Column B: [1, 2, 2, 2, 3]
+    # Index 2: window [1, 2, 2], current=2.0
+    # count_less=1 (only 1 is less than 2), valid=3 -> rank=1/2=0.5
+    assert result["B"][2] == pytest.approx(0.5, rel=1e-9)
+
+    # Index 3: window [2, 2, 2], current=2.0
+    # count_less=0, valid=3 -> rank=0/2=0.0
+    assert result["B"][3] == pytest.approx(0.0, rel=1e-9)
+
+    # Index 4: window [2, 2, 3], current=3.0
+    # count_less=2, valid=3 -> rank=2/2=1.0
+    assert result["B"][4] == pytest.approx(1.0, rel=1e-9)
+
+
+def test_ts_rank_with_constant():
+    """ts_rank with constant parameter shifts range to [constant, 1+constant]."""
+    from alphalab.api.operators.time_series import ts_rank
+
+    df = pl.DataFrame({
+        "Date": list(range(5)),
+        "A": [1.0, 2.0, 3.0, 4.0, 5.0],
+    })
+
+    result = ts_rank(df, d=3, constant=1.0)
+
+    # With constant=1.0, ranks are in [1.0, 2.0] instead of [0.0, 1.0]
+    # Index 2: window [1, 2, 3], current=3.0 (max) -> rank = 1.0 + 1.0 = 2.0
+    assert result["A"][2] == pytest.approx(2.0, rel=1e-9)
+
+    # Index 0: single value -> 1.0 + 0.5 = 1.5
+    assert result["A"][0] == pytest.approx(1.5, rel=1e-9)
+
+
+def test_ts_rank_multiple_columns():
+    """Verify parallel processing works correctly with multiple columns."""
+    from alphalab.api.operators.time_series import ts_rank
+
+    # Create DataFrame with many columns to test parallel processing
+    df = pl.DataFrame({
+        "Date": list(range(5)),
+        **{f"Col_{i}": [float(j + 1) for j in range(5)] for i in range(10)},
+    })
+
+    result = ts_rank(df, d=3)
+
+    # Verify all columns are present
+    assert result.columns == df.columns
+
+    # All columns have same values [1, 2, 3, 4, 5] (monotonically increasing)
+    # Current value is always the max in window -> rank = 1.0
+    for col in df.columns[1:]:
+        # Index 2: [1, 2, 3] -> current=3 is max -> rank=1.0
+        assert result[col][2] == pytest.approx(1.0, rel=1e-9)
+        # Index 4: [3, 4, 5] -> current=5 is max -> rank=1.0
+        assert result[col][4] == pytest.approx(1.0, rel=1e-9)

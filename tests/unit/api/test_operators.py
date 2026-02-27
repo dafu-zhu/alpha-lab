@@ -1642,8 +1642,8 @@ class TestTsRankEdgeCases:
             "A": [1.0, 2.0, None, 4.0, 5.0],
         })
         result = ts_rank(df, 3)
-        # Null current value should return None
-        assert result["A"][2] is None
+        # Null current value should return missing (None or NaN)
+        assert is_missing(result["A"][2])
 
     def test_ts_rank_single_unique(self) -> None:
         """Test ts_rank with single unique non-null value."""

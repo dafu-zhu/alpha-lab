@@ -540,3 +540,49 @@ def process_columns_regression(
         rolling_regression_online(y, x, d, rettype)
         for y, x in zip(y_arrays, x_arrays)
     ]
+
+
+@njit(cache=True)
+def rolling_rank(x: np.ndarray, d: int, constant: float) -> np.ndarray:
+    """O(n*d) rolling rank scaled to [constant, 1+constant].
+
+    Counts values less than current within the window.
+    Partial windows allowed (min_samples=1). NaN current value propagates NaN.
+    """
+    n = len(x)
+    result = np.empty(n, dtype=np.float64)
+
+    if n == 0:
+        return result
+
+    for i in range(n):
+        current = x[i]
+
+        # If current value is NaN, result is NaN
+        if np.isnan(current):
+            result[i] = np.nan
+            continue
+
+        # Define window bounds: [max(0, i-d+1), i]
+        start = max(0, i - d + 1)
+
+        # Count valid values and values less than current
+        valid_count = 0
+        count_less = 0
+
+        for j in range(start, i + 1):
+            val = x[j]
+            if not np.isnan(val):
+                valid_count += 1
+                if val < current:
+                    count_less += 1
+
+        # Compute rank
+        if valid_count == 0:
+            result[i] = np.nan
+        elif valid_count == 1:
+            result[i] = constant + 0.5
+        else:
+            result[i] = constant + count_less / (valid_count - 1)
+
+    return result
