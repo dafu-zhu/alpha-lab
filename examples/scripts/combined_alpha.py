@@ -1,4 +1,7 @@
 """Combined multi-factor alpha."""
+from dotenv import load_dotenv
+load_dotenv()
+
 from alphalab.api.client import AlphaLabClient
 import os
 

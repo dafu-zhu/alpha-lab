@@ -104,6 +104,19 @@ def _quantile_transform(values: np.ndarray, driver: str, sigma: float) -> np.nda
     return result
 
 
+def _rank_row_precise(row: np.ndarray) -> np.ndarray:
+    """Rank a single row precisely using ordinal method."""
+    valid_mask = ~np.isnan(row)
+    n_valid = valid_mask.sum()
+    result = np.full(len(row), np.nan, dtype=np.float64)
+    if n_valid > 1:
+        ranks = stats.rankdata(row[valid_mask], method="ordinal")
+        result[valid_mask] = (ranks - 1) / (n_valid - 1)
+    elif n_valid == 1:
+        result[valid_mask] = 0.0
+    return result
+
+
 def rank(x: pl.DataFrame, rate: int = 2) -> pl.DataFrame:
     """Cross-sectional rank within each row (date).
 
@@ -127,42 +140,28 @@ def rank(x: pl.DataFrame, rate: int = 2) -> pl.DataFrame:
         >>> rank(close, rate=0)  # Precise ranking
         >>> # X = (4,3,6,10,2) => rank(x) = (0.5, 0.25, 0.75, 1.0, 0.0)
     """
-
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
-
-    # Convert to long format
-    long = x.unpivot(
-        index=date_col,
-        on=value_cols,
-        variable_name="symbol",
-        value_name="value",
-    )
-
-    # Use precise ranking when rate=0 or when dataset is small (< 32 items)
-    # Bucket-based ranking is only beneficial for large universes
     n_symbols = len(value_cols)
-    if rate == 0 or n_symbols < 32:
-        # Precise ranking using ordinal method
-        ranked = long.with_columns(
-            ((pl.col("value").rank(method="ordinal").over(date_col) - 1)
-             / (pl.col("value").count().over(date_col) - 1))
-            .alias("value")
-        )
+
+    # Extract values as numpy array (rows × symbols)
+    values = x.select(value_cols).to_numpy()
+    n_rows = values.shape[0]
+
+    # Choose ranking method
+    use_precise = rate == 0 or n_symbols < 32
+
+    # Rank row by row (vectorized per-row)
+    if use_precise:
+        result = np.array([_rank_row_precise(values[i]) for i in range(n_rows)])
     else:
-        # Bucket-based approximate ranking using module-level function
-        ranked = long.with_columns(
-            pl.col("value")
-            .map_batches(lambda s: pl.Series(_bucket_rank(s.to_numpy(), rate)), return_dtype=pl.Float64)
-            .over(date_col)
-            .alias("value")
-        )
+        result = np.array([_bucket_rank(values[i], rate) for i in range(n_rows)])
 
-    # Pivot back to wide
-    wide = ranked.pivot(values="value", index=date_col, on="symbol")
-
-    # Ensure column order matches input
-    return wide.select([date_col, *value_cols])
+    # Rebuild DataFrame efficiently
+    return pl.DataFrame({
+        date_col: x[date_col],
+        **{col: result[:, j] for j, col in enumerate(value_cols)}
+    })
 
 
 def zscore(x: pl.DataFrame) -> pl.DataFrame:
