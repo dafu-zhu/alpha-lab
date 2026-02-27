@@ -210,7 +210,7 @@ def test_hump_correctness():
         "B": [5.0, 5.5, 5.2],   # Small changes
     })
 
-    result = hump(df, hump=0.1)
+    result = hump(df, hump_factor=0.1)
 
     # First row should be unchanged
     assert result["A"].to_list()[0] == 1.0

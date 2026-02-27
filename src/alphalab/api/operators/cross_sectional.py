@@ -104,19 +104,6 @@ def _quantile_transform(values: np.ndarray, driver: str, sigma: float) -> np.nda
     return result
 
 
-def _rank_row_precise(row: np.ndarray) -> np.ndarray:
-    """Rank a single row precisely using ordinal method."""
-    valid_mask = ~np.isnan(row)
-    n_valid = valid_mask.sum()
-    result = np.full(len(row), np.nan, dtype=np.float64)
-    if n_valid > 1:
-        ranks = stats.rankdata(row[valid_mask], method="ordinal")
-        result[valid_mask] = (ranks - 1) / (n_valid - 1)
-    elif n_valid == 1:
-        result[valid_mask] = 0.0
-    return result
-
-
 def rank(x: pl.DataFrame, rate: int = 2) -> pl.DataFrame:
     """Cross-sectional rank within each row (date).
 
@@ -145,23 +132,76 @@ def rank(x: pl.DataFrame, rate: int = 2) -> pl.DataFrame:
     n_symbols = len(value_cols)
 
     # Extract values as numpy array (rows × symbols)
-    values = x.select(value_cols).to_numpy()
-    n_rows = values.shape[0]
+    values = x.select(value_cols).to_numpy().astype(np.float64)
+    n_rows, n_cols = values.shape
 
     # Choose ranking method
     use_precise = rate == 0 or n_symbols < 32
 
-    # Rank row by row (vectorized per-row)
     if use_precise:
-        result = np.array([_rank_row_precise(values[i]) for i in range(n_rows)])
+        # Vectorized precise ranking using scipy (axis=1 for row-wise)
+        # scipy.stats.rankdata handles NaN by assigning them NaN in result
+        result = np.empty_like(values)
+        valid_mask = ~np.isnan(values)
+
+        # Count valid values per row
+        valid_counts = valid_mask.sum(axis=1)
+
+        # Process rows with valid data
+        for i in range(n_rows):
+            n_valid = valid_counts[i]
+            if n_valid <= 1:
+                result[i] = np.where(valid_mask[i], 0.0, np.nan)
+            else:
+                # Rank only valid values
+                row_valid = valid_mask[i]
+                ranks = stats.rankdata(values[i, row_valid], method="ordinal")
+                result[i] = np.nan
+                result[i, row_valid] = (ranks - 1) / (n_valid - 1)
     else:
-        result = np.array([_bucket_rank(values[i], rate) for i in range(n_rows)])
+        # Vectorized bucket ranking
+        result = _bucket_rank_2d(values, rate)
 
     # Rebuild DataFrame efficiently
     return pl.DataFrame({
         date_col: x[date_col],
         **{col: result[:, j] for j, col in enumerate(value_cols)}
     })
+
+
+def _bucket_rank_2d(values: np.ndarray, rate: int) -> np.ndarray:
+    """Vectorized bucket ranking for 2D array (rows x cols).
+
+    Processes all rows using vectorized operations.
+    """
+    n_rows, n_cols = values.shape
+    result = np.full_like(values, np.nan, dtype=np.float64)
+
+    valid_mask = ~np.isnan(values)
+    valid_counts = valid_mask.sum(axis=1)
+
+    for i in range(n_rows):
+        n_valid = valid_counts[i]
+        if n_valid <= 1:
+            result[i, valid_mask[i]] = 0.0
+            continue
+
+        # Number of buckets based on rate
+        n_buckets = max(2, int(n_valid / (2 ** rate)))
+
+        valid_vals = values[i, valid_mask[i]]
+
+        # Random sample for pivot selection
+        sample_size = min(n_buckets, n_valid)
+        sample_idx = _bucket_rank_rng.choice(n_valid, size=sample_size, replace=False)
+        thresholds = np.sort(valid_vals[sample_idx])
+
+        # Assign each value to a bucket via searchsorted
+        bucket_indices = np.searchsorted(thresholds, valid_vals, side="right")
+
+        result[i, valid_mask[i]] = bucket_indices / n_buckets
+
+    return result
 
 
 def zscore(x: pl.DataFrame) -> pl.DataFrame:
@@ -284,31 +324,30 @@ def normalize(
         >>> normalize(x)  # [-1,1,2,-2]
         >>> normalize(x, useStd=True)  # [-0.55,0.55,1.1,-1.1]
     """
+    date_col = x.columns[0]
     value_cols = _get_value_cols(x)
 
-    row_mean = pl.mean_horizontal(*[pl.col(c) for c in value_cols])
+    # Use numpy for fast row-wise operations
+    values = x.select(value_cols).to_numpy()
+
+    # Row mean (ignoring NaN)
+    row_mean = np.nanmean(values, axis=1, keepdims=True)
+    result = values - row_mean
 
     if useStd:
-        row_std = pl.concat_list([pl.col(c) for c in value_cols]).list.eval(
-            pl.element().std()
-        ).list.first()
-        result = x.with_columns([
-            ((pl.col(c) - row_mean) / row_std).alias(c)
-            for c in value_cols
-        ])
-    else:
-        result = x.with_columns([
-            (pl.col(c) - row_mean).alias(c)
-            for c in value_cols
-        ])
+        row_std = np.nanstd(values, axis=1, keepdims=True)
+        # Avoid division by zero
+        row_std = np.where(row_std == 0, np.nan, row_std)
+        result = result / row_std
 
     if limit > 0:
-        result = result.with_columns([
-            pl.col(c).clip(-limit, limit).alias(c)
-            for c in value_cols
-        ])
+        result = np.clip(result, -limit, limit)
 
-    return result
+    # Rebuild DataFrame
+    return pl.DataFrame({
+        date_col: x[date_col],
+        **{col: result[:, j] for j, col in enumerate(value_cols)}
+    })
 
 
 def quantile(

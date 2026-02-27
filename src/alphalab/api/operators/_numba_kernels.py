@@ -888,3 +888,43 @@ def rolling_rank(x: np.ndarray, d: int, constant: float) -> np.ndarray:
             result[i] = constant + count_less / (valid_count - 1)
 
     return result
+
+
+@njit(cache=True)
+def hump_column(col_data: np.ndarray, row_limits: np.ndarray) -> np.ndarray:
+    """Apply hump limiting to a single column.
+
+    For each row, limits the change from previous output to row_limits[i].
+    Handles NaN values by passing through without limiting.
+
+    Args:
+        col_data: Column values
+        row_limits: Pre-computed limit for each row (hump_factor * row_abs_sum)
+
+    Returns:
+        Hump-limited column values
+    """
+    n = len(col_data)
+    result = np.empty(n, dtype=np.float64)
+
+    for i in range(n):
+        if i == 0:
+            result[i] = col_data[i]
+        else:
+            prev = result[i - 1]
+            curr = col_data[i]
+            limit = row_limits[i]
+
+            if np.isnan(prev) or np.isnan(curr):
+                result[i] = curr
+            else:
+                change = curr - prev
+                if abs(change) > limit:
+                    if change > 0:
+                        result[i] = prev + limit
+                    else:
+                        result[i] = prev - limit
+                else:
+                    result[i] = curr
+
+    return result

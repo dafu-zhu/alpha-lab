@@ -575,59 +575,32 @@ def days_from_last_change(x: pl.DataFrame) -> pl.DataFrame:
 # Phase 4: Stateful Ops
 
 
-def _compute_hump_col(col_data: list, row_limits: list[float], col_idx: int) -> list[float | None]:  # noqa: ARG001
-    """Compute hump-limited values for a single column.
+def hump(x: pl.DataFrame, hump_factor: float = 0.01) -> pl.DataFrame:
+    """Limit change magnitude using numpy vectorization + numba.
 
-    Args:
-        col_data: Values for this column
-        row_limits: Pre-computed limit for each row (hump_factor * row_sum)
-        col_idx: Not used but kept for consistent interface
+    For each row, limits the change from previous output value to
+    hump_factor * sum(abs(row_values)).
     """
-    n = len(col_data)
-    out: list[float | None] = []
-
-    for i in range(n):
-        if i == 0:
-            out.append(col_data[0])
-        else:
-            prev = out[i - 1]
-            curr = col_data[i]
-            limit = row_limits[i]
-
-            if prev is None or curr is None:
-                out.append(curr)
-            else:
-                change = curr - prev
-                if abs(change) > limit:
-                    out.append(prev + (1 if change > 0 else -1) * limit)
-                else:
-                    out.append(curr)
-
-    return out
-
-
-def hump(x: pl.DataFrame, hump: float = 0.01) -> pl.DataFrame:
-    """Limit change magnitude (column-parallel where possible)."""
+    import numpy as np
     from concurrent.futures import ThreadPoolExecutor
+
+    from alphalab.api.operators._numba_kernels import hump_column
 
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
 
-    # Pre-extract all column data for row_sum calculation
-    all_col_data = {c: x[c].to_list() for c in value_cols}
+    # Extract all values as numpy array (n_rows x n_cols)
+    values = x.select(value_cols).to_numpy().astype(np.float64)
 
-    # Pre-compute row limits (this must be done sequentially since it depends on all columns)
-    n_rows = x.height
-    row_limits = []
-    for i in range(n_rows):
-        row_sum = sum(abs(all_col_data[c][i] or 0) for c in all_col_data)
-        row_limits.append(hump * row_sum)
+    # Compute row limits: hump_factor * sum(abs(values)) per row
+    row_abs_sum = np.nansum(np.abs(values), axis=1)
+    row_limits = hump_factor * row_abs_sum
 
-    def process_col(c: str) -> tuple[str, list[float | None]]:
-        return (c, _compute_hump_col(all_col_data[c], row_limits, 0))
+    def process_col(idx: int) -> tuple[str, np.ndarray]:
+        return (value_cols[idx], hump_column(values[:, idx], row_limits))
 
     with ThreadPoolExecutor(max_workers=min(8, len(value_cols))) as executor:
-        col_results = dict(executor.map(process_col, value_cols))
+        col_results = dict(executor.map(process_col, range(len(value_cols))))
 
     return pl.DataFrame({date_col: x[date_col], **col_results})
 
@@ -717,30 +690,6 @@ def _is_invalid(v) -> bool:
     return v is None or (isinstance(v, float) and math.isnan(v))
 
 
-def _compute_rolling_corr(x_vals: list, y_vals: list, d: int) -> list[float | None]:
-    """Compute rolling correlation for a single column pair."""
-    corrs: list[float | None] = []
-    for i in range(len(x_vals)):
-        if i < d - 1:
-            corrs.append(None)
-        else:
-            x_win = x_vals[i - d + 1 : i + 1]
-            y_win = y_vals[i - d + 1 : i + 1]
-            if any(_is_invalid(v) for v in x_win) or any(_is_invalid(v) for v in y_win):
-                corrs.append(None)
-            else:
-                x_mean = sum(x_win) / d
-                y_mean = sum(y_win) / d
-                cov = sum((xv - x_mean) * (yv - y_mean) for xv, yv in zip(x_win, y_win, strict=True)) / d
-                x_std = (sum((xv - x_mean) ** 2 for xv in x_win) / d) ** 0.5
-                y_std = (sum((yv - y_mean) ** 2 for yv in y_win) / d) ** 0.5
-                if x_std == 0 or y_std == 0:
-                    corrs.append(None)
-                else:
-                    corrs.append(cov / (x_std * y_std))
-    return corrs
-
-
 def ts_corr(x: pl.DataFrame, y: pl.DataFrame, d: int) -> pl.DataFrame:
     """Rolling Pearson correlation (online algorithm + numba JIT).
 
@@ -763,25 +712,6 @@ def ts_corr(x: pl.DataFrame, y: pl.DataFrame, d: int) -> pl.DataFrame:
         col_results = dict(executor.map(process_col, value_cols))
 
     return pl.DataFrame({date_col: x[date_col], **col_results})
-
-
-def _compute_rolling_cov(x_vals: list, y_vals: list, d: int) -> list[float | None]:
-    """Compute rolling covariance for a single column pair."""
-    covs: list[float | None] = []
-    for i in range(len(x_vals)):
-        if i < d - 1:
-            covs.append(None)
-        else:
-            x_win = x_vals[i - d + 1 : i + 1]
-            y_win = y_vals[i - d + 1 : i + 1]
-            if any(_is_invalid(v) for v in x_win) or any(_is_invalid(v) for v in y_win):
-                covs.append(None)
-            else:
-                x_mean = sum(x_win) / d
-                y_mean = sum(y_win) / d
-                cov = sum((xv - x_mean) * (yv - y_mean) for xv, yv in zip(x_win, y_win, strict=True)) / d
-                covs.append(cov)
-    return covs
 
 
 def ts_covariance(x: pl.DataFrame, y: pl.DataFrame, d: int) -> pl.DataFrame:

@@ -289,7 +289,7 @@ class TestTimeSeriesOperators:
             "A": [100.0, 200.0, 150.0],
             "B": [50.0, 50.0, 50.0],
         })
-        result = hump(df, hump=0.1)
+        result = hump(df, hump_factor=0.1)
         # Row 1: sum(|values|) = 200+50=250, limit=25
         # A change = 100, capped at prev + 25 = 125
         assert result["A"][1] == 125.0
@@ -1689,7 +1689,7 @@ class TestOtherOperatorEdgeCases:
             "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [None, 100.0, 150.0],
         })
-        result = hump(df, hump=0.1)
+        result = hump(df, hump_factor=0.1)
         # When prev is None, curr should pass through
         assert result["A"][1] == 100.0
 
