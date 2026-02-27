@@ -145,3 +145,44 @@ def test_ts_covariance_with_nan():
     assert result["A"][2] is None
     assert result["A"][3] is None
     assert result["A"][4] is None
+
+
+def test_ts_regression_correctness():
+    """Parallelized ts_regression produces same results."""
+    from alphalab.api.operators.time_series import ts_regression
+
+    df_y = pl.DataFrame({
+        "Date": list(range(5)),
+        "A": [2.0, 4.0, 6.0, 8.0, 10.0],
+    })
+    df_x = pl.DataFrame({
+        "Date": list(range(5)),
+        "A": [1.0, 2.0, 3.0, 4.0, 5.0],
+    })
+
+    # y = 2*x, so beta should be ~2.0
+    result = ts_regression(df_y, df_x, 3, rettype="beta")
+    assert result["A"][4] == pytest.approx(2.0, rel=1e-6)
+
+    # alpha should be ~0.0
+    result_alpha = ts_regression(df_y, df_x, 3, rettype="alpha")
+    assert result_alpha["A"][4] == pytest.approx(0.0, abs=1e-6)
+
+
+def test_ts_regression_with_nan():
+    """NaN values in window return None."""
+    from alphalab.api.operators.time_series import ts_regression
+
+    df_y = pl.DataFrame({
+        "Date": [1, 2, 3, 4, 5],
+        "A": [1.0, 2.0, float("nan"), 4.0, 5.0],
+    })
+    df_x = pl.DataFrame({
+        "Date": [1, 2, 3, 4, 5],
+        "A": [1.0, 2.0, 3.0, 4.0, 5.0],
+    })
+    result = ts_regression(df_y, df_x, 3, rettype="beta")
+    # Windows containing NaN return None
+    assert result["A"][2] is None
+    assert result["A"][3] is None
+    assert result["A"][4] is None

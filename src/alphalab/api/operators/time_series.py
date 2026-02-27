@@ -686,6 +686,115 @@ def ts_quantile(x: pl.DataFrame, d: int, driver: str = "gaussian") -> pl.DataFra
 # Phase 6: Regression
 
 
+def _is_nan(v) -> bool:
+    """Check if value is NaN (but not None)."""
+    return isinstance(v, float) and math.isnan(v)
+
+
+def _compute_regression_col(
+    y_vals: list, x_vals: list, d: int, lag: int, rettype: int
+) -> list[float | None]:
+    """Compute rolling regression for a single column."""
+    if lag > 0:
+        x_vals = [None] * lag + x_vals[:-lag] if lag < len(x_vals) else [None] * len(x_vals)
+
+    results: list[float | None] = []
+    for i in range(len(y_vals)):
+        start_idx = max(0, i - d + 1)
+        y_win_raw = y_vals[start_idx : i + 1]
+        x_win_raw = x_vals[start_idx : i + 1]
+
+        # If any value in window is NaN, return None (consistent with ts_corr/ts_covariance)
+        if any(_is_nan(v) for v in y_win_raw) or any(_is_nan(v) for v in x_win_raw):
+            results.append(None)
+            continue
+
+        # Filter out None values (backward compatible with original behavior)
+        pairs = [(yv, xv) for yv, xv in zip(y_win_raw, x_win_raw, strict=True)
+                 if yv is not None and xv is not None]
+
+        if len(pairs) < 2:
+            results.append(None)
+            continue
+
+        y_win = [p[0] for p in pairs]
+        x_win = [p[1] for p in pairs]
+        n = len(pairs)
+
+        x_mean = sum(x_win) / n
+        y_mean = sum(y_win) / n
+
+        ss_xx = sum((xv - x_mean) ** 2 for xv in x_win)
+        ss_yy = sum((yv - y_mean) ** 2 for yv in y_win)
+        ss_xy = sum((xv - x_mean) * (yv - y_mean) for xv, yv in zip(x_win, y_win, strict=True))
+
+        if ss_xx == 0:
+            results.append(None)
+            continue
+
+        beta = ss_xy / ss_xx
+        alpha = y_mean - beta * x_mean
+        y_pred = [alpha + beta * xv for xv in x_win]
+        residuals = [yv - yp for yv, yp in zip(y_win, y_pred, strict=True)]
+        ss_res = sum(r**2 for r in residuals)
+
+        # Return based on rettype
+        if rettype == 0:  # residual
+            if _is_invalid(y_vals[i]) or _is_invalid(x_vals[i]):
+                results.append(None)
+            else:
+                results.append(y_vals[i] - (alpha + beta * x_vals[i]))
+        elif rettype == 1:  # beta
+            results.append(beta)
+        elif rettype == 2:  # alpha
+            results.append(alpha)
+        elif rettype == 3:  # predicted
+            if _is_invalid(x_vals[i]):
+                results.append(None)
+            else:
+                results.append(alpha + beta * x_vals[i])
+        elif rettype == 4:  # correlation
+            if ss_yy == 0:
+                results.append(None)
+            else:
+                results.append(ss_xy / math.sqrt(ss_xx * ss_yy))
+        elif rettype == 5:  # r-squared
+            if ss_yy == 0:
+                results.append(None)
+            else:
+                results.append(1 - ss_res / ss_yy)
+        elif rettype == 6:  # t-stat beta
+            if n <= 2 or ss_res == 0:
+                results.append(None)
+            else:
+                mse = ss_res / (n - 2)
+                se_beta = math.sqrt(mse / ss_xx)
+                results.append(beta / se_beta if se_beta != 0 else None)
+        elif rettype == 7:  # t-stat alpha
+            if n <= 2 or ss_res == 0:
+                results.append(None)
+            else:
+                mse = ss_res / (n - 2)
+                se_alpha = math.sqrt(mse * (1 / n + x_mean**2 / ss_xx))
+                results.append(alpha / se_alpha if se_alpha != 0 else None)
+        elif rettype == 8:  # stderr beta
+            if n <= 2:
+                results.append(None)
+            else:
+                mse = ss_res / (n - 2)
+                results.append(math.sqrt(mse / ss_xx))
+        elif rettype == 9:  # stderr alpha
+            if n <= 2:
+                results.append(None)
+            else:
+                mse = ss_res / (n - 2)
+                results.append(math.sqrt(mse * (1 / n + x_mean**2 / ss_xx)))
+        else:
+            results.append(None)
+
+    return results
+
+
 def ts_regression(
     y: pl.DataFrame,
     x: pl.DataFrame,
@@ -693,7 +802,7 @@ def ts_regression(
     lag: int = 0,
     rettype: int | str = 0,
 ) -> pl.DataFrame:
-    """Rolling OLS regression of y on x (partial windows allowed, min 2 samples).
+    """Rolling OLS regression of y on x (column-parallel, partial windows allowed, min 2 samples).
 
     rettype (int or str):
         0 or "resid": residual (y - predicted)
@@ -707,6 +816,8 @@ def ts_regression(
         8 or "stderr_beta": std error of beta
         9 or "stderr_alpha": std error of alpha
     """
+    from concurrent.futures import ThreadPoolExecutor
+
     # Map string rettype to int
     rettype_map = {
         "resid": 0, "residual": 0,
@@ -725,100 +836,13 @@ def ts_regression(
 
     date_col = y.columns[0]
     value_cols = _get_value_cols(y)
-    result_data: dict[str, pl.Series | list[float | None]] = {date_col: y[date_col]}
 
-    for c in value_cols:
+    def process_col(c: str) -> tuple[str, list[float | None]]:
         y_vals = y[c].to_list()
-        x_vals = x[c].shift(lag).to_list() if lag > 0 else x[c].to_list()
-        results: list[float | None] = []
+        x_vals = x[c].to_list()
+        return (c, _compute_regression_col(y_vals, x_vals, d, lag, rettype))
 
-        for i in range(len(y_vals)):
-            # Use available window up to d (partial windows allowed)
-            start_idx = max(0, i - d + 1)
-            y_win_raw = y_vals[start_idx : i + 1]
-            x_win_raw = x_vals[start_idx : i + 1]
+    with ThreadPoolExecutor(max_workers=min(8, len(value_cols))) as executor:
+        col_results = dict(executor.map(process_col, value_cols))
 
-            # Filter out pairs where either is null
-            pairs = [(yv, xv) for yv, xv in zip(y_win_raw, x_win_raw, strict=True) if yv is not None and xv is not None]
-
-            # Need at least 2 points for regression
-            if len(pairs) < 2:
-                results.append(None)
-                continue
-
-            y_win = [p[0] for p in pairs]
-            x_win = [p[1] for p in pairs]
-            n = len(pairs)
-            x_mean = sum(x_win) / n
-            y_mean = sum(y_win) / n
-
-            ss_xx = sum((xv - x_mean) ** 2 for xv in x_win)
-            ss_yy = sum((yv - y_mean) ** 2 for yv in y_win)
-            ss_xy = sum((xv - x_mean) * (yv - y_mean) for xv, yv in zip(x_win, y_win, strict=True))
-
-            if ss_xx == 0:
-                results.append(None)
-                continue
-
-            beta = ss_xy / ss_xx
-            alpha = y_mean - beta * x_mean
-            y_pred = [alpha + beta * xv for xv in x_win]
-            residuals = [yv - yp for yv, yp in zip(y_win, y_pred, strict=True)]
-            ss_res = sum(r**2 for r in residuals)
-
-            if rettype == 0:  # residual
-                if y_vals[i] is None or x_vals[i] is None:
-                    results.append(None)
-                else:
-                    results.append(y_vals[i] - (alpha + beta * x_vals[i]))
-            elif rettype == 1:  # beta
-                results.append(beta)
-            elif rettype == 2:  # alpha
-                results.append(alpha)
-            elif rettype == 3:  # predicted
-                if x_vals[i] is None:
-                    results.append(None)
-                else:
-                    results.append(alpha + beta * x_vals[i])
-            elif rettype == 4:  # correlation
-                if ss_xx == 0 or ss_yy == 0:
-                    results.append(None)
-                else:
-                    results.append(ss_xy / math.sqrt(ss_xx * ss_yy))
-            elif rettype == 5:  # r-squared
-                if ss_yy == 0:
-                    results.append(None)
-                else:
-                    results.append(1 - ss_res / ss_yy)
-            elif rettype == 6:  # t-stat for beta
-                if n <= 2 or ss_res == 0:
-                    results.append(None)
-                else:
-                    mse = ss_res / (n - 2)
-                    se_beta = math.sqrt(mse / ss_xx)
-                    results.append(beta / se_beta if se_beta != 0 else None)
-            elif rettype == 7:  # t-stat for alpha
-                if n <= 2 or ss_res == 0:
-                    results.append(None)
-                else:
-                    mse = ss_res / (n - 2)
-                    se_alpha = math.sqrt(mse * (1 / n + x_mean**2 / ss_xx))
-                    results.append(alpha / se_alpha if se_alpha != 0 else None)
-            elif rettype == 8:  # std error of beta
-                if n <= 2:
-                    results.append(None)
-                else:
-                    mse = ss_res / (n - 2)
-                    results.append(math.sqrt(mse / ss_xx))
-            elif rettype == 9:  # std error of alpha
-                if n <= 2:
-                    results.append(None)
-                else:
-                    mse = ss_res / (n - 2)
-                    results.append(math.sqrt(mse * (1 / n + x_mean**2 / ss_xx)))
-            else:
-                results.append(None)
-
-        result_data[c] = results
-
-    return pl.DataFrame(result_data)
+    return pl.DataFrame({date_col: y[date_col], **col_results})
