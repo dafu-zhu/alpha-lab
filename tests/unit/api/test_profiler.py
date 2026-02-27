@@ -42,3 +42,21 @@ def test_profiler_summary_output(capsys):
     assert "ts_delta" in captured.out
     assert "85.0%" in captured.out  # rank is 85% of total
     assert "TOTAL" in captured.out
+
+
+def test_profile_context_manager(capsys):
+    """profile() context manager activates profiler and prints on exit."""
+    from alphalab.api.profiler import profile, _get_profiler
+
+    # Before context: no profiler
+    assert _get_profiler() is None
+
+    with profile() as p:
+        # Inside context: profiler active
+        assert _get_profiler() is p
+        p.record("test_op", 0.1, (10, 10))
+
+    # After context: no profiler, summary printed
+    assert _get_profiler() is None
+    captured = capsys.readouterr()
+    assert "test_op" in captured.out

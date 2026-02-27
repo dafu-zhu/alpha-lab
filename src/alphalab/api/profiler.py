@@ -9,7 +9,12 @@ Example:
 
 from __future__ import annotations
 
+import threading
+from contextlib import contextmanager
 from dataclasses import dataclass, field
+from typing import Generator
+
+_local = threading.local()
 
 
 @dataclass
@@ -73,3 +78,26 @@ class Profiler:
         print("├" + "─" * 14 + "┼" + "─" * 7 + "┼" + "─" * 10 + "┼" + "─" * 9 + "┼" + "─" * 13 + "┤")
         print(f"│ {'TOTAL':<12} │ {len(self.records):>5} │ {total:>8.3f} │ {'100.0%':>7} │ {'':<11} │")
         print("└" + "─" * 14 + "┴" + "─" * 7 + "┴" + "─" * 10 + "┴" + "─" * 9 + "┴" + "─" * 13 + "┘")
+
+
+def _get_profiler() -> Profiler | None:
+    """Get the active profiler for this thread, if any."""
+    return getattr(_local, "profiler", None)
+
+
+@contextmanager
+def profile() -> Generator[Profiler, None, None]:
+    """Context manager to enable operator profiling.
+
+    Example:
+        >>> with profile() as p:
+        ...     result = client.query("rank(-ts_delta(close, 5))")
+        # Prints summary on exit
+    """
+    p = Profiler()
+    _local.profiler = p
+    try:
+        yield p
+    finally:
+        _local.profiler = None
+        p.summary()
