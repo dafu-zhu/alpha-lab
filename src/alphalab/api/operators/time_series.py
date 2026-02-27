@@ -424,25 +424,65 @@ def ts_step(x: pl.DataFrame) -> pl.DataFrame:
 
 
 def ts_arg_max(x: pl.DataFrame, d: int) -> pl.DataFrame:
-    """Days since max in rolling window (0 = today is max, d-1 = oldest day was max)."""
+    """Days since max in rolling window (0 = today is max, d-1 = oldest day was max).
+
+    Uses O(n*d) numba-optimized kernel with ThreadPoolExecutor for column parallelism.
+    First d-1 values are NaN (window not complete).
+
+    Args:
+        x: Wide DataFrame with date + symbol columns
+        d: Window size in periods
+
+    Returns:
+        Wide DataFrame with days since max values
+    """
+    import numpy as np
+    from concurrent.futures import ThreadPoolExecutor
+
+    from alphalab.api.operators._numba_kernels import rolling_arg_max
+
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
 
-    return x.select(
-        pl.col(date_col),
-        *[pl.col(c).rolling_map(lambda s: _arg_max_fn(s, d), window_size=d).alias(c) for c in value_cols],
-    )
+    def process_col(c: str) -> tuple[str, np.ndarray]:
+        x_arr = x[c].to_numpy().astype(np.float64)
+        return (c, rolling_arg_max(x_arr, d))
+
+    with ThreadPoolExecutor(max_workers=min(8, len(value_cols))) as executor:
+        col_results = dict(executor.map(process_col, value_cols))
+
+    return pl.DataFrame({date_col: x[date_col], **col_results})
 
 
 def ts_arg_min(x: pl.DataFrame, d: int) -> pl.DataFrame:
-    """Days since min in rolling window (0 = today is min, d-1 = oldest day was min)."""
+    """Days since min in rolling window (0 = today is min, d-1 = oldest day was min).
+
+    Uses O(n*d) numba-optimized kernel with ThreadPoolExecutor for column parallelism.
+    First d-1 values are NaN (window not complete).
+
+    Args:
+        x: Wide DataFrame with date + symbol columns
+        d: Window size in periods
+
+    Returns:
+        Wide DataFrame with days since min values
+    """
+    import numpy as np
+    from concurrent.futures import ThreadPoolExecutor
+
+    from alphalab.api.operators._numba_kernels import rolling_arg_min
+
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
 
-    return x.select(
-        pl.col(date_col),
-        *[pl.col(c).rolling_map(lambda s: _arg_min_fn(s, d), window_size=d).alias(c) for c in value_cols],
-    )
+    def process_col(c: str) -> tuple[str, np.ndarray]:
+        x_arr = x[c].to_numpy().astype(np.float64)
+        return (c, rolling_arg_min(x_arr, d))
+
+    with ThreadPoolExecutor(max_workers=min(8, len(value_cols))) as executor:
+        col_results = dict(executor.map(process_col, value_cols))
+
+    return pl.DataFrame({date_col: x[date_col], **col_results})
 
 
 # Phase 3: Lookback/Backfill Ops

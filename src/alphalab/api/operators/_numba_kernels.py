@@ -695,6 +695,108 @@ def rolling_quantile_uniform(x: np.ndarray, d: int) -> np.ndarray:
 
 
 @njit(cache=True)
+def rolling_arg_max(x: np.ndarray, d: int) -> np.ndarray:
+    """O(n*d) rolling argmax - days since max in window.
+
+    For each position i, scan window [i-d+1, i] and find index of max value.
+    Returns i - max_idx (0 = current is max, d-1 = oldest was max).
+    If current is NaN, returns NaN. NaN values in window are skipped.
+    First d-1 values are NaN (window not complete).
+    """
+    n = len(x)
+    result = np.empty(n, dtype=np.float64)
+    result[:d-1] = np.nan
+
+    if n < d:
+        result[:] = np.nan
+        return result
+
+    for i in range(d - 1, n):
+        current = x[i]
+
+        # If current value is NaN, result is NaN
+        if np.isnan(current):
+            result[i] = np.nan
+            continue
+
+        # Define window bounds: [i-d+1, i]
+        start = i - d + 1
+
+        # Find max value and its index (closest to current if ties)
+        max_val = -np.inf
+        max_idx = -1
+
+        for j in range(start, i + 1):
+            val = x[j]
+            if not np.isnan(val):
+                # Use >= to prefer more recent (higher j) in case of ties
+                if val >= max_val:
+                    max_val = val
+                    max_idx = j
+
+        # If no valid values found, return NaN
+        if max_idx == -1:
+            result[i] = np.nan
+        else:
+            # Days since max: i - max_idx
+            # 0 = current is max, d-1 = oldest was max
+            result[i] = float(i - max_idx)
+
+    return result
+
+
+@njit(cache=True)
+def rolling_arg_min(x: np.ndarray, d: int) -> np.ndarray:
+    """O(n*d) rolling argmin - days since min in window.
+
+    For each position i, scan window [i-d+1, i] and find index of min value.
+    Returns i - min_idx (0 = current is min, d-1 = oldest was min).
+    If current is NaN, returns NaN. NaN values in window are skipped.
+    First d-1 values are NaN (window not complete).
+    """
+    n = len(x)
+    result = np.empty(n, dtype=np.float64)
+    result[:d-1] = np.nan
+
+    if n < d:
+        result[:] = np.nan
+        return result
+
+    for i in range(d - 1, n):
+        current = x[i]
+
+        # If current value is NaN, result is NaN
+        if np.isnan(current):
+            result[i] = np.nan
+            continue
+
+        # Define window bounds: [i-d+1, i]
+        start = i - d + 1
+
+        # Find min value and its index (closest to current if ties)
+        min_val = np.inf
+        min_idx = -1
+
+        for j in range(start, i + 1):
+            val = x[j]
+            if not np.isnan(val):
+                # Use <= to prefer more recent (higher j) in case of ties
+                if val <= min_val:
+                    min_val = val
+                    min_idx = j
+
+        # If no valid values found, return NaN
+        if min_idx == -1:
+            result[i] = np.nan
+        else:
+            # Days since min: i - min_idx
+            # 0 = current is min, d-1 = oldest was min
+            result[i] = float(i - min_idx)
+
+    return result
+
+
+@njit(cache=True)
 def rolling_rank(x: np.ndarray, d: int, constant: float) -> np.ndarray:
     """O(n*d) rolling rank scaled to [constant, 1+constant].
 

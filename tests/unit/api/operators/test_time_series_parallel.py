@@ -769,3 +769,268 @@ def test_ts_quantile_multiple_columns():
         # uniform: 0.833 * 2 - 1 = 0.666...
         assert result_gaussian[col][2] == pytest.approx(0.9674, rel=0.01)
         assert result_uniform[col][2] == pytest.approx(2.0 / 3.0, rel=1e-9)
+
+
+def test_ts_arg_max_correctness():
+    """ts_arg_max produces correct days since max in rolling window."""
+    from alphalab.api.operators.time_series import ts_arg_max
+
+    df = pl.DataFrame({
+        "Date": list(range(7)),
+        "A": [1.0, 3.0, 2.0, 5.0, 4.0, 6.0, 5.5],
+        "B": [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0],  # Monotonically increasing
+    })
+
+    result = ts_arg_max(df, d=3)
+
+    # First 2 values should be NaN (window not complete)
+    assert is_missing(result["A"][0])
+    assert is_missing(result["A"][1])
+
+    # Index 2: window [1.0, 3.0, 2.0] -> max=3.0 at idx 1
+    # days_since = 2 - 1 = 1
+    assert result["A"][2] == pytest.approx(1.0, abs=1e-9)
+
+    # Index 3: window [3.0, 2.0, 5.0] -> max=5.0 at idx 3
+    # days_since = 3 - 3 = 0 (current is max)
+    assert result["A"][3] == pytest.approx(0.0, abs=1e-9)
+
+    # Index 4: window [2.0, 5.0, 4.0] -> max=5.0 at idx 3
+    # days_since = 4 - 3 = 1
+    assert result["A"][4] == pytest.approx(1.0, abs=1e-9)
+
+    # Index 5: window [5.0, 4.0, 6.0] -> max=6.0 at idx 5
+    # days_since = 5 - 5 = 0 (current is max)
+    assert result["A"][5] == pytest.approx(0.0, abs=1e-9)
+
+    # Index 6: window [4.0, 6.0, 5.5] -> max=6.0 at idx 5
+    # days_since = 6 - 5 = 1
+    assert result["A"][6] == pytest.approx(1.0, abs=1e-9)
+
+    # Column B: monotonically increasing, so current is always max
+    # All values from index 2 onwards should be 0 (current is max)
+    assert result["B"][2] == pytest.approx(0.0, abs=1e-9)
+    assert result["B"][3] == pytest.approx(0.0, abs=1e-9)
+    assert result["B"][4] == pytest.approx(0.0, abs=1e-9)
+    assert result["B"][5] == pytest.approx(0.0, abs=1e-9)
+    assert result["B"][6] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_ts_arg_max_with_nan():
+    """NaN in current value returns NaN; NaN in window is skipped."""
+    from alphalab.api.operators.time_series import ts_arg_max
+
+    df = pl.DataFrame({
+        "Date": [1, 2, 3, 4, 5, 6, 7],
+        "A": [1.0, 2.0, float("nan"), 4.0, 5.0, 3.0, 6.0],
+    })
+
+    result = ts_arg_max(df, d=3)
+
+    # Index 0, 1: window not complete
+    assert is_missing(result["A"][0])
+    assert is_missing(result["A"][1])
+
+    # Index 2: current is NaN -> NaN
+    assert is_missing(result["A"][2])
+
+    # Index 3: window [2.0, nan, 4.0], current=4.0 (not NaN)
+    # valid values: [2.0, 4.0], max=4.0 at idx 3
+    # days_since = 3 - 3 = 0
+    assert result["A"][3] == pytest.approx(0.0, abs=1e-9)
+
+    # Index 4: window [nan, 4.0, 5.0], current=5.0 (not NaN)
+    # valid values: [4.0, 5.0], max=5.0 at idx 4
+    # days_since = 4 - 4 = 0
+    assert result["A"][4] == pytest.approx(0.0, abs=1e-9)
+
+    # Index 5: window [4.0, 5.0, 3.0], no NaN
+    # max=5.0 at idx 4, days_since = 5 - 4 = 1
+    assert result["A"][5] == pytest.approx(1.0, abs=1e-9)
+
+    # Index 6: window [5.0, 3.0, 6.0], no NaN
+    # max=6.0 at idx 6, days_since = 6 - 6 = 0
+    assert result["A"][6] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_ts_arg_max_ties():
+    """When multiple values tie for max, prefer the most recent (closest to current)."""
+    from alphalab.api.operators.time_series import ts_arg_max
+
+    df = pl.DataFrame({
+        "Date": list(range(5)),
+        "A": [3.0, 3.0, 3.0, 2.0, 3.0],  # Ties at indices 0, 1, 2, 4
+    })
+
+    result = ts_arg_max(df, d=3)
+
+    # Index 2: window [3.0, 3.0, 3.0] -> all tie, prefer most recent (idx 2)
+    # days_since = 2 - 2 = 0
+    assert result["A"][2] == pytest.approx(0.0, abs=1e-9)
+
+    # Index 3: window [3.0, 3.0, 2.0] -> max=3.0, tie at idx 1 and 2, prefer idx 2
+    # days_since = 3 - 2 = 1
+    assert result["A"][3] == pytest.approx(1.0, abs=1e-9)
+
+    # Index 4: window [3.0, 2.0, 3.0] -> max=3.0, tie at idx 2 and 4, prefer idx 4
+    # days_since = 4 - 4 = 0
+    assert result["A"][4] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_ts_arg_max_multiple_columns():
+    """Verify parallel processing works correctly with multiple columns."""
+    from alphalab.api.operators.time_series import ts_arg_max
+
+    # Create DataFrame with many columns to test parallel processing
+    df = pl.DataFrame({
+        "Date": list(range(6)),
+        **{f"Col_{i}": [float(j + 1) for j in range(6)] for i in range(10)},
+    })
+
+    result = ts_arg_max(df, d=3)
+
+    # Verify all columns are present
+    assert result.columns == df.columns
+
+    # All columns have same values [1, 2, 3, 4, 5, 6] (monotonically increasing)
+    # Current value is always the max in window -> days_since = 0
+    for col in df.columns[1:]:
+        # First 2 values are NaN
+        assert is_missing(result[col][0])
+        assert is_missing(result[col][1])
+        # Rest should be 0 (current is max)
+        assert result[col][2] == pytest.approx(0.0, abs=1e-9)
+        assert result[col][5] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_ts_arg_min_correctness():
+    """ts_arg_min produces correct days since min in rolling window."""
+    from alphalab.api.operators.time_series import ts_arg_min
+
+    df = pl.DataFrame({
+        "Date": list(range(7)),
+        "A": [5.0, 3.0, 4.0, 1.0, 2.0, 0.5, 1.5],
+        "B": [70.0, 60.0, 50.0, 40.0, 30.0, 20.0, 10.0],  # Monotonically decreasing
+    })
+
+    result = ts_arg_min(df, d=3)
+
+    # First 2 values should be NaN (window not complete)
+    assert is_missing(result["A"][0])
+    assert is_missing(result["A"][1])
+
+    # Index 2: window [5.0, 3.0, 4.0] -> min=3.0 at idx 1
+    # days_since = 2 - 1 = 1
+    assert result["A"][2] == pytest.approx(1.0, abs=1e-9)
+
+    # Index 3: window [3.0, 4.0, 1.0] -> min=1.0 at idx 3
+    # days_since = 3 - 3 = 0 (current is min)
+    assert result["A"][3] == pytest.approx(0.0, abs=1e-9)
+
+    # Index 4: window [4.0, 1.0, 2.0] -> min=1.0 at idx 3
+    # days_since = 4 - 3 = 1
+    assert result["A"][4] == pytest.approx(1.0, abs=1e-9)
+
+    # Index 5: window [1.0, 2.0, 0.5] -> min=0.5 at idx 5
+    # days_since = 5 - 5 = 0 (current is min)
+    assert result["A"][5] == pytest.approx(0.0, abs=1e-9)
+
+    # Index 6: window [2.0, 0.5, 1.5] -> min=0.5 at idx 5
+    # days_since = 6 - 5 = 1
+    assert result["A"][6] == pytest.approx(1.0, abs=1e-9)
+
+    # Column B: monotonically decreasing, so current is always min
+    # All values from index 2 onwards should be 0 (current is min)
+    assert result["B"][2] == pytest.approx(0.0, abs=1e-9)
+    assert result["B"][3] == pytest.approx(0.0, abs=1e-9)
+    assert result["B"][4] == pytest.approx(0.0, abs=1e-9)
+    assert result["B"][5] == pytest.approx(0.0, abs=1e-9)
+    assert result["B"][6] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_ts_arg_min_with_nan():
+    """NaN in current value returns NaN; NaN in window is skipped."""
+    from alphalab.api.operators.time_series import ts_arg_min
+
+    df = pl.DataFrame({
+        "Date": [1, 2, 3, 4, 5, 6, 7],
+        "A": [5.0, 4.0, float("nan"), 2.0, 1.0, 3.0, 0.5],
+    })
+
+    result = ts_arg_min(df, d=3)
+
+    # Index 0, 1: window not complete
+    assert is_missing(result["A"][0])
+    assert is_missing(result["A"][1])
+
+    # Index 2: current is NaN -> NaN
+    assert is_missing(result["A"][2])
+
+    # Index 3: window [4.0, nan, 2.0], current=2.0 (not NaN)
+    # valid values: [4.0, 2.0], min=2.0 at idx 3
+    # days_since = 3 - 3 = 0
+    assert result["A"][3] == pytest.approx(0.0, abs=1e-9)
+
+    # Index 4: window [nan, 2.0, 1.0], current=1.0 (not NaN)
+    # valid values: [2.0, 1.0], min=1.0 at idx 4
+    # days_since = 4 - 4 = 0
+    assert result["A"][4] == pytest.approx(0.0, abs=1e-9)
+
+    # Index 5: window [2.0, 1.0, 3.0], no NaN
+    # min=1.0 at idx 4, days_since = 5 - 4 = 1
+    assert result["A"][5] == pytest.approx(1.0, abs=1e-9)
+
+    # Index 6: window [1.0, 3.0, 0.5], no NaN
+    # min=0.5 at idx 6, days_since = 6 - 6 = 0
+    assert result["A"][6] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_ts_arg_min_ties():
+    """When multiple values tie for min, prefer the most recent (closest to current)."""
+    from alphalab.api.operators.time_series import ts_arg_min
+
+    df = pl.DataFrame({
+        "Date": list(range(5)),
+        "A": [1.0, 1.0, 1.0, 2.0, 1.0],  # Ties at indices 0, 1, 2, 4
+    })
+
+    result = ts_arg_min(df, d=3)
+
+    # Index 2: window [1.0, 1.0, 1.0] -> all tie, prefer most recent (idx 2)
+    # days_since = 2 - 2 = 0
+    assert result["A"][2] == pytest.approx(0.0, abs=1e-9)
+
+    # Index 3: window [1.0, 1.0, 2.0] -> min=1.0, tie at idx 1 and 2, prefer idx 2
+    # days_since = 3 - 2 = 1
+    assert result["A"][3] == pytest.approx(1.0, abs=1e-9)
+
+    # Index 4: window [1.0, 2.0, 1.0] -> min=1.0, tie at idx 2 and 4, prefer idx 4
+    # days_since = 4 - 4 = 0
+    assert result["A"][4] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_ts_arg_min_multiple_columns():
+    """Verify parallel processing works correctly with multiple columns."""
+    from alphalab.api.operators.time_series import ts_arg_min
+
+    # Create DataFrame with many columns to test parallel processing
+    # Use monotonically decreasing values so current is always min
+    df = pl.DataFrame({
+        "Date": list(range(6)),
+        **{f"Col_{i}": [float(6 - j) for j in range(6)] for i in range(10)},  # [6, 5, 4, 3, 2, 1]
+    })
+
+    result = ts_arg_min(df, d=3)
+
+    # Verify all columns are present
+    assert result.columns == df.columns
+
+    # All columns have values [6, 5, 4, 3, 2, 1] (monotonically decreasing)
+    # Current value is always the min in window -> days_since = 0
+    for col in df.columns[1:]:
+        # First 2 values are NaN
+        assert is_missing(result[col][0])
+        assert is_missing(result[col][1])
+        # Rest should be 0 (current is min)
+        assert result[col][2] == pytest.approx(0.0, abs=1e-9)
+        assert result[col][5] == pytest.approx(0.0, abs=1e-9)

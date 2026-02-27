@@ -1710,8 +1710,8 @@ class TestOtherOperatorEdgeCases:
             "A": [1.0, 2.0, 3.0],
         })
         result = ts_arg_max(df, 5)
-        # Window size 5, only 3 values, should be None
-        assert result["A"][2] is None
+        # Window size 5, only 3 values, should be missing
+        assert is_missing(result["A"][2])
 
     def test_ts_arg_min_short_window(self) -> None:
         """Test ts_arg_min when window not filled."""
@@ -1720,8 +1720,8 @@ class TestOtherOperatorEdgeCases:
             "A": [3.0, 2.0, 1.0],
         })
         result = ts_arg_min(df, 5)
-        # Window size 5, only 3 values, should be None
-        assert result["A"][2] is None
+        # Window size 5, only 3 values, should be missing
+        assert is_missing(result["A"][2])
 
 
 class TestEdgeCases:
@@ -2334,8 +2334,8 @@ class TestTimeSeriesArgMinMaxCoverage:
             "A": [1.0, None, None, None, None],
         })
         result = ts_arg_max(df, d=3)
-        # Window [None, None, None] should return None
-        assert result["A"][-1] is None
+        # Window [None, None, None] should return missing (current is NaN)
+        assert is_missing(result["A"][-1])
 
     def test_ts_arg_min_all_null_in_window(self) -> None:
         """Test ts_arg_min when all values in window are null."""
@@ -2345,8 +2345,8 @@ class TestTimeSeriesArgMinMaxCoverage:
             "A": [1.0, None, None, None, None],
         })
         result = ts_arg_min(df, d=3)
-        # Window [None, None, None] should return None
-        assert result["A"][-1] is None
+        # Window [None, None, None] should return missing (current is NaN)
+        assert is_missing(result["A"][-1])
 
     def test_ts_arg_max_window_smaller_than_d(self) -> None:
         """Test ts_arg_max at start when window < d."""
@@ -2356,8 +2356,8 @@ class TestTimeSeriesArgMinMaxCoverage:
             "A": [5.0, 3.0, 4.0, 2.0, 1.0],
         })
         result = ts_arg_max(df, d=10)  # d=10 but only 5 rows
-        # First few rows should have None
-        assert result["A"][0] is None
+        # First few rows should have missing (window not complete)
+        assert is_missing(result["A"][0])
 
     def test_ts_arg_min_window_smaller_than_d(self) -> None:
         """Test ts_arg_min at start when window < d."""
@@ -2367,8 +2367,8 @@ class TestTimeSeriesArgMinMaxCoverage:
             "A": [5.0, 3.0, 4.0, 2.0, 1.0],
         })
         result = ts_arg_min(df, d=10)  # d=10 but only 5 rows
-        # First few rows should have None
-        assert result["A"][0] is None
+        # First few rows should have missing (window not complete)
+        assert is_missing(result["A"][0])
 
 
 class TestLastDiffValueCoverage:
