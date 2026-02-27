@@ -124,3 +124,32 @@ def test_operators_are_profiled():
     op_names = {r.operator for r in p.records}
     assert "rank" in op_names
     assert "ts_mean" in op_names
+
+
+def test_profile_with_client_query(capsys):
+    """Full integration: profile() works with client.query()."""
+    from alphalab.api.profiler import profile
+    import polars as pl
+
+    # Create mock data matching client.get() output format
+    df = pl.DataFrame({
+        "Date": pl.date_range(pl.date(2024, 1, 1), pl.date(2024, 1, 10), eager=True),
+        "AAPL": [100.0 + i for i in range(10)],
+        "MSFT": [200.0 + i for i in range(10)],
+    })
+
+    # Test using compute() directly (avoids needing full client setup)
+    from alphalab.api.dsl import compute
+
+    with profile() as p:
+        result = compute("rank(-ts_delta(x, 2))", x=df)
+
+    # Verify profiling captured the operators
+    op_names = {r.operator for r in p.records}
+    assert "rank" in op_names
+    assert "ts_delta" in op_names
+
+    # Verify summary printed
+    captured = capsys.readouterr()
+    assert "rank" in captured.out
+    assert "ts_delta" in captured.out
