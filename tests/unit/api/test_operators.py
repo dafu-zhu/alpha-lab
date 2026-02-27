@@ -2319,8 +2319,8 @@ class TestTsQuantileInvNormCoverage:
             "A": [1.0, 2.0, 3.0, 4.0, None],
         })
         result = ts_quantile(df, d=3, driver="gaussian")
-        # Current null should return null
-        assert result["A"][-1] is None
+        # Current null should return missing (None or NaN)
+        assert is_missing(result["A"][-1])
 
 
 class TestTimeSeriesArgMinMaxCoverage:

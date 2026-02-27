@@ -543,6 +543,158 @@ def process_columns_regression(
 
 
 @njit(cache=True)
+def norm_inv_cdf(p: float) -> float:
+    """Beasley-Springer-Moro approximation for inverse normal CDF.
+
+    Returns NaN for p <= 0 or p >= 1.
+    """
+    if p <= 0.0 or p >= 1.0:
+        return np.nan
+
+    # Rational approximation coefficients (central region)
+    a0, a1, a2, a3, a4, a5 = (
+        -3.969683028665376e01, 2.209460984245205e02, -2.759285104469687e02,
+        1.383577518672690e02, -3.066479806614716e01, 2.506628277459239e00,
+    )
+    b0, b1, b2, b3, b4 = (
+        -5.447609879822406e01, 1.615858368580409e02, -1.556989798598866e02,
+        6.680131188771972e01, -1.328068155288572e01,
+    )
+    # Tail region coefficients
+    c0, c1, c2, c3, c4, c5 = (
+        -7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e00,
+        -2.549732539343734e00, 4.374664141464968e00, 2.938163982698783e00,
+    )
+    d0, d1, d2, d3 = (
+        7.784695709041462e-03, 3.224671290700398e-01,
+        2.445134137142996e00, 3.754408661907416e00,
+    )
+
+    p_low = 0.02425
+    p_high = 1.0 - p_low
+
+    if p < p_low:
+        # Lower tail
+        q = np.sqrt(-2.0 * np.log(p))
+        numer = ((((c0 * q + c1) * q + c2) * q + c3) * q + c4) * q + c5
+        denom = (((d0 * q + d1) * q + d2) * q + d3) * q + 1.0
+        return numer / denom
+    elif p <= p_high:
+        # Central region
+        q = p - 0.5
+        r = q * q
+        numer = (((((a0 * r + a1) * r + a2) * r + a3) * r + a4) * r + a5) * q
+        denom = ((((b0 * r + b1) * r + b2) * r + b3) * r + b4) * r + 1.0
+        return numer / denom
+    else:
+        # Upper tail (symmetric)
+        q = np.sqrt(-2.0 * np.log(1.0 - p))
+        numer = ((((c0 * q + c1) * q + c2) * q + c3) * q + c4) * q + c5
+        denom = (((d0 * q + d1) * q + d2) * q + d3) * q + 1.0
+        return -numer / denom
+
+
+@njit(cache=True)
+def rolling_quantile_gaussian(x: np.ndarray, d: int) -> np.ndarray:
+    """Rolling quantile transform with Gaussian inverse CDF.
+
+    Computes rolling rank then applies inverse normal CDF.
+    Partial windows allowed. NaN current value propagates NaN.
+    """
+    n = len(x)
+    result = np.empty(n, dtype=np.float64)
+
+    if n == 0:
+        return result
+
+    for i in range(n):
+        current = x[i]
+
+        # If current value is NaN, result is NaN
+        if np.isnan(current):
+            result[i] = np.nan
+            continue
+
+        # Define window bounds: [max(0, i-d+1), i]
+        start = max(0, i - d + 1)
+
+        # Count valid values and values less than current
+        valid_count = 0
+        count_less = 0
+
+        for j in range(start, i + 1):
+            val = x[j]
+            if not np.isnan(val):
+                valid_count += 1
+                if val < current:
+                    count_less += 1
+
+        # Compute quantile transform
+        if valid_count == 0:
+            result[i] = np.nan
+        elif valid_count == 1:
+            # Single value -> rank_pct = 0.5 -> inv_norm(0.5) = 0.0
+            result[i] = 0.0
+        else:
+            # rank_pct = (count_less + 0.5) / valid_count
+            # This matches the original: sorted_vals.index(current) + 0.5 / len(sorted_vals)
+            rank_pct = (count_less + 0.5) / valid_count
+            result[i] = norm_inv_cdf(rank_pct)
+
+    return result
+
+
+@njit(cache=True)
+def rolling_quantile_uniform(x: np.ndarray, d: int) -> np.ndarray:
+    """Rolling quantile transform with uniform distribution (scaled to [-1, 1]).
+
+    Computes rolling rank then scales to [-1, 1] range.
+    Partial windows allowed. NaN current value propagates NaN.
+    """
+    n = len(x)
+    result = np.empty(n, dtype=np.float64)
+
+    if n == 0:
+        return result
+
+    for i in range(n):
+        current = x[i]
+
+        # If current value is NaN, result is NaN
+        if np.isnan(current):
+            result[i] = np.nan
+            continue
+
+        # Define window bounds: [max(0, i-d+1), i]
+        start = max(0, i - d + 1)
+
+        # Count valid values and values less than current
+        valid_count = 0
+        count_less = 0
+
+        for j in range(start, i + 1):
+            val = x[j]
+            if not np.isnan(val):
+                valid_count += 1
+                if val < current:
+                    count_less += 1
+
+        # Compute quantile transform
+        if valid_count == 0:
+            result[i] = np.nan
+        elif valid_count == 1:
+            # Single value -> rank_pct = 0.5 -> uniform: 0.5 * 2 - 1 = 0.0
+            result[i] = 0.0
+        else:
+            # rank_pct = (count_less + 0.5) / valid_count
+            rank_pct = (count_less + 0.5) / valid_count
+            # Scale to [-1, 1]: rank_pct * 2 - 1
+            result[i] = rank_pct * 2.0 - 1.0
+
+    return result
+
+
+@njit(cache=True)
 def rolling_rank(x: np.ndarray, d: int, constant: float) -> np.ndarray:
     """O(n*d) rolling rank scaled to [constant, 1+constant].
 

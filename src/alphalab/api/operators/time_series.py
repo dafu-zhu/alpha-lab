@@ -748,14 +748,39 @@ def ts_covariance(x: pl.DataFrame, y: pl.DataFrame, d: int) -> pl.DataFrame:
 
 
 def ts_quantile(x: pl.DataFrame, d: int, driver: str = "gaussian") -> pl.DataFrame:
-    """Rolling quantile transform: ts_rank + inverse CDF (partial windows allowed)."""
+    """Rolling quantile transform: ts_rank + inverse CDF (partial windows allowed).
+
+    Uses O(n*d) numba-optimized kernel with ThreadPoolExecutor for column parallelism.
+
+    Args:
+        x: Wide DataFrame with date + symbol columns
+        d: Window size in periods
+        driver: "gaussian" (inverse normal CDF) or "uniform" (scaled to [-1, 1])
+
+    Returns:
+        Wide DataFrame with quantile-transformed values
+    """
+    import numpy as np
+    from concurrent.futures import ThreadPoolExecutor
+
+    from alphalab.api.operators._numba_kernels import (
+        rolling_quantile_gaussian,
+        rolling_quantile_uniform,
+    )
+
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
 
-    return x.select(
-        pl.col(date_col),
-        *[pl.col(c).rolling_map(lambda s: _ts_quantile_transform(s, driver), window_size=d, min_samples=1).alias(c) for c in value_cols],
-    )
+    kernel = rolling_quantile_gaussian if driver == "gaussian" else rolling_quantile_uniform
+
+    def process_col(c: str) -> tuple[str, np.ndarray]:
+        x_arr = x[c].to_numpy().astype(np.float64)
+        return (c, kernel(x_arr, d))
+
+    with ThreadPoolExecutor(max_workers=min(8, len(value_cols))) as executor:
+        col_results = dict(executor.map(process_col, value_cols))
+
+    return pl.DataFrame({date_col: x[date_col], **col_results})
 
 
 # Phase 6: Regression

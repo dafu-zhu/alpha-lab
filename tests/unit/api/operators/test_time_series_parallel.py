@@ -592,3 +592,180 @@ def test_ts_rank_multiple_columns():
         assert result[col][2] == pytest.approx(1.0, rel=1e-9)
         # Index 4: [3, 4, 5] -> current=5 is max -> rank=1.0
         assert result[col][4] == pytest.approx(1.0, rel=1e-9)
+
+
+def test_ts_quantile_gaussian_correctness():
+    """ts_quantile with gaussian driver produces correct quantile transform."""
+    from alphalab.api.operators.time_series import ts_quantile
+
+    df = pl.DataFrame({
+        "Date": list(range(6)),
+        "A": [1.0, 3.0, 2.0, 5.0, 4.0, 6.0],
+        "B": [10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+    })
+
+    result = ts_quantile(df, d=3, driver="gaussian")
+
+    # Index 0: single value -> 0.0 (inv_norm(0.5) = 0)
+    assert result["A"][0] == pytest.approx(0.0, abs=1e-9)
+
+    # Index 1: window [1.0, 3.0], current=3.0 (max)
+    # count_less=1, valid=2, rank_pct = (1 + 0.5) / 2 = 0.75
+    # inv_norm(0.75) ~ 0.6745
+    assert result["A"][1] == pytest.approx(0.6745, rel=0.01)
+
+    # Index 2: window [1.0, 3.0, 2.0], current=2.0 (middle)
+    # count_less=1, valid=3, rank_pct = (1 + 0.5) / 3 = 0.5
+    # inv_norm(0.5) = 0.0
+    assert result["A"][2] == pytest.approx(0.0, abs=1e-9)
+
+    # Column B: monotonically increasing, current is always max
+    # Index 2: [10, 20, 30], current=30 (max)
+    # count_less=2, valid=3, rank_pct = (2 + 0.5) / 3 = 0.833...
+    # inv_norm(0.833) ~ 0.9674
+    assert result["B"][2] == pytest.approx(0.9674, rel=0.01)
+
+
+def test_ts_quantile_uniform_correctness():
+    """ts_quantile with uniform driver produces correct scaled rank."""
+    from alphalab.api.operators.time_series import ts_quantile
+
+    df = pl.DataFrame({
+        "Date": list(range(6)),
+        "A": [1.0, 3.0, 2.0, 5.0, 4.0, 6.0],
+        "B": [10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+    })
+
+    result = ts_quantile(df, d=3, driver="uniform")
+
+    # Index 0: single value -> 0.0 (0.5 * 2 - 1 = 0)
+    assert result["A"][0] == pytest.approx(0.0, abs=1e-9)
+
+    # Index 1: window [1.0, 3.0], current=3.0 (max)
+    # count_less=1, valid=2, rank_pct = (1 + 0.5) / 2 = 0.75
+    # uniform: 0.75 * 2 - 1 = 0.5
+    assert result["A"][1] == pytest.approx(0.5, rel=1e-9)
+
+    # Index 2: window [1.0, 3.0, 2.0], current=2.0 (middle)
+    # count_less=1, valid=3, rank_pct = (1 + 0.5) / 3 = 0.5
+    # uniform: 0.5 * 2 - 1 = 0.0
+    assert result["A"][2] == pytest.approx(0.0, abs=1e-9)
+
+    # Index 3: window [3.0, 2.0, 5.0], current=5.0 (max)
+    # count_less=2, valid=3, rank_pct = (2 + 0.5) / 3 = 0.833...
+    # uniform: 0.833 * 2 - 1 = 0.666...
+    assert result["A"][3] == pytest.approx(2.0 / 3.0, rel=1e-9)
+
+    # Column B: monotonically increasing
+    # Index 2: [10, 20, 30], current=30 (max)
+    # count_less=2, valid=3, rank_pct = (2 + 0.5) / 3 = 0.833...
+    # uniform: 0.833 * 2 - 1 = 0.666...
+    assert result["B"][2] == pytest.approx(2.0 / 3.0, rel=1e-9)
+
+    # Index 0 (B): single value -> 0.0
+    assert result["B"][0] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_ts_quantile_with_nan():
+    """NaN in current value returns NaN; NaN in window is skipped."""
+    from alphalab.api.operators.time_series import ts_quantile
+
+    df = pl.DataFrame({
+        "Date": [1, 2, 3, 4, 5, 6],
+        "A": [1.0, 2.0, float("nan"), 4.0, 5.0, 6.0],
+    })
+
+    result_gaussian = ts_quantile(df, d=3, driver="gaussian")
+    result_uniform = ts_quantile(df, d=3, driver="uniform")
+
+    # Index 0, 1: partial windows, no NaN
+    assert not is_missing(result_gaussian["A"][0])
+    assert not is_missing(result_gaussian["A"][1])
+    assert not is_missing(result_uniform["A"][0])
+    assert not is_missing(result_uniform["A"][1])
+
+    # Index 2: current is NaN -> NaN
+    assert is_missing(result_gaussian["A"][2])
+    assert is_missing(result_uniform["A"][2])
+
+    # Index 3: window [2, nan, 4], current=4.0 (not NaN)
+    # valid values: [2, 4], count_less=1, valid=2
+    # rank_pct = (1 + 0.5) / 2 = 0.75
+    # gaussian: inv_norm(0.75) ~ 0.6745
+    # uniform: 0.75 * 2 - 1 = 0.5
+    assert result_gaussian["A"][3] == pytest.approx(0.6745, rel=0.01)
+    assert result_uniform["A"][3] == pytest.approx(0.5, rel=1e-9)
+
+    # Index 4: window [nan, 4, 5], current=5.0 (not NaN)
+    # valid values: [4, 5], count_less=1, valid=2
+    assert result_gaussian["A"][4] == pytest.approx(0.6745, rel=0.01)
+    assert result_uniform["A"][4] == pytest.approx(0.5, rel=1e-9)
+
+    # Index 5: window [4, 5, 6], no NaN
+    # valid values: [4, 5, 6], current=6 (max)
+    # count_less=2, valid=3, rank_pct = (2 + 0.5) / 3 = 0.833...
+    assert result_gaussian["A"][5] == pytest.approx(0.9674, rel=0.01)
+    assert result_uniform["A"][5] == pytest.approx(2.0 / 3.0, rel=1e-9)
+
+
+def test_ts_quantile_constant_values():
+    """Constant values (ties) handled correctly."""
+    from alphalab.api.operators.time_series import ts_quantile
+
+    df = pl.DataFrame({
+        "Date": list(range(5)),
+        "A": [3.0, 3.0, 3.0, 3.0, 3.0],  # All same
+    })
+
+    result_gaussian = ts_quantile(df, d=3, driver="gaussian")
+    result_uniform = ts_quantile(df, d=3, driver="uniform")
+
+    # All values are 3.0 (constant)
+    # For any window, count_less=0
+    # rank_pct = (0 + 0.5) / valid_count
+
+    # Index 0: single value -> rank_pct = 0.5 -> gaussian: 0.0, uniform: 0.0
+    assert result_gaussian["A"][0] == pytest.approx(0.0, abs=1e-9)
+    assert result_uniform["A"][0] == pytest.approx(0.0, abs=1e-9)
+
+    # Index 1: [3, 3], count_less=0, valid=2
+    # rank_pct = 0.5 / 2 = 0.25
+    # gaussian: inv_norm(0.25) ~ -0.6745
+    # uniform: 0.25 * 2 - 1 = -0.5
+    assert result_gaussian["A"][1] == pytest.approx(-0.6745, rel=0.01)
+    assert result_uniform["A"][1] == pytest.approx(-0.5, rel=1e-9)
+
+    # Index 2+: [3, 3, 3], count_less=0, valid=3
+    # rank_pct = 0.5 / 3 = 0.1666...
+    # gaussian: inv_norm(0.1666) ~ -0.9674
+    # uniform: 0.1666 * 2 - 1 = -0.6666...
+    assert result_gaussian["A"][2] == pytest.approx(-0.9674, rel=0.01)
+    assert result_uniform["A"][2] == pytest.approx(-2.0 / 3.0, rel=1e-9)
+
+
+def test_ts_quantile_multiple_columns():
+    """Verify parallel processing works correctly with multiple columns."""
+    from alphalab.api.operators.time_series import ts_quantile
+
+    # Create DataFrame with many columns to test parallel processing
+    df = pl.DataFrame({
+        "Date": list(range(5)),
+        **{f"Col_{i}": [float(j + 1) for j in range(5)] for i in range(10)},
+    })
+
+    result_gaussian = ts_quantile(df, d=3, driver="gaussian")
+    result_uniform = ts_quantile(df, d=3, driver="uniform")
+
+    # Verify all columns are present
+    assert result_gaussian.columns == df.columns
+    assert result_uniform.columns == df.columns
+
+    # All columns have same values [1, 2, 3, 4, 5] (monotonically increasing)
+    # Current value is always the max in window
+    for col in df.columns[1:]:
+        # Index 2: [1, 2, 3], current=3 is max
+        # count_less=2, valid=3, rank_pct = 2.5/3 = 0.833...
+        # gaussian: inv_norm(0.833) ~ 0.9674
+        # uniform: 0.833 * 2 - 1 = 0.666...
+        assert result_gaussian[col][2] == pytest.approx(0.9674, rel=0.01)
+        assert result_uniform[col][2] == pytest.approx(2.0 / 3.0, rel=1e-9)
