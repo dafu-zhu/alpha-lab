@@ -928,3 +928,58 @@ def hump_column(col_data: np.ndarray, row_limits: np.ndarray) -> np.ndarray:
                     result[i] = curr
 
     return result
+
+
+@njit(cache=True)
+def _values_are_same(
+    curr_val: float, prev_val: float, curr_is_null: bool, prev_is_null: bool
+) -> bool:
+    """Determine if two values are considered "same" for change detection.
+
+    Rules:
+    - null == null: same (Polars semantics)
+    - null vs non-null: different
+    - NaN vs anything: different (NaN != NaN)
+    - Otherwise: compare values
+    """
+    # Handle null cases first
+    if curr_is_null and prev_is_null:
+        return True
+    if curr_is_null or prev_is_null:
+        return False
+
+    # Handle NaN cases (NaN that isn't Polars null)
+    if np.isnan(curr_val) or np.isnan(prev_val):
+        return False
+
+    # Both are valid numeric values
+    return curr_val == prev_val
+
+
+@njit(cache=True)
+def days_since_change_with_null(x: np.ndarray, is_null: np.ndarray) -> np.ndarray:
+    """Compute days since value last changed.
+
+    Handles Polars null vs NaN distinction:
+    - Polars null (is_null=True): null == null is "same value"
+    - Polars NaN (is_null=False but isnan=True): NaN != NaN is "different"
+
+    Args:
+        x: Input array of values (NaN for both null and NaN)
+        is_null: Boolean mask where True means Polars null (not NaN)
+
+    Returns:
+        Array of integers representing days since last change
+    """
+    n = len(x)
+    result = np.zeros(n, dtype=np.int64)
+
+    last_change_idx = 0
+    for i in range(1, n):
+        same = _values_are_same(x[i], x[i - 1], is_null[i], is_null[i - 1])
+        if same:
+            result[i] = i - last_change_idx
+        else:
+            last_change_idx = i
+
+    return result

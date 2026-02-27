@@ -540,34 +540,32 @@ def last_diff_value(x: pl.DataFrame, d: int) -> pl.DataFrame:
     return pl.DataFrame({date_col: x[date_col], **col_results})
 
 
-def _compute_days_from_last_change(col_data: list) -> list[int]:
-    """Compute days since last change for a single column."""
-    days: list[int] = []
-    last_change_idx = 0
-    for i, val in enumerate(col_data):
-        if i == 0:
-            days.append(0)
-        elif val != col_data[i - 1]:
-            last_change_idx = i
-            days.append(0)
-        else:
-            days.append(i - last_change_idx)
-    return days
-
-
 def days_from_last_change(x: pl.DataFrame) -> pl.DataFrame:
-    """Days since value changed (column-parallel)."""
+    """Days since value changed (numba + column-parallel).
+
+    Polars null (None) is treated as a distinct value - None == None is "same".
+    Polars NaN is treated as always different - NaN != NaN.
+    """
+    import numpy as np
     from concurrent.futures import ThreadPoolExecutor
+
+    from alphalab.api.operators._numba_kernels import days_since_change_with_null
 
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
 
-    def process_col(c: str) -> tuple[str, list[int]]:
-        return (c, _compute_days_from_last_change(x[c].to_list()))
+    value_df = x.select(value_cols)
+    values = value_df.to_numpy().astype(np.float64)
+    null_mask = value_df.select(pl.col(c).is_null() for c in value_cols).to_numpy()
 
-    # Parallelize across columns
+    def process_col(idx: int) -> tuple[str, np.ndarray]:
+        return (
+            value_cols[idx],
+            days_since_change_with_null(values[:, idx], null_mask[:, idx]),
+        )
+
     with ThreadPoolExecutor(max_workers=min(8, len(value_cols))) as executor:
-        col_results = dict(executor.map(process_col, value_cols))
+        col_results = dict(executor.map(process_col, range(len(value_cols))))
 
     return pl.DataFrame({date_col: x[date_col], **col_results})
 
