@@ -1,11 +1,22 @@
 """Tests for alpha expression DSL."""
 
+import math
 from datetime import date
 
 import polars as pl
 import pytest
 
 import alphalab.api.operators as ops
+
+
+def is_missing(value) -> bool:
+    """Check if value is missing (None or NaN)."""
+    if value is None:
+        return True
+    try:
+        return math.isnan(value)
+    except (TypeError, ValueError):
+        return False
 from alphalab.alpha import (
     Alpha,
     AlphaParseError,
@@ -553,9 +564,9 @@ class TestCleanSyntax:
             ops=ops,
         )
         assert result is not None
-        # Correlation requires at least 3 periods
-        assert result.data["AAPL"][0] is None
-        assert result.data["AAPL"][1] is None
+        # Correlation requires at least 3 periods (returns missing for incomplete windows)
+        assert is_missing(result.data["AAPL"][0])
+        assert is_missing(result.data["AAPL"][1])
 
 
 class TestAlphaQuery:

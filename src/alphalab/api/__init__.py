@@ -9,6 +9,7 @@ from alphalab.api.exceptions import (
     SecurityNotFoundError,
     StorageError,
 )
+from alphalab.api.profiler import profile
 from alphalab.api.types import SecurityInfo
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "StorageError",
     "ConfigurationError",
     "dsl",
+    "profile",
 ]

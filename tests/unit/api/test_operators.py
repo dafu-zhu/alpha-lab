@@ -10,6 +10,16 @@ from alphalab.api.operators import (
     abs as op_abs,
     bucket,
 )
+
+
+def is_missing(value) -> bool:
+    """Check if value is missing (None or NaN)."""
+    if value is None:
+        return True
+    try:
+        return math.isnan(value)
+    except (TypeError, ValueError):
+        return False
 from alphalab.api.operators import (
     add,
     and_,
@@ -279,7 +289,7 @@ class TestTimeSeriesOperators:
             "A": [100.0, 200.0, 150.0],
             "B": [50.0, 50.0, 50.0],
         })
-        result = hump(df, hump=0.1)
+        result = hump(df, hump_factor=0.1)
         # Row 1: sum(|values|) = 200+50=250, limit=25
         # A change = 100, capped at prev + 25 = 125
         assert result["A"][1] == 125.0
@@ -422,7 +432,7 @@ class TestCrossSectionalOperators:
 
     def test_scale(self, wide_df: pl.DataFrame) -> None:
         """Test scaling to target."""
-        result = scale(wide_df, scale=1.0)
+        result = scale(wide_df, scale_factor=1.0)
 
         # Sum of absolute values should be ~1.0 for each row
         for i in range(len(result)):
@@ -431,7 +441,7 @@ class TestCrossSectionalOperators:
 
     def test_scale_custom_booksize(self, wide_df: pl.DataFrame) -> None:
         """Test scaling to custom book size."""
-        result = scale(wide_df, scale=4.0)
+        result = scale(wide_df, scale_factor=4.0)
 
         # Sum of absolute values should be ~4.0 for each row
         for i in range(len(result)):
@@ -1417,7 +1427,7 @@ class TestOperatorComposition:
     def test_normalize_then_scale(self, wide_df: pl.DataFrame) -> None:
         """Test composing cross-sectional operators."""
         normalized = normalize(wide_df)
-        scaled = scale(normalized, scale=1.0)
+        scaled = scale(normalized, scale_factor=1.0)
 
         # Should still sum to ~0 (normalize preserved)
         # But absolute sum should be ~1 (scale)
@@ -1520,8 +1530,8 @@ class TestTsRegressionRetTypes:
             "A": [1.0, 2.0, 3.0, 4.0, 5.0],
         })
         result = ts_regression(y, x, 3, rettype=1)
-        # At idx 2: pairs [(1,1), (3,3)] after filtering null, beta = 1.0
-        assert result["A"][2] == 1.0
+        # Window containing null returns NaN
+        assert is_missing(result["A"][2])
 
     def test_ts_regression_zero_variance(self) -> None:
         """Test regression with zero variance in x (ss_xx=0)."""
@@ -1534,8 +1544,8 @@ class TestTsRegressionRetTypes:
             "A": [5.0, 5.0, 5.0, 5.0, 5.0],  # Constant x
         })
         result = ts_regression(y, x, 3, rettype=1)
-        # Zero variance should return None
-        assert result["A"][2] is None
+        # Zero variance should return NaN
+        assert is_missing(result["A"][2])
 
 
 class TestTsQuantileEdgeCases:
@@ -1590,8 +1600,8 @@ class TestTsCorrCovarianceEdgeCases:
             "A": [2.0, 4.0, 6.0, 8.0, 10.0],
         })
         result = ts_corr(x, y, 3)
-        # Window with null should return None
-        assert result["A"][2] is None
+        # Window with null should return NaN
+        assert is_missing(result["A"][2])
 
     def test_ts_corr_zero_std(self) -> None:
         """Test ts_corr with zero standard deviation."""
@@ -1604,8 +1614,8 @@ class TestTsCorrCovarianceEdgeCases:
             "A": [1.0, 2.0, 3.0, 4.0, 5.0],
         })
         result = ts_corr(x, y, 3)
-        # Zero std should return None
-        assert result["A"][2] is None
+        # Zero std should return NaN
+        assert is_missing(result["A"][2])
 
     def test_ts_covariance_with_nulls(self) -> None:
         """Test ts_covariance with null values."""
@@ -1618,8 +1628,8 @@ class TestTsCorrCovarianceEdgeCases:
             "A": [2.0, 4.0, 6.0, 8.0, 10.0],
         })
         result = ts_covariance(x, y, 3)
-        # Window with null should return None
-        assert result["A"][3] is None
+        # Window with null should return NaN
+        assert is_missing(result["A"][3])
 
 
 class TestTsRankEdgeCases:
@@ -1632,8 +1642,8 @@ class TestTsRankEdgeCases:
             "A": [1.0, 2.0, None, 4.0, 5.0],
         })
         result = ts_rank(df, 3)
-        # Null current value should return None
-        assert result["A"][2] is None
+        # Null current value should return missing (None or NaN)
+        assert is_missing(result["A"][2])
 
     def test_ts_rank_single_unique(self) -> None:
         """Test ts_rank with single unique non-null value."""
@@ -1666,8 +1676,8 @@ class TestTsDecayLinearEdgeCases:
             "A": [1.0, None, 3.0, 4.0, 5.0],
         })
         result = ts_decay_linear(df, 3, dense=False)
-        # Non-dense mode: window with null returns None
-        assert result["A"][2] is None
+        # Non-dense mode: window with null returns missing (None or NaN)
+        assert is_missing(result["A"][2])
 
 
 class TestOtherOperatorEdgeCases:
@@ -1679,7 +1689,7 @@ class TestOtherOperatorEdgeCases:
             "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 3), eager=True),
             "A": [None, 100.0, 150.0],
         })
-        result = hump(df, hump=0.1)
+        result = hump(df, hump_factor=0.1)
         # When prev is None, curr should pass through
         assert result["A"][1] == 100.0
 
@@ -1690,8 +1700,8 @@ class TestOtherOperatorEdgeCases:
             "A": [5.0, 5.0, 5.0, 5.0, 5.0],
         })
         result = last_diff_value(df, 3)
-        # No different value exists, should return None
-        assert result["A"][4] is None
+        # No different value exists, should return NaN
+        assert is_missing(result["A"][4])
 
     def test_ts_arg_max_short_window(self) -> None:
         """Test ts_arg_max when window not filled."""
@@ -1700,8 +1710,8 @@ class TestOtherOperatorEdgeCases:
             "A": [1.0, 2.0, 3.0],
         })
         result = ts_arg_max(df, 5)
-        # Window size 5, only 3 values, should be None
-        assert result["A"][2] is None
+        # Window size 5, only 3 values, should be missing
+        assert is_missing(result["A"][2])
 
     def test_ts_arg_min_short_window(self) -> None:
         """Test ts_arg_min when window not filled."""
@@ -1710,8 +1720,8 @@ class TestOtherOperatorEdgeCases:
             "A": [3.0, 2.0, 1.0],
         })
         result = ts_arg_min(df, 5)
-        # Window size 5, only 3 values, should be None
-        assert result["A"][2] is None
+        # Window size 5, only 3 values, should be missing
+        assert is_missing(result["A"][2])
 
 
 class TestEdgeCases:
@@ -2309,8 +2319,8 @@ class TestTsQuantileInvNormCoverage:
             "A": [1.0, 2.0, 3.0, 4.0, None],
         })
         result = ts_quantile(df, d=3, driver="gaussian")
-        # Current null should return null
-        assert result["A"][-1] is None
+        # Current null should return missing (None or NaN)
+        assert is_missing(result["A"][-1])
 
 
 class TestTimeSeriesArgMinMaxCoverage:
@@ -2324,8 +2334,8 @@ class TestTimeSeriesArgMinMaxCoverage:
             "A": [1.0, None, None, None, None],
         })
         result = ts_arg_max(df, d=3)
-        # Window [None, None, None] should return None
-        assert result["A"][-1] is None
+        # Window [None, None, None] should return missing (current is NaN)
+        assert is_missing(result["A"][-1])
 
     def test_ts_arg_min_all_null_in_window(self) -> None:
         """Test ts_arg_min when all values in window are null."""
@@ -2335,8 +2345,8 @@ class TestTimeSeriesArgMinMaxCoverage:
             "A": [1.0, None, None, None, None],
         })
         result = ts_arg_min(df, d=3)
-        # Window [None, None, None] should return None
-        assert result["A"][-1] is None
+        # Window [None, None, None] should return missing (current is NaN)
+        assert is_missing(result["A"][-1])
 
     def test_ts_arg_max_window_smaller_than_d(self) -> None:
         """Test ts_arg_max at start when window < d."""
@@ -2346,8 +2356,8 @@ class TestTimeSeriesArgMinMaxCoverage:
             "A": [5.0, 3.0, 4.0, 2.0, 1.0],
         })
         result = ts_arg_max(df, d=10)  # d=10 but only 5 rows
-        # First few rows should have None
-        assert result["A"][0] is None
+        # First few rows should have missing (window not complete)
+        assert is_missing(result["A"][0])
 
     def test_ts_arg_min_window_smaller_than_d(self) -> None:
         """Test ts_arg_min at start when window < d."""
@@ -2357,8 +2367,8 @@ class TestTimeSeriesArgMinMaxCoverage:
             "A": [5.0, 3.0, 4.0, 2.0, 1.0],
         })
         result = ts_arg_min(df, d=10)  # d=10 but only 5 rows
-        # First few rows should have None
-        assert result["A"][0] is None
+        # First few rows should have missing (window not complete)
+        assert is_missing(result["A"][0])
 
 
 class TestLastDiffValueCoverage:
@@ -2372,8 +2382,8 @@ class TestLastDiffValueCoverage:
             "A": [1.0, 2.0, 3.0, 4.0, 5.0],
         })
         result = last_diff_value(df, d=1)
-        # Window of 1 means no previous value, should be None
-        assert result["A"][-1] is None
+        # Window of 1 means no previous value, should be NaN
+        assert is_missing(result["A"][-1])
 
     def test_last_diff_value_with_nulls(self) -> None:
         """Test last_diff_value with null values in sequence."""
@@ -2383,8 +2393,8 @@ class TestLastDiffValueCoverage:
             "A": [1.0, None, None, None, 1.0],  # Current same as first
         })
         result = last_diff_value(df, d=5)
-        # Should return None since no different non-null value exists
-        assert result["A"][-1] is None
+        # Should return NaN since no different non-null value exists
+        assert is_missing(result["A"][-1])
 
     def test_last_diff_value_finds_different(self) -> None:
         """Test last_diff_value finds the last different value."""

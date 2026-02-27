@@ -1,0 +1,182 @@
+{
+  "date": "2026-02-27",
+  "description": "Baseline benchmark results for operator performance optimization",
+  "data_shape": [2262, 5705],
+  "slow_threshold_s": 1.0,
+  "categories": {
+    "time-series": {
+      "total": 26,
+      "fast": 13,
+      "slow": 13,
+      "error": 0
+    },
+    "arithmetic": {
+      "total": 15,
+      "fast": 14,
+      "slow": 1,
+      "error": 0
+    },
+    "logical": {
+      "total": 11,
+      "fast": 11,
+      "slow": 0,
+      "error": 0
+    },
+    "vector": {
+      "total": 2,
+      "fast": 0,
+      "slow": 0,
+      "error": 2
+    },
+    "cross-sectional": {
+      "note": "Partial benchmark - zscore hangs due to list.eval inefficiency",
+      "total": 7,
+      "benchmarked": 1,
+      "fast": 0,
+      "slow": 1,
+      "error": 0
+    }
+  },
+  "slow_operators": [
+    {
+      "name": "ts_regression",
+      "category": "time-series",
+      "time_s": 1840.79,
+      "peak_memory_mb": 300.38,
+      "analysis": "2-arg rolling operation with 3 output components (slope, alpha, resid)"
+    },
+    {
+      "name": "ts_corr",
+      "category": "time-series",
+      "time_s": 579.07,
+      "peak_memory_mb": 297.92,
+      "analysis": "2-arg rolling correlation, high memory from intermediate arrays"
+    },
+    {
+      "name": "ts_decay_linear",
+      "category": "time-series",
+      "time_s": 520.83,
+      "peak_memory_mb": 4.13,
+      "analysis": "Rolling weighted sum with linear decay weights"
+    },
+    {
+      "name": "ts_quantile",
+      "category": "time-series",
+      "time_s": 443.54,
+      "peak_memory_mb": 5.25,
+      "analysis": "Rolling quantile computation, no polars native support"
+    },
+    {
+      "name": "ts_rank",
+      "category": "time-series",
+      "time_s": 429.87,
+      "peak_memory_mb": 4.12,
+      "analysis": "Rolling rank computation"
+    },
+    {
+      "name": "ts_arg_max",
+      "category": "time-series",
+      "time_s": 409.52,
+      "peak_memory_mb": 5.25,
+      "analysis": "Index of max within rolling window"
+    },
+    {
+      "name": "ts_product",
+      "category": "time-series",
+      "time_s": 403.14,
+      "peak_memory_mb": 5.09,
+      "analysis": "Rolling product, no polars native support"
+    },
+    {
+      "name": "ts_arg_min",
+      "category": "time-series",
+      "time_s": 399.58,
+      "peak_memory_mb": 5.26,
+      "analysis": "Index of min within rolling window"
+    },
+    {
+      "name": "last_diff_value",
+      "category": "time-series",
+      "time_s": 397.12,
+      "peak_memory_mb": 4.12,
+      "analysis": "Find last different value in window"
+    },
+    {
+      "name": "ts_covariance",
+      "category": "time-series",
+      "time_s": 343.05,
+      "peak_memory_mb": 302.25,
+      "analysis": "2-arg rolling covariance, high memory"
+    },
+    {
+      "name": "densify",
+      "category": "arithmetic",
+      "time_s": 107.98,
+      "peak_memory_mb": 1.35,
+      "analysis": "Fill NaN with 0, row-by-row operation"
+    },
+    {
+      "name": "hump",
+      "category": "time-series",
+      "time_s": 31.97,
+      "peak_memory_mb": 403.80,
+      "analysis": "Python loop over columns, very high memory"
+    },
+    {
+      "name": "days_from_last_change",
+      "category": "time-series",
+      "time_s": 19.70,
+      "peak_memory_mb": 192.61,
+      "analysis": "Python loop over rows and columns"
+    },
+    {
+      "name": "rank",
+      "category": "cross-sectional",
+      "time_s": 2.39,
+      "peak_memory_mb": null,
+      "analysis": "Cross-sectional rank within each row"
+    },
+    {
+      "name": "ts_step",
+      "category": "time-series",
+      "time_s": 1.28,
+      "peak_memory_mb": 2.95,
+      "analysis": "Cumulative step count"
+    }
+  ],
+  "optimization_targets": {
+    "high_priority": {
+      "description": "2-arg rolling operations (ts_corr, ts_covariance, ts_regression)",
+      "reason": "Slowest operators, high memory usage, candidates for parallel rolling",
+      "operators": ["ts_regression", "ts_corr", "ts_covariance"]
+    },
+    "medium_priority": {
+      "description": "Python loops (hump, days_from_last_change)",
+      "reason": "Python iteration over rows/columns, candidates for vectorization",
+      "operators": ["hump", "days_from_last_change"]
+    },
+    "rolling_no_native": {
+      "description": "Rolling operations without native polars support",
+      "reason": "Using list.eval or custom aggregation, candidates for numba/parallel",
+      "operators": ["ts_decay_linear", "ts_rank", "ts_quantile", "ts_arg_max", "ts_arg_min", "ts_product", "last_diff_value"]
+    },
+    "cross_sectional": {
+      "description": "Cross-sectional operations",
+      "reason": "zscore hangs, rank slow - candidates for numpy vectorization",
+      "operators": ["rank", "zscore"]
+    },
+    "densify": {
+      "description": "NaN filling operation",
+      "reason": "Row-by-row processing, candidate for vectorization",
+      "operators": ["densify"]
+    }
+  },
+  "summary": {
+    "total_operators": 61,
+    "total_fast": 38,
+    "total_slow": 15,
+    "total_error": 2,
+    "slowest_operator": "ts_regression (1840.79s / 30.7 min)",
+    "highest_memory": "hump (403.80 MB)"
+  }
+}

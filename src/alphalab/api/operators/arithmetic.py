@@ -11,6 +11,7 @@ They detect input types and delegate to built-ins when appropriate.
 import builtins
 from typing import Any
 
+import numpy as np
 import polars as pl
 
 
@@ -469,20 +470,27 @@ def densify(x: pl.DataFrame) -> pl.DataFrame:
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
 
-    # Convert to long format
-    long = x.unpivot(
-        index=date_col,
-        on=value_cols,
-        variable_name="symbol",
-        value_name="value",
-    )
+    # Extract as numpy for fast row-wise processing
+    values = x.select(value_cols).to_numpy()
+    n_rows, n_cols = values.shape
+    result = np.empty((n_rows, n_cols), dtype=np.float64)
 
-    # Rank unique values per date using dense ranking (ties get same rank)
-    ranked = long.with_columns(
-        (pl.col("value").rank(method="dense").over(date_col) - 1).alias("value")
-    )
+    # Dense rank per row
+    for i in range(n_rows):
+        row = values[i]
+        valid_mask = ~np.isnan(row)
 
-    # Pivot back to wide
-    wide = ranked.pivot(values="value", index=date_col, on="symbol")
+        if not np.any(valid_mask):
+            result[i] = np.nan
+            continue
 
-    return wide.select([date_col, *value_cols])
+        # np.unique returns sorted unique values and inverse indices
+        # inverse[j] gives the index of row[valid_mask][j] in the sorted unique array
+        _, inverse = np.unique(row[valid_mask], return_inverse=True)
+        result[i, valid_mask] = inverse.astype(np.float64)
+        result[i, ~valid_mask] = np.nan
+
+    return pl.DataFrame({
+        date_col: x[date_col],
+        **{col: result[:, j] for j, col in enumerate(value_cols)}
+    })

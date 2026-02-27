@@ -127,48 +127,88 @@ def rank(x: pl.DataFrame, rate: int = 2) -> pl.DataFrame:
         >>> rank(close, rate=0)  # Precise ranking
         >>> # X = (4,3,6,10,2) => rank(x) = (0.5, 0.25, 0.75, 1.0, 0.0)
     """
-
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
-
-    # Convert to long format
-    long = x.unpivot(
-        index=date_col,
-        on=value_cols,
-        variable_name="symbol",
-        value_name="value",
-    )
-
-    # Use precise ranking when rate=0 or when dataset is small (< 32 items)
-    # Bucket-based ranking is only beneficial for large universes
     n_symbols = len(value_cols)
-    if rate == 0 or n_symbols < 32:
-        # Precise ranking using ordinal method
-        ranked = long.with_columns(
-            ((pl.col("value").rank(method="ordinal").over(date_col) - 1)
-             / (pl.col("value").count().over(date_col) - 1))
-            .alias("value")
-        )
+
+    # Extract values as numpy array (rows × symbols)
+    values = x.select(value_cols).to_numpy().astype(np.float64)
+    n_rows, n_cols = values.shape
+
+    # Choose ranking method
+    use_precise = rate == 0 or n_symbols < 32
+
+    if use_precise:
+        # Vectorized precise ranking using scipy (axis=1 for row-wise)
+        # scipy.stats.rankdata handles NaN by assigning them NaN in result
+        result = np.empty_like(values)
+        valid_mask = ~np.isnan(values)
+
+        # Count valid values per row
+        valid_counts = valid_mask.sum(axis=1)
+
+        # Process rows with valid data
+        for i in range(n_rows):
+            n_valid = valid_counts[i]
+            if n_valid <= 1:
+                result[i] = np.where(valid_mask[i], 0.0, np.nan)
+            else:
+                # Rank only valid values
+                row_valid = valid_mask[i]
+                ranks = stats.rankdata(values[i, row_valid], method="ordinal")
+                result[i] = np.nan
+                result[i, row_valid] = (ranks - 1) / (n_valid - 1)
     else:
-        # Bucket-based approximate ranking using module-level function
-        ranked = long.with_columns(
-            pl.col("value")
-            .map_batches(lambda s: pl.Series(_bucket_rank(s.to_numpy(), rate)), return_dtype=pl.Float64)
-            .over(date_col)
-            .alias("value")
-        )
+        # Vectorized bucket ranking
+        result = _bucket_rank_2d(values, rate)
 
-    # Pivot back to wide
-    wide = ranked.pivot(values="value", index=date_col, on="symbol")
+    # Rebuild DataFrame efficiently
+    return pl.DataFrame({
+        date_col: x[date_col],
+        **{col: result[:, j] for j, col in enumerate(value_cols)}
+    })
 
-    # Ensure column order matches input
-    return wide.select([date_col, *value_cols])
+
+def _bucket_rank_2d(values: np.ndarray, rate: int) -> np.ndarray:
+    """Vectorized bucket ranking for 2D array (rows x cols).
+
+    Processes all rows using vectorized operations.
+    """
+    n_rows, n_cols = values.shape
+    result = np.full_like(values, np.nan, dtype=np.float64)
+
+    valid_mask = ~np.isnan(values)
+    valid_counts = valid_mask.sum(axis=1)
+
+    for i in range(n_rows):
+        n_valid = valid_counts[i]
+        if n_valid <= 1:
+            result[i, valid_mask[i]] = 0.0
+            continue
+
+        # Number of buckets based on rate
+        n_buckets = max(2, int(n_valid / (2 ** rate)))
+
+        valid_vals = values[i, valid_mask[i]]
+
+        # Random sample for pivot selection
+        sample_size = min(n_buckets, n_valid)
+        sample_idx = _bucket_rank_rng.choice(n_valid, size=sample_size, replace=False)
+        thresholds = np.sort(valid_vals[sample_idx])
+
+        # Assign each value to a bucket via searchsorted
+        bucket_indices = np.searchsorted(thresholds, valid_vals, side="right")
+
+        result[i, valid_mask[i]] = bucket_indices / n_buckets
+
+    return result
 
 
 def zscore(x: pl.DataFrame) -> pl.DataFrame:
     """Cross-sectional z-score within each row (date).
 
     Computes (x - mean) / std across symbols for each date.
+    Uses numpy for fast row-wise operations.
 
     Args:
         x: Wide DataFrame with date + symbol columns
@@ -176,39 +216,45 @@ def zscore(x: pl.DataFrame) -> pl.DataFrame:
     Returns:
         Wide DataFrame with z-scored values
     """
+    date_col = x.columns[0]
     value_cols = _get_value_cols(x)
 
-    # Compute row-wise mean and std
-    row_mean = pl.mean_horizontal(*[pl.col(c) for c in value_cols])
-    row_std = pl.concat_list([pl.col(c) for c in value_cols]).list.eval(
-        pl.element().std()
-    ).list.first()
+    # Use numpy for fast row-wise operations
+    values = x.select(value_cols).to_numpy()
 
-    return x.with_columns([
-        ((pl.col(c) - row_mean) / row_std).alias(c)
-        for c in value_cols
-    ])
+    row_mean = np.nanmean(values, axis=1, keepdims=True)
+    row_std = np.nanstd(values, axis=1, keepdims=True)
+    # Avoid division by zero
+    row_std = np.where(row_std == 0, np.nan, row_std)
+
+    result = (values - row_mean) / row_std
+
+    return pl.DataFrame({
+        date_col: x[date_col],
+        **{col: result[:, j] for j, col in enumerate(value_cols)}
+    })
 
 
 def scale(
     x: pl.DataFrame,
-    scale: float = 1.0,
+    scale_factor: float = 1.0,
     longscale: float = 0.0,
     shortscale: float = 0.0,
 ) -> pl.DataFrame:
     """Scale values so that sum of absolute values equals target book size.
 
     Scales the input to the book size. The default scales so that sum(abs(x))
-    equals 1. Use `scale` parameter to set a different book size.
+    equals 1. Use `scale_factor` parameter to set a different book size.
 
     For separate long/short scaling, use `longscale` and `shortscale` parameters
     to scale positive and negative positions independently.
 
     This operator may help reduce outliers.
+    Uses numpy for fast row-wise operations.
 
     Args:
         x: Wide DataFrame with date + symbol columns
-        scale: Target sum of absolute values (default: 1.0). When longscale or
+        scale_factor: Target sum of absolute values (default: 1.0). When longscale or
             shortscale are specified, this is ignored.
         longscale: Target sum of positive values (default: 0.0, meaning no scaling).
             When > 0, positive values are scaled so their sum equals this value.
@@ -220,47 +266,46 @@ def scale(
         Wide DataFrame with scaled values
 
     Examples:
-        >>> scale(returns, scale=4)  # Scale to book size 4
-        >>> scale(returns, scale=1) + scale(close, scale=20)  # Combine scaled alphas
+        >>> scale(returns, scale_factor=4)  # Scale to book size 4
+        >>> scale(returns, scale_factor=1) + scale(close, scale_factor=20)
         >>> scale(returns, longscale=4, shortscale=3)  # Asymmetric long/short scaling
     """
+    date_col = x.columns[0]
     value_cols = _get_value_cols(x)
+
+    # Use numpy for fast row-wise operations
+    values = x.select(value_cols).to_numpy().astype(np.float64)
 
     # Check if using long/short scaling
     use_asymmetric = longscale > 0 or shortscale > 0
 
     if use_asymmetric:
-        # Scale long and short positions separately
-        # Sum of positive values across row
-        long_sum = pl.sum_horizontal(
-            *[pl.when(pl.col(c) > 0).then(pl.col(c)).otherwise(0.0) for c in value_cols]
-        )
-        # Sum of absolute negative values across row
-        short_sum = pl.sum_horizontal(
-            *[pl.when(pl.col(c) < 0).then(-pl.col(c)).otherwise(0.0) for c in value_cols]
-        )
+        # Sum of positive values per row
+        pos_mask = values > 0
+        long_sum = np.nansum(np.where(pos_mask, values, 0), axis=1, keepdims=True)
+
+        # Sum of absolute negative values per row
+        neg_mask = values < 0
+        short_sum = np.nansum(np.where(neg_mask, -values, 0), axis=1, keepdims=True)
 
         # Scale factors (avoid division by zero)
-        long_factor = pl.when(long_sum > 0).then(longscale / long_sum).otherwise(0.0)
-        short_factor = pl.when(short_sum > 0).then(shortscale / short_sum).otherwise(0.0)
+        long_factor = np.where(long_sum > 0, longscale / long_sum, 0.0)
+        short_factor = np.where(short_sum > 0, shortscale / short_sum, 0.0)
 
-        return x.with_columns([
-            pl.when(pl.col(c) > 0)
-            .then(pl.col(c) * long_factor)
-            .when(pl.col(c) < 0)
-            .then(pl.col(c) * short_factor)
-            .otherwise(0.0)
-            .alias(c)
-            for c in value_cols
-        ])
+        # Apply scaling
+        result = np.where(pos_mask, values * long_factor,
+                         np.where(neg_mask, values * short_factor, 0.0))
     else:
-        # Standard scaling: sum of absolute values equals scale
-        abs_sum = pl.sum_horizontal(*[pl.col(c).abs() for c in value_cols])
+        # Standard scaling: sum of absolute values equals scale_factor
+        abs_sum = np.nansum(np.abs(values), axis=1, keepdims=True)
+        # Avoid division by zero
+        abs_sum = np.where(abs_sum == 0, np.nan, abs_sum)
+        result = values * scale_factor / abs_sum
 
-        return x.with_columns([
-            (pl.col(c) * scale / abs_sum).alias(c)
-            for c in value_cols
-        ])
+    return pl.DataFrame({
+        date_col: x[date_col],
+        **{col: result[:, j] for j, col in enumerate(value_cols)}
+    })
 
 
 def normalize(
@@ -285,31 +330,30 @@ def normalize(
         >>> normalize(x)  # [-1,1,2,-2]
         >>> normalize(x, useStd=True)  # [-0.55,0.55,1.1,-1.1]
     """
+    date_col = x.columns[0]
     value_cols = _get_value_cols(x)
 
-    row_mean = pl.mean_horizontal(*[pl.col(c) for c in value_cols])
+    # Use numpy for fast row-wise operations
+    values = x.select(value_cols).to_numpy()
+
+    # Row mean (ignoring NaN)
+    row_mean = np.nanmean(values, axis=1, keepdims=True)
+    result = values - row_mean
 
     if useStd:
-        row_std = pl.concat_list([pl.col(c) for c in value_cols]).list.eval(
-            pl.element().std()
-        ).list.first()
-        result = x.with_columns([
-            ((pl.col(c) - row_mean) / row_std).alias(c)
-            for c in value_cols
-        ])
-    else:
-        result = x.with_columns([
-            (pl.col(c) - row_mean).alias(c)
-            for c in value_cols
-        ])
+        row_std = np.nanstd(values, axis=1, keepdims=True)
+        # Avoid division by zero
+        row_std = np.where(row_std == 0, np.nan, row_std)
+        result = result / row_std
 
     if limit > 0:
-        result = result.with_columns([
-            pl.col(c).clip(-limit, limit).alias(c)
-            for c in value_cols
-        ])
+        result = np.clip(result, -limit, limit)
 
-    return result
+    # Rebuild DataFrame
+    return pl.DataFrame({
+        date_col: x[date_col],
+        **{col: result[:, j] for j, col in enumerate(value_cols)}
+    })
 
 
 def quantile(
@@ -365,6 +409,7 @@ def winsorize(x: pl.DataFrame, std: float = 4.0) -> pl.DataFrame:
     """Cross-sectional winsorization within each row (date).
 
     Clips values to [mean - std*SD, mean + std*SD].
+    Uses numpy for fast row-wise operations.
 
     Args:
         x: Wide DataFrame with date + symbol columns
@@ -377,20 +422,24 @@ def winsorize(x: pl.DataFrame, std: float = 4.0) -> pl.DataFrame:
         >>> # x = (2,4,5,6,3,8,10), mean=5.42, SD=2.61
         >>> winsorize(x, std=1)  # (2.81,4,5,6,3,8,8.03)
     """
+    date_col = x.columns[0]
     value_cols = _get_value_cols(x)
 
-    row_mean = pl.mean_horizontal(*[pl.col(c) for c in value_cols])
-    row_std = pl.concat_list([pl.col(c) for c in value_cols]).list.eval(
-        pl.element().std()
-    ).list.first()
+    # Use numpy for fast row-wise operations
+    values = x.select(value_cols).to_numpy()
+
+    row_mean = np.nanmean(values, axis=1, keepdims=True)
+    row_std = np.nanstd(values, axis=1, keepdims=True)
 
     lower = row_mean - std * row_std
     upper = row_mean + std * row_std
 
-    return x.with_columns([
-        pl.col(c).clip(lower, upper).alias(c)
-        for c in value_cols
-    ])
+    result = np.clip(values, lower, upper)
+
+    return pl.DataFrame({
+        date_col: x[date_col],
+        **{col: result[:, j] for j, col in enumerate(value_cols)}
+    })
 
 
 def bucket(x: pl.DataFrame, range_spec: str) -> pl.DataFrame:

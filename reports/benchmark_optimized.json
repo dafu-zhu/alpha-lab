@@ -1,0 +1,71 @@
+{
+  "date": "2026-02-27",
+  "description": "Benchmark results after parallelization optimizations (Tasks 5-9)",
+  "mode": "full",
+  "data_shape": [
+    2262,
+    5705
+  ],
+  "operators": [
+    {
+      "name": "days_from_last_change",
+      "baseline_time_s": 19.7,
+      "optimized_time_s": 2.5296197080024285,
+      "speedup": 7.787731862492703,
+      "input_rows": 2262,
+      "input_cols": 5705,
+      "status": "improved"
+    },
+    {
+      "name": "ts_corr",
+      "baseline_time_s": 579.07,
+      "optimized_time_s": 161.08603562499047,
+      "speedup": 3.594787082277445,
+      "input_rows": 2262,
+      "input_cols": 5705,
+      "status": "improved"
+    },
+    {
+      "name": "ts_covariance",
+      "baseline_time_s": 343.05,
+      "optimized_time_s": 94.31766420800705,
+      "speedup": 3.6371765870223594,
+      "input_rows": 2262,
+      "input_cols": 5705,
+      "status": "improved"
+    },
+    {
+      "name": "ts_regression",
+      "baseline_time_s": 1840.79,
+      "optimized_time_s": 264.2956852079951,
+      "speedup": 6.964888581330176,
+      "input_rows": 2262,
+      "input_cols": 5705,
+      "status": "improved"
+    },
+    {
+      "name": "hump",
+      "baseline_time_s": 31.97,
+      "optimized_time_s": 5.555789041987737,
+      "speedup": 5.754358158379939,
+      "input_rows": 2262,
+      "input_cols": 5705,
+      "status": "improved"
+    }
+  ],
+  "summary": {
+    "total": 5,
+    "improved": 5,
+    "same": 0,
+    "slower": 0,
+    "avg_speedup": 5.547788454300525
+  },
+  "baseline_source": "reports/benchmark_baseline.json",
+  "optimizations_applied": [
+    "days_from_last_change: ThreadPoolExecutor column-parallel (Task 5)",
+    "ts_corr: ThreadPoolExecutor column-parallel (Task 6)",
+    "ts_covariance: ThreadPoolExecutor column-parallel (Task 7)",
+    "ts_regression: ThreadPoolExecutor column-parallel (Task 8)",
+    "hump: ThreadPoolExecutor column-parallel with pre-computed row limits (Task 9)"
+  ]
+}
