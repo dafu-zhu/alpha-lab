@@ -19,3 +19,24 @@ class ProfileRecord:
     operator: str
     duration: float  # seconds
     input_shape: tuple[int, int] | None = None
+
+
+@dataclass
+class Profiler:
+    """Collects profiling records during a profiling session."""
+
+    records: list[ProfileRecord] = field(default_factory=list)
+
+    def record(
+        self,
+        operator: str,
+        duration: float,
+        input_shape: tuple[int, int] | None = None,
+    ) -> None:
+        """Record an operator call."""
+        self.records.append(ProfileRecord(operator, duration, input_shape))
+
+    @property
+    def total_time(self) -> float:
+        """Total time across all recorded operators."""
+        return sum(r.duration for r in self.records)
