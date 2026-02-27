@@ -1,6 +1,8 @@
-"""Numba-optimized kernels for time-series operators.
+"""Numba-optimized kernels for operators.
 
-Uses online/incremental algorithms for O(n) complexity instead of O(n*d).
+Contains:
+- Time-series kernels: Online/incremental algorithms for O(n) complexity
+- Group kernels: Row-wise operations across symbols within each date
 """
 
 import numpy as np
@@ -1228,5 +1230,307 @@ def trade_when_column(
             result[i] = prev
         else:
             result[i] = prev
+
+    return result
+
+
+# =============================================================================
+# Group operator kernels (row-wise across symbols)
+# =============================================================================
+
+
+@njit(cache=True)
+def group_neutralize_rows(values: np.ndarray, groups: np.ndarray) -> np.ndarray:
+    """Subtract group mean from each value, row by row."""
+    n_rows, n_cols = values.shape
+    result = np.empty_like(values)
+
+    for i in range(n_rows):
+        max_gid = -1
+        for j in range(n_cols):
+            if groups[i, j] > max_gid:
+                max_gid = groups[i, j]
+
+        if max_gid < 0:
+            for j in range(n_cols):
+                result[i, j] = np.nan
+            continue
+
+        n_groups = max_gid + 1
+        group_sum = np.zeros(n_groups, dtype=np.float64)
+        group_count = np.zeros(n_groups, dtype=np.int32)
+
+        for j in range(n_cols):
+            gid = groups[i, j]
+            val = values[i, j]
+            if gid >= 0 and not np.isnan(val):
+                group_sum[gid] += val
+                group_count[gid] += 1
+
+        group_mean = np.empty(n_groups, dtype=np.float64)
+        for g in range(n_groups):
+            if group_count[g] > 0:
+                group_mean[g] = group_sum[g] / group_count[g]
+            else:
+                group_mean[g] = np.nan
+
+        for j in range(n_cols):
+            gid = groups[i, j]
+            val = values[i, j]
+            if gid >= 0 and not np.isnan(val):
+                result[i, j] = val - group_mean[gid]
+            else:
+                result[i, j] = np.nan
+
+    return result
+
+
+@njit(cache=True)
+def group_zscore_rows(values: np.ndarray, groups: np.ndarray) -> np.ndarray:
+    """Z-score within groups, row by row."""
+    n_rows, n_cols = values.shape
+    result = np.empty_like(values)
+
+    for i in range(n_rows):
+        max_gid = -1
+        for j in range(n_cols):
+            if groups[i, j] > max_gid:
+                max_gid = groups[i, j]
+
+        if max_gid < 0:
+            for j in range(n_cols):
+                result[i, j] = np.nan
+            continue
+
+        n_groups = max_gid + 1
+        group_sum = np.zeros(n_groups, dtype=np.float64)
+        group_sum_sq = np.zeros(n_groups, dtype=np.float64)
+        group_count = np.zeros(n_groups, dtype=np.int32)
+
+        for j in range(n_cols):
+            gid = groups[i, j]
+            val = values[i, j]
+            if gid >= 0 and not np.isnan(val):
+                group_sum[gid] += val
+                group_sum_sq[gid] += val * val
+                group_count[gid] += 1
+
+        group_mean = np.empty(n_groups, dtype=np.float64)
+        group_std = np.empty(n_groups, dtype=np.float64)
+        for g in range(n_groups):
+            if group_count[g] > 0:
+                mean = group_sum[g] / group_count[g]
+                group_mean[g] = mean
+                variance = group_sum_sq[g] / group_count[g] - mean * mean
+                group_std[g] = np.sqrt(max(0.0, variance))
+            else:
+                group_mean[g] = np.nan
+                group_std[g] = np.nan
+
+        for j in range(n_cols):
+            gid = groups[i, j]
+            val = values[i, j]
+            if gid >= 0 and not np.isnan(val):
+                std = group_std[gid]
+                if std > 0:
+                    result[i, j] = (val - group_mean[gid]) / std
+                else:
+                    result[i, j] = np.nan
+            else:
+                result[i, j] = np.nan
+
+    return result
+
+
+@njit(cache=True)
+def group_scale_rows(values: np.ndarray, groups: np.ndarray) -> np.ndarray:
+    """Min-max scale within groups to [0, 1], row by row."""
+    n_rows, n_cols = values.shape
+    result = np.empty_like(values)
+
+    for i in range(n_rows):
+        max_gid = -1
+        for j in range(n_cols):
+            if groups[i, j] > max_gid:
+                max_gid = groups[i, j]
+
+        if max_gid < 0:
+            for j in range(n_cols):
+                result[i, j] = np.nan
+            continue
+
+        n_groups = max_gid + 1
+        group_min = np.full(n_groups, np.inf, dtype=np.float64)
+        group_max = np.full(n_groups, -np.inf, dtype=np.float64)
+
+        for j in range(n_cols):
+            gid = groups[i, j]
+            val = values[i, j]
+            if gid >= 0 and not np.isnan(val):
+                if val < group_min[gid]:
+                    group_min[gid] = val
+                if val > group_max[gid]:
+                    group_max[gid] = val
+
+        for j in range(n_cols):
+            gid = groups[i, j]
+            val = values[i, j]
+            if gid >= 0 and not np.isnan(val):
+                rng = group_max[gid] - group_min[gid]
+                if rng > 0:
+                    result[i, j] = (val - group_min[gid]) / rng
+                else:
+                    result[i, j] = np.nan
+            else:
+                result[i, j] = np.nan
+
+    return result
+
+
+@njit(cache=True)
+def group_rank_rows(values: np.ndarray, groups: np.ndarray) -> np.ndarray:
+    """Rank within groups normalized to [0, 1], row by row."""
+    n_rows, n_cols = values.shape
+    result = np.empty_like(values)
+
+    for i in range(n_rows):
+        max_gid = -1
+        for j in range(n_cols):
+            if groups[i, j] > max_gid:
+                max_gid = groups[i, j]
+
+        if max_gid < 0:
+            for j in range(n_cols):
+                result[i, j] = np.nan
+            continue
+
+        n_groups = max_gid + 1
+        group_count = np.zeros(n_groups, dtype=np.int32)
+        for j in range(n_cols):
+            gid = groups[i, j]
+            val = values[i, j]
+            if gid >= 0 and not np.isnan(val):
+                group_count[gid] += 1
+
+        for j in range(n_cols):
+            gid = groups[i, j]
+            val = values[i, j]
+            if gid < 0 or np.isnan(val):
+                result[i, j] = np.nan
+                continue
+
+            count = group_count[gid]
+            if count == 1:
+                result[i, j] = 0.5
+                continue
+
+            rank = 0
+            for k in range(n_cols):
+                if groups[i, k] == gid and not np.isnan(values[i, k]):
+                    if values[i, k] < val:
+                        rank += 1
+
+            result[i, j] = rank / (count - 1)
+
+    return result
+
+
+@njit(cache=True)
+def group_mean_rows(
+    values: np.ndarray,
+    weights: np.ndarray,
+    groups: np.ndarray,
+) -> np.ndarray:
+    """Weighted mean within groups, broadcast to all members, row by row."""
+    n_rows, n_cols = values.shape
+    result = np.empty_like(values)
+
+    for i in range(n_rows):
+        max_gid = -1
+        for j in range(n_cols):
+            if groups[i, j] > max_gid:
+                max_gid = groups[i, j]
+
+        if max_gid < 0:
+            for j in range(n_cols):
+                result[i, j] = np.nan
+            continue
+
+        n_groups = max_gid + 1
+        weighted_sum = np.zeros(n_groups, dtype=np.float64)
+        weight_sum = np.zeros(n_groups, dtype=np.float64)
+
+        for j in range(n_cols):
+            gid = groups[i, j]
+            val = values[i, j]
+            w = weights[i, j]
+            if gid >= 0 and not np.isnan(val) and not np.isnan(w):
+                weighted_sum[gid] += val * w
+                weight_sum[gid] += w
+
+        group_mean = np.empty(n_groups, dtype=np.float64)
+        for g in range(n_groups):
+            if weight_sum[g] > 0:
+                group_mean[g] = weighted_sum[g] / weight_sum[g]
+            else:
+                group_mean[g] = np.nan
+
+        for j in range(n_cols):
+            gid = groups[i, j]
+            if gid >= 0:
+                result[i, j] = group_mean[gid]
+            else:
+                result[i, j] = np.nan
+
+    return result
+
+
+@njit(cache=True)
+def group_backfill_kernel(
+    values: np.ndarray,
+    groups: np.ndarray,
+    d: int,
+    std: float,
+) -> np.ndarray:
+    """Fill NaN with winsorized group mean over d rows lookback."""
+    n_rows, n_cols = values.shape
+    result = values.copy()
+
+    for i in range(n_rows):
+        for j in range(n_cols):
+            if not np.isnan(values[i, j]):
+                continue
+
+            gid = groups[i, j]
+            if gid < 0:
+                continue
+
+            start_row = max(0, i - d + 1)
+            group_vals = []
+            for row in range(start_row, i + 1):
+                for col in range(n_cols):
+                    if groups[row, col] == gid and not np.isnan(values[row, col]):
+                        group_vals.append(values[row, col])
+
+            if len(group_vals) == 0:
+                continue
+
+            vals_arr = np.array(group_vals)
+            mean = np.mean(vals_arr)
+            std_val = np.std(vals_arr)
+            if std_val > 0:
+                lower = mean - std * std_val
+                upper = mean + std * std_val
+                clipped_sum = 0.0
+                for v in vals_arr:
+                    if v < lower:
+                        clipped_sum += lower
+                    elif v > upper:
+                        clipped_sum += upper
+                    else:
+                        clipped_sum += v
+                result[i, j] = clipped_sum / len(vals_arr)
+            else:
+                result[i, j] = mean
 
     return result
