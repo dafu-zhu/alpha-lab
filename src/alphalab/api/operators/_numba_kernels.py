@@ -433,6 +433,90 @@ def rolling_decay_linear_online(x: np.ndarray, d: int) -> np.ndarray:
     return result
 
 
+@njit(cache=True)
+def rolling_product_online(x: np.ndarray, d: int) -> np.ndarray:
+    """O(n) rolling product using log transform.
+
+    Uses product = exp(sum(log(|x|))) with sign tracking.
+    Handles zeros (product=0), NaNs (propagated), and negative values.
+    Partial windows allowed (min_samples=1).
+    """
+    n = len(x)
+    result = np.empty(n, dtype=np.float64)
+
+    if n == 0:
+        return result
+
+    log_sum = 0.0
+    neg_count = 0
+    zero_count = 0
+    nan_count = 0
+    valid_count = 0
+
+    # Build up partial windows
+    for i in range(min(d, n)):
+        val = x[i]
+
+        if np.isnan(val):
+            nan_count += 1
+        elif val == 0.0:
+            zero_count += 1
+            valid_count += 1
+        else:
+            if val < 0:
+                neg_count += 1
+            log_sum += np.log(np.abs(val))
+            valid_count += 1
+
+        if nan_count > 0:
+            result[i] = np.nan
+        elif zero_count > 0:
+            result[i] = 0.0
+        elif valid_count == 0:
+            result[i] = np.nan
+        else:
+            sign = -1.0 if (neg_count % 2 == 1) else 1.0
+            result[i] = sign * np.exp(log_sum)
+
+    # Slide window
+    for i in range(d, n):
+        old_val = x[i - d]
+        if np.isnan(old_val):
+            nan_count -= 1
+        elif old_val == 0.0:
+            zero_count -= 1
+            valid_count -= 1
+        else:
+            if old_val < 0:
+                neg_count -= 1
+            log_sum -= np.log(np.abs(old_val))
+            valid_count -= 1
+
+        new_val = x[i]
+        if np.isnan(new_val):
+            nan_count += 1
+        elif new_val == 0.0:
+            zero_count += 1
+            valid_count += 1
+        else:
+            if new_val < 0:
+                neg_count += 1
+            log_sum += np.log(np.abs(new_val))
+            valid_count += 1
+
+        if nan_count > 0:
+            result[i] = np.nan
+        elif zero_count > 0:
+            result[i] = 0.0
+        elif valid_count == 0:
+            result[i] = np.nan
+        else:
+            sign = -1.0 if (neg_count % 2 == 1) else 1.0
+            result[i] = sign * np.exp(log_sum)
+
+    return result
+
+
 # Batch processing for multiple columns
 def process_columns_corr(
     x_arrays: list[np.ndarray], y_arrays: list[np.ndarray], d: int

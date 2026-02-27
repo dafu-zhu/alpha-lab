@@ -293,3 +293,152 @@ def test_ts_decay_linear_multiple_columns():
     # Verify computation is correct for Col_0: values [0, 1, 2, 3, ...]
     # Index 2: window [0, 1, 2], weighted = (1*0 + 2*1 + 3*2) / 6 = 8/6
     assert result["Col_0"][2] == pytest.approx(8.0 / 6.0, rel=1e-9)
+
+
+def test_ts_product_correctness():
+    """Parallelized ts_product produces correct rolling products."""
+    from alphalab.api.operators.time_series import ts_product
+
+    df = pl.DataFrame({
+        "Date": list(range(6)),
+        "A": [2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+        "B": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+    })
+
+    result = ts_product(df, d=3)
+
+    # Partial windows (min_samples=1)
+    # Index 0: window [2.0] -> product = 2.0
+    assert result["A"][0] == pytest.approx(2.0, rel=1e-9)
+    # Index 1: window [2.0, 3.0] -> product = 6.0
+    assert result["A"][1] == pytest.approx(6.0, rel=1e-9)
+    # Index 2: window [2.0, 3.0, 4.0] -> product = 24.0
+    assert result["A"][2] == pytest.approx(24.0, rel=1e-9)
+    # Index 3: window [3.0, 4.0, 5.0] -> product = 60.0
+    assert result["A"][3] == pytest.approx(60.0, rel=1e-9)
+    # Index 4: window [4.0, 5.0, 6.0] -> product = 120.0
+    assert result["A"][4] == pytest.approx(120.0, rel=1e-9)
+    # Index 5: window [5.0, 6.0, 7.0] -> product = 210.0
+    assert result["A"][5] == pytest.approx(210.0, rel=1e-9)
+
+    # Column B
+    # Index 2: window [1.0, 2.0, 3.0] -> product = 6.0
+    assert result["B"][2] == pytest.approx(6.0, rel=1e-9)
+    # Index 5: window [4.0, 5.0, 6.0] -> product = 120.0
+    assert result["B"][5] == pytest.approx(120.0, rel=1e-9)
+
+
+def test_ts_product_with_nan():
+    """NaN values in window return NaN."""
+    from alphalab.api.operators.time_series import ts_product
+
+    df = pl.DataFrame({
+        "Date": [1, 2, 3, 4, 5, 6],
+        "A": [2.0, 3.0, float("nan"), 4.0, 5.0, 6.0],
+    })
+
+    result = ts_product(df, d=3)
+
+    # Index 0, 1: partial windows before NaN
+    assert result["A"][0] == pytest.approx(2.0, rel=1e-9)
+    assert result["A"][1] == pytest.approx(6.0, rel=1e-9)
+
+    # Windows containing NaN should return NaN
+    assert is_missing(result["A"][2])  # window [2, 3, nan]
+    assert is_missing(result["A"][3])  # window [3, nan, 4]
+    assert is_missing(result["A"][4])  # window [nan, 4, 5]
+
+    # Index 5: window [4, 5, 6] - no NaN
+    assert result["A"][5] == pytest.approx(120.0, rel=1e-9)
+
+
+def test_ts_product_with_zero():
+    """Zero in window returns zero (not NaN)."""
+    from alphalab.api.operators.time_series import ts_product
+
+    df = pl.DataFrame({
+        "Date": [1, 2, 3, 4, 5, 6],
+        "A": [2.0, 3.0, 0.0, 4.0, 5.0, 6.0],
+    })
+
+    result = ts_product(df, d=3)
+
+    # Index 0, 1: partial windows before zero
+    assert result["A"][0] == pytest.approx(2.0, rel=1e-9)
+    assert result["A"][1] == pytest.approx(6.0, rel=1e-9)
+
+    # Windows containing zero should return 0.0
+    assert result["A"][2] == pytest.approx(0.0, abs=1e-12)  # window [2, 3, 0]
+    assert result["A"][3] == pytest.approx(0.0, abs=1e-12)  # window [3, 0, 4]
+    assert result["A"][4] == pytest.approx(0.0, abs=1e-12)  # window [0, 4, 5]
+
+    # Index 5: window [4, 5, 6] - no zero
+    assert result["A"][5] == pytest.approx(120.0, rel=1e-9)
+
+
+def test_ts_product_partial_window():
+    """Partial windows (min_samples=1) compute product of available values."""
+    from alphalab.api.operators.time_series import ts_product
+
+    df = pl.DataFrame({
+        "Date": [1, 2, 3, 4],
+        "A": [2.0, 3.0, 4.0, 5.0],
+    })
+
+    result = ts_product(df, d=10)  # Window larger than data
+
+    # All windows are partial
+    # Index 0: [2.0] -> 2.0
+    assert result["A"][0] == pytest.approx(2.0, rel=1e-9)
+    # Index 1: [2.0, 3.0] -> 6.0
+    assert result["A"][1] == pytest.approx(6.0, rel=1e-9)
+    # Index 2: [2.0, 3.0, 4.0] -> 24.0
+    assert result["A"][2] == pytest.approx(24.0, rel=1e-9)
+    # Index 3: [2.0, 3.0, 4.0, 5.0] -> 120.0
+    assert result["A"][3] == pytest.approx(120.0, rel=1e-9)
+
+
+def test_ts_product_with_negative():
+    """Negative values handled correctly (sign tracking)."""
+    from alphalab.api.operators.time_series import ts_product
+
+    df = pl.DataFrame({
+        "Date": [1, 2, 3, 4, 5],
+        "A": [2.0, -3.0, 4.0, -5.0, 6.0],
+    })
+
+    result = ts_product(df, d=3)
+
+    # Index 0: [2.0] -> 2.0
+    assert result["A"][0] == pytest.approx(2.0, rel=1e-9)
+    # Index 1: [2.0, -3.0] -> -6.0
+    assert result["A"][1] == pytest.approx(-6.0, rel=1e-9)
+    # Index 2: [2.0, -3.0, 4.0] -> -24.0 (1 negative)
+    assert result["A"][2] == pytest.approx(-24.0, rel=1e-9)
+    # Index 3: [-3.0, 4.0, -5.0] -> 60.0 (2 negatives = positive)
+    assert result["A"][3] == pytest.approx(60.0, rel=1e-9)
+    # Index 4: [4.0, -5.0, 6.0] -> -120.0 (1 negative)
+    assert result["A"][4] == pytest.approx(-120.0, rel=1e-9)
+
+
+def test_ts_product_multiple_columns():
+    """Verify parallel processing works correctly with multiple columns."""
+    from alphalab.api.operators.time_series import ts_product
+
+    # Create DataFrame with many columns to test parallel processing
+    df = pl.DataFrame({
+        "Date": list(range(5)),
+        **{f"Col_{i}": [float(j + 1) for j in range(5)] for i in range(10)},
+    })
+
+    result = ts_product(df, d=3)
+
+    # Verify all columns are present
+    assert result.columns == df.columns
+
+    # All columns have same values [1, 2, 3, 4, 5], so products should match
+    for col in df.columns[1:]:
+        # Index 2: [1, 2, 3] -> 6.0
+        assert result[col][2] == pytest.approx(6.0, rel=1e-9)
+        # Index 4: [3, 4, 5] -> 60.0
+        assert result[col][4] == pytest.approx(60.0, rel=1e-9)

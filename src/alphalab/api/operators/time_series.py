@@ -322,16 +322,34 @@ def ts_delay(
 
 
 def ts_product(x: pl.DataFrame, d: int) -> pl.DataFrame:
-    """Rolling product over d periods (partial windows allowed)."""
+    """Rolling product over d periods (partial windows allowed).
+
+    Uses O(n) online algorithm with log transform for numerical stability.
+    ThreadPoolExecutor parallelizes across columns.
+
+    Args:
+        x: Wide DataFrame with date + symbol columns
+        d: Window size in periods
+
+    Returns:
+        Wide DataFrame with rolling product values
+    """
+    import numpy as np
+    from concurrent.futures import ThreadPoolExecutor
+
+    from alphalab.api.operators._numba_kernels import rolling_product_online
+
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
-    return x.select(
-        pl.col(date_col),
-        *[
-            pl.col(c).rolling_map(lambda s: s.product(), window_size=d, min_samples=1).alias(c)
-            for c in value_cols
-        ],
-    )
+
+    def process_col(c: str) -> tuple[str, np.ndarray]:
+        x_arr = x[c].to_numpy().astype(np.float64)
+        return (c, rolling_product_online(x_arr, d))
+
+    with ThreadPoolExecutor(max_workers=min(8, len(value_cols))) as executor:
+        col_results = dict(executor.map(process_col, value_cols))
+
+    return pl.DataFrame({date_col: x[date_col], **col_results})
 
 
 def ts_count_nans(x: pl.DataFrame, d: int) -> pl.DataFrame:
