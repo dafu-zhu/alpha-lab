@@ -208,6 +208,81 @@ def main():
         ]
         run_benchmarks(ts_2arg, "time-series", close, results)
 
+    # Cross-sectional operators
+    if args.category is None or args.category == "cross-sectional":
+        print("\nBenchmarking cross-sectional operators...")
+
+        cs_ops = [
+            ("rank", lambda: ops.rank(close)),
+            ("zscore", lambda: ops.zscore(close)),
+            ("normalize", lambda: ops.normalize(close)),
+            ("scale", lambda: ops.scale(close)),
+            ("quantile", lambda: ops.quantile(close)),
+            ("winsorize", lambda: ops.winsorize(close)),
+            ("bucket", lambda: ops.bucket(ops.rank(close), "0,1,0.25")),
+        ]
+
+        run_benchmarks(cs_ops, "cross-sectional", close, results)
+
+    # Arithmetic operators
+    if args.category is None or args.category == "arithmetic":
+        print("\nBenchmarking arithmetic operators...")
+
+        open_df = client.get("open")
+
+        arith_ops = [
+            ("add", lambda: ops.add(close, open_df)),
+            ("subtract", lambda: ops.subtract(close, open_df)),
+            ("multiply", lambda: ops.multiply(close, open_df)),
+            ("divide", lambda: ops.divide(close, open_df)),
+            ("abs", lambda: ops.abs(close)),
+            ("log", lambda: ops.log(close)),
+            ("sqrt", lambda: ops.sqrt(close)),
+            ("power", lambda: ops.power(close, 2)),
+            ("sign", lambda: ops.sign(close)),
+            ("inverse", lambda: ops.inverse(close)),
+            ("signed_power", lambda: ops.signed_power(close, 0.5)),
+            ("min", lambda: ops.min(close, open_df)),
+            ("max", lambda: ops.max(close, open_df)),
+            ("reverse", lambda: ops.reverse(close)),
+            ("densify", lambda: ops.densify(close)),
+        ]
+
+        run_benchmarks(arith_ops, "arithmetic", close, results)
+
+    # Logical operators
+    if args.category is None or args.category == "logical":
+        print("\nBenchmarking logical operators...")
+
+        open_df = client.get("open")
+
+        logical_ops = [
+            ("gt", lambda: ops.gt(close, open_df)),
+            ("lt", lambda: ops.lt(close, open_df)),
+            ("ge", lambda: ops.ge(close, open_df)),
+            ("le", lambda: ops.le(close, open_df)),
+            ("eq", lambda: ops.eq(close, open_df)),
+            ("ne", lambda: ops.ne(close, open_df)),
+            ("and_", lambda: ops.and_(ops.gt(close, open_df), ops.lt(close, volume))),
+            ("or_", lambda: ops.or_(ops.gt(close, open_df), ops.lt(close, volume))),
+            ("not_", lambda: ops.not_(ops.gt(close, open_df))),
+            ("is_nan", lambda: ops.is_nan(close)),
+            ("if_else", lambda: ops.if_else(ops.gt(close, open_df), close, open_df)),
+        ]
+
+        run_benchmarks(logical_ops, "logical", close, results)
+
+    # Vector operators
+    if args.category is None or args.category == "vector":
+        print("\nBenchmarking vector operators...")
+
+        vec_ops = [
+            ("vec_sum", lambda: ops.vec_sum(close)),
+            ("vec_avg", lambda: ops.vec_avg(close)),
+        ]
+
+        run_benchmarks(vec_ops, "vector", close, results)
+
     print_results(results, args.category)
     save_results(results, Path(args.output))
 
