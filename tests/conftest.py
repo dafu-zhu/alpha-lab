@@ -63,6 +63,9 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "external: mark test as requiring external API access"
     )
+    config.addinivalue_line(
+        "markers", "performance: mark test as a performance benchmark"
+    )
 
 def pytest_collection_modifyitems(config, items):
     """
@@ -85,3 +88,7 @@ def pytest_collection_modifyitems(config, items):
 
         if integration_dir in p.parents:
             item.add_marker(pytest.mark.integration)
+
+        performance_dir = (root / "tests" / "performance").resolve()
+        if performance_dir in p.parents:
+            item.add_marker(pytest.mark.performance)
