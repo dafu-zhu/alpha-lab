@@ -1510,13 +1510,18 @@ def group_scale_rows(values: np.ndarray, groups: np.ndarray) -> np.ndarray:
     return result
 
 
-@njit(cache=True)
+@njit(cache=True, parallel=True)
 def group_rank_rows(values: np.ndarray, groups: np.ndarray) -> np.ndarray:
-    """Rank within groups normalized to [0, 1], row by row."""
+    """Rank within groups normalized to [0, 1], row by row.
+
+    Optimized using sort-based ranking: O(n_rows × n_cols × log(n_cols))
+    instead of O(n_rows × n_cols²).
+    """
     n_rows, n_cols = values.shape
     result = np.empty_like(values)
 
-    for i in range(n_rows):
+    for i in prange(n_rows):
+        # Find max group id
         max_gid = -1
         for j in range(n_cols):
             if groups[i, j] > max_gid:
@@ -1528,6 +1533,8 @@ def group_rank_rows(values: np.ndarray, groups: np.ndarray) -> np.ndarray:
             continue
 
         n_groups = max_gid + 1
+
+        # Count valid values per group and collect indices
         group_count = np.zeros(n_groups, dtype=np.int32)
         for j in range(n_cols):
             gid = groups[i, j]
@@ -1535,25 +1542,70 @@ def group_rank_rows(values: np.ndarray, groups: np.ndarray) -> np.ndarray:
             if gid >= 0 and not np.isnan(val):
                 group_count[gid] += 1
 
+        # For each group, collect (value, col_idx) pairs, sort, assign ranks
+        # We process all columns and use group membership to assign ranks
+        group_start = np.zeros(n_groups + 1, dtype=np.int32)
+        for g in range(n_groups):
+            group_start[g + 1] = group_start[g] + group_count[g]
+
+        total_valid = group_start[n_groups]
+        if total_valid == 0:
+            for j in range(n_cols):
+                result[i, j] = np.nan
+            continue
+
+        # Collect values and indices per group
+        group_vals = np.empty(total_valid, dtype=np.float64)
+        group_cols = np.empty(total_valid, dtype=np.int32)
+        group_pos = np.zeros(n_groups, dtype=np.int32)  # Current position in each group
+
         for j in range(n_cols):
             gid = groups[i, j]
             val = values[i, j]
-            if gid < 0 or np.isnan(val):
+            if gid >= 0 and not np.isnan(val):
+                pos = group_start[gid] + group_pos[gid]
+                group_vals[pos] = val
+                group_cols[pos] = j
+                group_pos[gid] += 1
+
+        # Sort each group and assign ranks
+        for g in range(n_groups):
+            start = group_start[g]
+            end = group_start[g + 1]
+            count = end - start
+
+            if count == 0:
+                continue
+            elif count == 1:
+                result[i, group_cols[start]] = 0.5
+                continue
+
+            # Sort indices by value within this group
+            group_slice_vals = group_vals[start:end]
+            group_slice_cols = group_cols[start:end]
+
+            # Simple insertion sort (fast for small groups, numba-friendly)
+            for k in range(1, count):
+                key_val = group_slice_vals[k]
+                key_col = group_slice_cols[k]
+                m = k - 1
+                while m >= 0 and group_slice_vals[m] > key_val:
+                    group_slice_vals[m + 1] = group_slice_vals[m]
+                    group_slice_cols[m + 1] = group_slice_cols[m]
+                    m -= 1
+                group_slice_vals[m + 1] = key_val
+                group_slice_cols[m + 1] = key_col
+
+            # Assign ranks based on sorted order
+            for k in range(count):
+                col = group_slice_cols[k]
+                result[i, col] = k / (count - 1)
+
+        # Handle NaN/invalid
+        for j in range(n_cols):
+            gid = groups[i, j]
+            if gid < 0 or np.isnan(values[i, j]):
                 result[i, j] = np.nan
-                continue
-
-            count = group_count[gid]
-            if count == 1:
-                result[i, j] = 0.5
-                continue
-
-            rank = 0
-            for k in range(n_cols):
-                if groups[i, k] == gid and not np.isnan(values[i, k]):
-                    if values[i, k] < val:
-                        rank += 1
-
-            result[i, j] = rank / (count - 1)
 
     return result
 
@@ -1608,53 +1660,118 @@ def group_mean_rows(
     return result
 
 
-@njit(cache=True)
+@njit(cache=True, parallel=True)
 def group_backfill_kernel(
     values: np.ndarray,
     groups: np.ndarray,
     d: int,
     std: float,
 ) -> np.ndarray:
-    """Fill NaN with winsorized group mean over d rows lookback."""
+    """Fill NaN with winsorized group mean over d rows lookback.
+
+    Optimized with:
+    1. Pre-aggregated per-row per-group statistics
+    2. Cached winsorized mean per (row, group) - computed once per group with NaNs
+    3. Parallel row processing
+    """
     n_rows, n_cols = values.shape
     result = values.copy()
 
+    # Find max group id
+    max_gid = 0
     for i in range(n_rows):
         for j in range(n_cols):
-            if not np.isnan(values[i, j]):
-                continue
+            if groups[i, j] > max_gid:
+                max_gid = groups[i, j]
+    n_groups = max_gid + 1
 
+    # Pre-compute per-row, per-group: sum, sum_sq, count
+    row_sum = np.zeros((n_rows, n_groups), dtype=np.float64)
+    row_sum_sq = np.zeros((n_rows, n_groups), dtype=np.float64)
+    row_count = np.zeros((n_rows, n_groups), dtype=np.int32)
+
+    for i in range(n_rows):
+        for j in range(n_cols):
             gid = groups[i, j]
-            if gid < 0:
+            val = values[i, j]
+            if gid >= 0 and not np.isnan(val):
+                row_sum[i, gid] += val
+                row_sum_sq[i, gid] += val * val
+                row_count[i, gid] += 1
+
+    # Pre-compute cumulative sums for O(1) window aggregation
+    cum_sum = np.zeros((n_rows + 1, n_groups), dtype=np.float64)
+    cum_sum_sq = np.zeros((n_rows + 1, n_groups), dtype=np.float64)
+    cum_count = np.zeros((n_rows + 1, n_groups), dtype=np.int32)
+
+    for i in range(n_rows):
+        for g in range(n_groups):
+            cum_sum[i + 1, g] = cum_sum[i, g] + row_sum[i, g]
+            cum_sum_sq[i + 1, g] = cum_sum_sq[i, g] + row_sum_sq[i, g]
+            cum_count[i + 1, g] = cum_count[i, g] + row_count[i, g]
+
+    # Process rows in parallel
+    for i in prange(n_rows):
+        start_row = max(0, i - d + 1)
+
+        # Identify groups with NaNs in this row
+        groups_with_nan = np.zeros(n_groups, dtype=np.int32)
+        for j in range(n_cols):
+            if np.isnan(values[i, j]):
+                gid = groups[i, j]
+                if gid >= 0:
+                    groups_with_nan[gid] = 1
+
+        # Compute winsorized mean once per group (not per NaN)
+        winsorized_mean = np.full(n_groups, np.nan, dtype=np.float64)
+
+        for gid in range(n_groups):
+            if groups_with_nan[gid] == 0:
                 continue
 
-            start_row = max(0, i - d + 1)
-            group_vals = []
+            # O(1) window stats using prefix sums
+            win_sum = cum_sum[i + 1, gid] - cum_sum[start_row, gid]
+            win_sum_sq = cum_sum_sq[i + 1, gid] - cum_sum_sq[start_row, gid]
+            win_count = cum_count[i + 1, gid] - cum_count[start_row, gid]
+
+            if win_count == 0:
+                continue
+
+            mean = win_sum / win_count
+            if win_count == 1:
+                winsorized_mean[gid] = mean
+                continue
+
+            variance = win_sum_sq / win_count - mean * mean
+            if variance <= 0:
+                winsorized_mean[gid] = mean
+                continue
+
+            std_val = np.sqrt(variance)
+            lower = mean - std * std_val
+            upper = mean + std * std_val
+
+            # Compute winsorized sum for this group
+            clipped_sum = 0.0
             for row in range(start_row, i + 1):
                 for col in range(n_cols):
                     if groups[row, col] == gid and not np.isnan(values[row, col]):
-                        group_vals.append(values[row, col])
+                        v = values[row, col]
+                        if v < lower:
+                            clipped_sum += lower
+                        elif v > upper:
+                            clipped_sum += upper
+                        else:
+                            clipped_sum += v
 
-            if len(group_vals) == 0:
-                continue
+            winsorized_mean[gid] = clipped_sum / win_count
 
-            vals_arr = np.array(group_vals)
-            mean = np.mean(vals_arr)
-            std_val = np.std(vals_arr)
-            if std_val > 0:
-                lower = mean - std * std_val
-                upper = mean + std * std_val
-                clipped_sum = 0.0
-                for v in vals_arr:
-                    if v < lower:
-                        clipped_sum += lower
-                    elif v > upper:
-                        clipped_sum += upper
-                    else:
-                        clipped_sum += v
-                result[i, j] = clipped_sum / len(vals_arr)
-            else:
-                result[i, j] = mean
+        # Fill all NaNs in this row using cached winsorized means
+        for j in range(n_cols):
+            if np.isnan(values[i, j]):
+                gid = groups[i, j]
+                if gid >= 0:
+                    result[i, j] = winsorized_mean[gid]
 
     return result
 
