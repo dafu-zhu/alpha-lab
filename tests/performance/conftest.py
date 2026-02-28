@@ -1,7 +1,7 @@
 """Performance benchmark fixtures for AlphaLab operators.
 
-Provides production-scale test data and performance thresholds for all 68 operators.
-Data dimensions: 4000 rows x 5000 columns (simulating ~16 years of daily data for 5000 stocks).
+Provides test data and performance thresholds for all 68 operators.
+Data dimensions: 1000 rows x 1000 columns (1M cells).
 """
 
 from datetime import date, timedelta
@@ -11,115 +11,113 @@ import polars as pl
 import pytest
 
 
-# Performance thresholds in milliseconds for 4000x5000 data
+# Performance thresholds in milliseconds for 1000x1000 data (1M cells)
 # Categorized by computational complexity
 PERFORMANCE_THRESHOLDS_MS = {
     # =========================================================================
-    # ARITHMETIC OPERATORS (element-wise)
-    # Note: thresholds set with large headroom for system load variability
+    # ARITHMETIC OPERATORS (element-wise) - target <100ms
     # =========================================================================
-    "abs": 3000,
-    "add": 3000,
-    "subtract": 3000,
-    "multiply": 3000,
-    "divide": 5000,
-    "inverse": 3000,
-    "log": 5000,
-    "max": 3000,
-    "min": 3000,
-    "power": 3000,
-    "signed_power": 10000,
-    "sqrt": 5000,
-    "sign": 3000,
-    "reverse": 3000,
-    "densify": 25000,
+    "abs": 100,
+    "add": 100,
+    "subtract": 100,
+    "multiply": 100,
+    "divide": 100,
+    "inverse": 100,
+    "log": 100,
+    "max": 100,
+    "min": 100,
+    "power": 100,
+    "signed_power": 200,
+    "sqrt": 100,
+    "sign": 100,
+    "reverse": 100,
+    "densify": 500,
     # =========================================================================
-    # LOGICAL OPERATORS (element-wise)
+    # LOGICAL OPERATORS (element-wise) - target <100ms
     # =========================================================================
-    "and_": 3000,
-    "or_": 3000,
-    "not_": 3000,
-    "if_else": 3000,
-    "is_nan": 3000,
-    "lt": 3000,
-    "le": 3000,
-    "gt": 3000,
-    "ge": 3000,
-    "eq": 3000,
-    "ne": 3000,
+    "and_": 100,
+    "or_": 100,
+    "not_": 100,
+    "if_else": 100,
+    "is_nan": 100,
+    "lt": 100,
+    "le": 100,
+    "gt": 100,
+    "ge": 100,
+    "eq": 100,
+    "ne": 100,
     # =========================================================================
-    # VECTOR OPERATORS (reduction across columns)
+    # VECTOR OPERATORS (reduction across columns) - target <100ms
     # =========================================================================
-    "vec_avg": 3000,
-    "vec_sum": 3000,
+    "vec_avg": 100,
+    "vec_sum": 100,
     # =========================================================================
-    # CROSS-SECTIONAL OPERATORS (row-wise operations)
+    # CROSS-SECTIONAL OPERATORS (row-wise operations) - target <500ms
     # =========================================================================
-    "rank": 25000,
-    "zscore": 10000,
-    "normalize": 5000,
-    "scale": 15000,
-    "quantile": 25000,
-    "bucket": 10000,
-    "winsorize": 10000,
+    "rank": 500,
+    "zscore": 300,
+    "normalize": 200,
+    "scale": 500,
+    "quantile": 500,
+    "bucket": 300,
+    "winsorize": 300,
     # =========================================================================
-    # TIME-SERIES OPERATORS - Basic (rolling window)
+    # TIME-SERIES OPERATORS - Basic (rolling window) - target <300ms
     # =========================================================================
-    "ts_mean": 5000,
-    "ts_sum": 5000,
-    "ts_std": 5000,
-    "ts_min": 5000,
-    "ts_max": 5000,
-    "ts_delta": 3000,
-    "ts_delay": 3000,
+    "ts_mean": 300,
+    "ts_sum": 300,
+    "ts_std": 300,
+    "ts_min": 300,
+    "ts_max": 300,
+    "ts_delta": 200,
+    "ts_delay": 200,
     # =========================================================================
-    # TIME-SERIES OPERATORS - Rolling (more complex aggregations)
+    # TIME-SERIES OPERATORS - Rolling (more complex aggregations) - target <500ms
     # =========================================================================
-    "ts_product": 10000,
-    "ts_count_nans": 5000,
-    "ts_zscore": 5000,
-    "ts_scale": 10000,
-    "ts_av_diff": 5000,
-    "ts_step": 15000,
+    "ts_product": 500,
+    "ts_count_nans": 300,
+    "ts_zscore": 500,
+    "ts_scale": 500,
+    "ts_av_diff": 300,
+    "ts_step": 500,
     # =========================================================================
-    # TIME-SERIES OPERATORS - Arg (finding indices)
+    # TIME-SERIES OPERATORS - Arg (finding indices) - target <500ms
     # =========================================================================
-    "ts_arg_max": 15000,
-    "ts_arg_min": 15000,
+    "ts_arg_max": 500,
+    "ts_arg_min": 500,
     # =========================================================================
-    # TIME-SERIES OPERATORS - Lookback (conditional lookback)
+    # TIME-SERIES OPERATORS - Lookback (conditional lookback) - target <500ms
     # =========================================================================
-    "ts_backfill": 5000,
-    "kth_element": 5000,
-    "last_diff_value": 10000,
-    "days_from_last_change": 15000,
+    "ts_backfill": 300,
+    "kth_element": 300,
+    "last_diff_value": 500,
+    "days_from_last_change": 500,
     # =========================================================================
-    # TIME-SERIES OPERATORS - Stateful (more complex state tracking)
+    # TIME-SERIES OPERATORS - Stateful (more complex state tracking) - target <500ms
     # =========================================================================
-    "hump": 15000,
-    "ts_decay_linear": 10000,
-    "ts_rank": 25000,
+    "hump": 500,
+    "ts_decay_linear": 500,
+    "ts_rank": 500,
     # =========================================================================
-    # TIME-SERIES OPERATORS - Two-variable (cross-column computations)
+    # TIME-SERIES OPERATORS - Two-variable (cross-column computations) - target <800ms
     # =========================================================================
-    "ts_corr": 10000,
-    "ts_covariance": 10000,
-    "ts_quantile": 30000,
-    "ts_regression": 15000,
+    "ts_corr": 800,
+    "ts_covariance": 800,
+    "ts_quantile": 800,
+    "ts_regression": 800,
     # =========================================================================
-    # GROUP OPERATORS (grouped cross-sectional operations)
-    # Note: group ops iterate over many groups, taking significantly longer
+    # GROUP OPERATORS (grouped cross-sectional operations) - target <1000ms
     # =========================================================================
-    "group_rank": 60000,
-    "group_zscore": 60000,
-    "group_scale": 60000,
-    "group_neutralize": 60000,
-    "group_mean": 60000,
-    "group_backfill": 60000,
+    "group_rank": 1000,
+    "group_zscore": 1000,
+    "group_scale": 1000,
+    "group_neutralize": 1000,
+    "group_mean": 1000,
+    "group_backfill": 4000,  # Uses complex forward-fill logic
     # =========================================================================
-    # TRANSFORMATIONAL OPERATORS (complex conditional logic)
+    # TRANSFORMATIONAL OPERATORS (complex conditional logic) - target <300ms
     # =========================================================================
-    "trade_when": 5000,
+    "trade_when": 300,
 }
 
 # Verify we have thresholds for all 68 operators
@@ -130,11 +128,11 @@ assert len(PERFORMANCE_THRESHOLDS_MS) == 68, (
 
 @pytest.fixture(scope="session")
 def benchmark_df() -> pl.DataFrame:
-    """Create production-scale benchmark DataFrame.
+    """Create benchmark DataFrame.
 
-    Dimensions: 4000 rows x 5000 columns
-    - Simulates ~16 years of daily trading data (252 days/year * 16 years ~ 4000)
-    - 5000 columns represent individual stock symbols
+    Dimensions: 1000 rows x 1000 columns (1M cells)
+    - Simulates ~4 years of daily trading data (252 days/year * 4 years ~ 1000)
+    - 1000 columns represent individual stock symbols
 
     Data characteristics:
     - Random float values with realistic distribution (mean=0, std=1)
@@ -142,10 +140,10 @@ def benchmark_df() -> pl.DataFrame:
     - First column is timestamp (date)
 
     Returns:
-        pl.DataFrame with timestamp column + 5000 numeric columns
+        pl.DataFrame with timestamp column + 1000 numeric columns
     """
-    n_rows = 4000
-    n_cols = 5000
+    n_rows = 1000
+    n_cols = 1000
 
     # Create random seed for reproducibility
     rng = np.random.default_rng(42)
