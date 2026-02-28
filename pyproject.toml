@@ -44,6 +44,8 @@ omit = [
     "src/alphalab/cli.py",
     "src/alphalab/master/cli.py",
     "src/alphalab/storage/utils/config.py",
+    # Numba JIT-compiled code cannot be instrumented for coverage
+    "src/alphalab/api/operators/_numba_kernels.py",
 ]
 
 [tool.coverage.report]

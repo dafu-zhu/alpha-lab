@@ -214,7 +214,7 @@ def ts_std(x: pl.DataFrame, d: int) -> pl.DataFrame:
     value_cols = _get_value_cols(x)
     return x.select(
         pl.col(date_col),
-        *[pl.col(c).rolling_std(window_size=d, min_samples=2).alias(c) for c in value_cols],
+        *[pl.col(c).rolling_std(window_size=d, min_samples=2, ddof=0).alias(c) for c in value_cols],
     )
 
 
