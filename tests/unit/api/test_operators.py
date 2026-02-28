@@ -1513,11 +1513,12 @@ class TestTsRegressionRetTypes:
         assert result["A"][4] > 0
 
     def test_ts_regression_invalid_rettype(self, regression_data: tuple[pl.DataFrame, pl.DataFrame]) -> None:
-        """Test invalid rettype returns None."""
+        """Test invalid rettype returns NaN."""
+        import math
         y, x = regression_data
         result = ts_regression(y, x, 5, rettype=99)
-        # Invalid rettype should give None
-        assert result["A"][4] is None
+        # Invalid rettype should give NaN (numpy uses NaN, not None)
+        assert result["A"][4] is None or math.isnan(result["A"][4])
 
     def test_ts_regression_with_nulls(self) -> None:
         """Test regression filters out null pairs and computes with available data."""
@@ -1546,6 +1547,26 @@ class TestTsRegressionRetTypes:
         result = ts_regression(y, x, 3, rettype=1)
         # Zero variance should return NaN
         assert is_missing(result["A"][2])
+
+    def test_ts_regression_with_lag(self) -> None:
+        """Test regression with lag parameter."""
+        # y = x + 1 with lag 1 (y[i] ~ x[i-1])
+        y = pl.DataFrame({
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 6), eager=True),
+            "A": [2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+        })
+        x = pl.DataFrame({
+            "Date": pl.date_range(date(2024, 1, 1), date(2024, 1, 6), eager=True),
+            "A": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        })
+        # With lag=1: y[i] is regressed on x[i-1]
+        # So y[1:] = [3,4,5,6,7] vs x[:-1] = [1,2,3,4,5]
+        # This should give beta ≈ 1
+        result = ts_regression(y, x, 3, lag=1, rettype=1)
+        # First d-1+lag positions are NaN
+        assert is_missing(result["A"][2])  # Need 3 points + lag
+        assert not is_missing(result["A"][3])
+        assert abs(result["A"][3] - 1.0) < 0.01  # beta should be ~1
 
 
 class TestTsQuantileEdgeCases:

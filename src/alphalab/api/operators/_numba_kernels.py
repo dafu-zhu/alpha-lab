@@ -250,7 +250,11 @@ def _compute_regression_result(
     sx: float, sy: float, sxy: float, sx2: float, sy2: float,
     d: int, curr_x: float, curr_y: float, rettype: int
 ) -> float:
-    """Compute regression statistic from running sums."""
+    """Compute regression statistic from running sums.
+
+    rettype: 0=residual, 1=beta, 2=alpha, 3=predicted, 4=corr, 5=r2,
+             6=tstat_beta, 7=tstat_alpha, 8=stderr_beta, 9=stderr_alpha
+    """
     x_mean = sx / d
     y_mean = sy / d
 
@@ -279,12 +283,131 @@ def _compute_regression_result(
     elif rettype == 5:  # r-squared
         if ss_yy == 0:
             return np.nan
-        # r2 = 1 - SS_res / SS_tot
-        # For simple regression: r2 = corr^2
+        # r2 = 1 - SS_res / SS_tot = corr^2
         corr = ss_xy / np.sqrt(ss_xx * ss_yy)
         return corr * corr
+    elif rettype >= 6 and rettype <= 9:  # t-stats and std errors
+        # SS_res = SS_yy - SS_xy^2 / SS_xx (OLS identity)
+        ss_res = ss_yy - ss_xy * ss_xy / ss_xx
+        if d <= 2 or ss_res <= 0:
+            return np.nan
+        mse = ss_res / (d - 2)
+
+        if rettype == 6:  # t-stat beta
+            se_beta = np.sqrt(mse / ss_xx)
+            if se_beta == 0:
+                return np.nan
+            return beta / se_beta
+        elif rettype == 7:  # t-stat alpha
+            se_alpha = np.sqrt(mse * (1.0 / d + x_mean * x_mean / ss_xx))
+            if se_alpha == 0:
+                return np.nan
+            return alpha / se_alpha
+        elif rettype == 8:  # stderr beta
+            return np.sqrt(mse / ss_xx)
+        else:  # rettype == 9, stderr alpha
+            return np.sqrt(mse * (1.0 / d + x_mean * x_mean / ss_xx))
     else:
         return np.nan
+
+
+@njit(cache=True)
+def rolling_regression_online_with_lag(
+    y: np.ndarray, x: np.ndarray, d: int, lag: int, rettype: int
+) -> np.ndarray:
+    """O(n) rolling OLS regression with lag support.
+
+    rettype: 0=residual, 1=beta, 2=alpha, 3=predicted, 4=corr, 5=r2,
+             6=tstat_beta, 7=tstat_alpha, 8=stderr_beta, 9=stderr_alpha
+    lag: shift x backward by lag positions (x[i] uses x[i-lag])
+    """
+    n = len(y)
+    result = np.empty(n, dtype=np.float64)
+
+    # Need at least d + lag observations
+    min_idx = d - 1 + lag
+    result[:min_idx] = np.nan
+
+    if n <= min_idx:
+        result[:] = np.nan
+        return result
+
+    # Running sums
+    sx = 0.0
+    sy = 0.0
+    sxy = 0.0
+    sx2 = 0.0
+    sy2 = 0.0
+    nan_count = 0
+
+    # Initialize first window (indices lag to lag+d-1 for x, 0 to d-1 for y alignment)
+    # But we compute at index d-1+lag, so window covers y[lag:lag+d] and x[0:d]
+    for j in range(d):
+        y_idx = lag + j
+        x_idx = j
+        if y_idx >= n or np.isnan(x[x_idx]) or np.isnan(y[y_idx]):
+            nan_count += 1
+        else:
+            sx += x[x_idx]
+            sy += y[y_idx]
+            sxy += x[x_idx] * y[y_idx]
+            sx2 += x[x_idx] * x[x_idx]
+            sy2 += y[y_idx] * y[y_idx]
+
+    if nan_count > 0:
+        result[min_idx] = np.nan
+    else:
+        # curr_x and curr_y for residual/predicted
+        curr_x = x[d - 1]
+        curr_y = y[min_idx]
+        result[min_idx] = _compute_regression_result(
+            sx, sy, sxy, sx2, sy2, d, curr_x, curr_y, rettype
+        )
+
+    # Slide window
+    for i in range(min_idx + 1, n):
+        # Window for y: [i - d + 1, i], window for x: [i - d + 1 - lag, i - lag]
+        old_y_idx = i - d
+        new_y_idx = i
+        old_x_idx = i - d - lag
+        new_x_idx = i - lag
+
+        old_y = y[old_y_idx] if old_y_idx >= 0 else np.nan
+        new_y = y[new_y_idx]
+        old_x = x[old_x_idx] if old_x_idx >= 0 else np.nan
+        new_x = x[new_x_idx] if new_x_idx >= 0 else np.nan
+
+        old_is_nan = np.isnan(old_x) or np.isnan(old_y)
+        new_is_nan = np.isnan(new_x) or np.isnan(new_y)
+
+        # Update NaN count
+        if old_is_nan:
+            nan_count -= 1
+        if new_is_nan:
+            nan_count += 1
+
+        # Update running sums
+        if not old_is_nan:
+            sx -= old_x
+            sy -= old_y
+            sxy -= old_x * old_y
+            sx2 -= old_x * old_x
+            sy2 -= old_y * old_y
+        if not new_is_nan:
+            sx += new_x
+            sy += new_y
+            sxy += new_x * new_y
+            sx2 += new_x * new_x
+            sy2 += new_y * new_y
+
+        if nan_count > 0:
+            result[i] = np.nan
+        else:
+            result[i] = _compute_regression_result(
+                sx, sy, sxy, sx2, sy2, d, new_x, new_y, rettype
+            )
+
+    return result
 
 
 @njit(cache=True)

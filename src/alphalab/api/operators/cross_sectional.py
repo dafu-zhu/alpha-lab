@@ -412,30 +412,25 @@ def quantile(
     Returns:
         Wide DataFrame with quantile-transformed values
     """
-
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
 
-    # Convert to long format
-    long = x.unpivot(
-        index=date_col,
-        on=value_cols,
-        variable_name="symbol",
-        value_name="value",
-    )
+    # Extract values as numpy array (rows × symbols)
+    values = x.select(value_cols).to_numpy().astype(np.float64)
 
-    # Apply transform per date group using module-level function
-    transformed = long.with_columns(
-        pl.col("value")
-        .map_batches(lambda s: pl.Series(_quantile_transform(s.to_numpy(), driver, sigma)), return_dtype=pl.Float64)
-        .over(date_col)
-        .alias("value")
-    )
+    # Apply transform row-by-row in parallel
+    def transform_row(row: np.ndarray) -> np.ndarray:
+        return _quantile_transform(row, driver, sigma)
 
-    # Pivot back to wide
-    wide = transformed.pivot(values="value", index=date_col, on="symbol")
+    with ThreadPoolExecutor(max_workers=_RANK_MAX_WORKERS) as executor:
+        results = list(executor.map(transform_row, values))
+    result = np.array(results)
 
-    return wide.select([date_col, *value_cols])
+    # Rebuild DataFrame
+    return pl.DataFrame({
+        date_col: x[date_col],
+        **{col: result[:, j] for j, col in enumerate(value_cols)}
+    })
 
 
 def winsorize(x: pl.DataFrame, std: float = 4.0) -> pl.DataFrame:
@@ -505,15 +500,17 @@ def bucket(x: pl.DataFrame, range_spec: str) -> pl.DataFrame:
     if step <= 0:
         raise ValueError(f"step must be positive, got: {step}")
 
+    date_col = x.columns[0]
     value_cols = _get_value_cols(x)
 
-    # Create bucket boundaries
-    # Values are assigned to floor((value - start) / step) * step + start
-    # Clipped to [start, end - step]
-    return x.with_columns([
-        (
-            (((pl.col(c) - start) / step).floor() * step + start)
-            .clip(start, end - step)
-        ).alias(c)
-        for c in value_cols
-    ])
+    # Use numpy for fast vectorized bucketing
+    values = x.select(value_cols).to_numpy().astype(np.float64)
+
+    # floor((value - start) / step) * step + start, clipped to [start, end - step]
+    result = np.floor((values - start) / step) * step + start
+    result = np.clip(result, start, end - step)
+
+    return pl.DataFrame({
+        date_col: x[date_col],
+        **{col: result[:, j] for j, col in enumerate(value_cols)}
+    })

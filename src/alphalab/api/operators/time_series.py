@@ -893,8 +893,7 @@ def ts_regression(
 ) -> pl.DataFrame:
     """Rolling OLS regression of y on x (online algorithm + numba JIT).
 
-    Uses O(n) online algorithm for rettype 0-5.
-    Falls back to original implementation for rettype 6-9 (t-stats, std errors).
+    Uses O(n) online algorithm with full support for lag and all rettype values.
 
     rettype (int or str):
         0 or "resid": residual (y - predicted)
@@ -910,6 +909,11 @@ def ts_regression(
     """
     import numpy as np
     from concurrent.futures import ThreadPoolExecutor
+
+    from alphalab.api.operators._numba_kernels import (
+        rolling_regression_online,
+        rolling_regression_online_with_lag,
+    )
 
     # Map string rettype to int
     rettype_map = {
@@ -930,27 +934,20 @@ def ts_regression(
     date_col = y.columns[0]
     value_cols = _get_value_cols(y)
 
-    # Use numba-optimized online algorithm for rettype 0-5 with lag=0
-    if rettype <= 5 and lag == 0:
-        from alphalab.api.operators._numba_kernels import rolling_regression_online
-
+    if lag == 0:
+        # Use simpler kernel when no lag
         def process_col(c: str) -> tuple[str, np.ndarray]:
             y_arr = y[c].to_numpy().astype(np.float64)
             x_arr = x[c].to_numpy().astype(np.float64)
             return (c, rolling_regression_online(y_arr, x_arr, d, rettype))
-
-        with ThreadPoolExecutor(max_workers=min(8, len(value_cols))) as executor:
-            col_results = dict(executor.map(process_col, value_cols))
-
-        return pl.DataFrame({date_col: y[date_col], **col_results})
-
-    # Fallback to original implementation for t-stats, std errors, or lag != 0
-    def process_col_fallback(c: str) -> tuple[str, list[float | None]]:
-        y_vals = y[c].to_list()
-        x_vals = x[c].to_list()
-        return (c, _compute_regression_col(y_vals, x_vals, d, lag, rettype))
+    else:
+        # Use lag-aware kernel
+        def process_col(c: str) -> tuple[str, np.ndarray]:
+            y_arr = y[c].to_numpy().astype(np.float64)
+            x_arr = x[c].to_numpy().astype(np.float64)
+            return (c, rolling_regression_online_with_lag(y_arr, x_arr, d, lag, rettype))
 
     with ThreadPoolExecutor(max_workers=min(8, len(value_cols))) as executor:
-        col_results = dict(executor.map(process_col_fallback, value_cols))
+        col_results = dict(executor.map(process_col, value_cols))
 
     return pl.DataFrame({date_col: y[date_col], **col_results})

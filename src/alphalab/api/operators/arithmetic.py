@@ -455,6 +455,20 @@ def reverse(x: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def _densify_row(row: np.ndarray) -> np.ndarray:
+    """Densify a single row: remap values to consecutive integers 0..n-1."""
+    valid_mask = ~np.isnan(row)
+    result = np.full_like(row, np.nan)
+
+    if not np.any(valid_mask):
+        return result
+
+    # np.unique returns sorted unique values and inverse indices
+    _, inverse = np.unique(row[valid_mask], return_inverse=True)
+    result[valid_mask] = inverse.astype(np.float64)
+    return result
+
+
 def densify(x: pl.DataFrame) -> pl.DataFrame:
     """Remap unique values to consecutive integers 0..n-1 per row.
 
@@ -467,28 +481,18 @@ def densify(x: pl.DataFrame) -> pl.DataFrame:
     Returns:
         Wide DataFrame with values remapped to 0..n-1 per row
     """
+    from concurrent.futures import ThreadPoolExecutor
+
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
 
     # Extract as numpy for fast row-wise processing
-    values = x.select(value_cols).to_numpy()
-    n_rows, n_cols = values.shape
-    result = np.empty((n_rows, n_cols), dtype=np.float64)
+    values = x.select(value_cols).to_numpy().astype(np.float64)
 
-    # Dense rank per row
-    for i in range(n_rows):
-        row = values[i]
-        valid_mask = ~np.isnan(row)
-
-        if not np.any(valid_mask):
-            result[i] = np.nan
-            continue
-
-        # np.unique returns sorted unique values and inverse indices
-        # inverse[j] gives the index of row[valid_mask][j] in the sorted unique array
-        _, inverse = np.unique(row[valid_mask], return_inverse=True)
-        result[i, valid_mask] = inverse.astype(np.float64)
-        result[i, ~valid_mask] = np.nan
+    # Process rows in parallel
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(_densify_row, values))
+    result = np.array(results)
 
     return pl.DataFrame({
         date_col: x[date_col],
