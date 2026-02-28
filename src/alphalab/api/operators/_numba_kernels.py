@@ -6,7 +6,7 @@ Contains:
 """
 
 import numpy as np
-from numba import njit
+from numba import njit, prange
 
 
 @njit(cache=True)
@@ -1655,5 +1655,145 @@ def group_backfill_kernel(
                 result[i, j] = clipped_sum / len(vals_arr)
             else:
                 result[i, j] = mean
+
+    return result
+
+
+# ============================================================================
+# Cross-sectional kernels
+# ============================================================================
+
+
+@njit(cache=True)
+def _inv_norm_approx(p: float) -> float:
+    """Approximate inverse normal CDF (Abramowitz and Stegun).
+
+    Accurate to ~1e-9 for p in (0, 1).
+    """
+    if p <= 0.0:
+        return -np.inf
+    if p >= 1.0:
+        return np.inf
+
+    # Coefficients for rational approximation
+    a = np.array([
+        -3.969683028665376e01,
+        2.209460984245205e02,
+        -2.759285104469687e02,
+        1.383577518672690e02,
+        -3.066479806614716e01,
+        2.506628277459239e00,
+    ])
+    b = np.array([
+        -5.447609879822406e01,
+        1.615858368580409e02,
+        -1.556989798598866e02,
+        6.680131188771972e01,
+        -1.328068155288572e01,
+    ])
+    c = np.array([
+        -7.784894002430293e-03,
+        -3.223964580411365e-01,
+        -2.400758277161838e00,
+        -2.549732539343734e00,
+        4.374664141464968e00,
+        2.938163982698783e00,
+    ])
+    d = np.array([
+        7.784695709041462e-03,
+        3.224671290700398e-01,
+        2.445134137142996e00,
+        3.754408661907416e00,
+    ])
+
+    p_low = 0.02425
+    p_high = 1.0 - p_low
+
+    if p < p_low:
+        # Lower tail
+        q = np.sqrt(-2.0 * np.log(p))
+        return (((((c[0]*q + c[1])*q + c[2])*q + c[3])*q + c[4])*q + c[5]) / \
+               ((((d[0]*q + d[1])*q + d[2])*q + d[3])*q + 1.0)
+    elif p <= p_high:
+        # Central region
+        q = p - 0.5
+        r = q * q
+        return (((((a[0]*r + a[1])*r + a[2])*r + a[3])*r + a[4])*r + a[5]) * q / \
+               (((((b[0]*r + b[1])*r + b[2])*r + b[3])*r + b[4])*r + 1.0)
+    else:
+        # Upper tail
+        q = np.sqrt(-2.0 * np.log(1.0 - p))
+        return -(((((c[0]*q + c[1])*q + c[2])*q + c[3])*q + c[4])*q + c[5]) / \
+                ((((d[0]*q + d[1])*q + d[2])*q + d[3])*q + 1.0)
+
+
+@njit(cache=True, parallel=True)
+def quantile_transform_2d(
+    values: np.ndarray,
+    driver: int,
+    sigma: float,
+) -> np.ndarray:
+    """Quantile transformation for 2D array (rows × cols).
+
+    Args:
+        values: 2D array of values
+        driver: 0=gaussian, 1=uniform, 2=cauchy
+        sigma: Scale parameter
+
+    Returns:
+        Transformed values
+    """
+    n_rows, n_cols = values.shape
+    result = np.empty((n_rows, n_cols), dtype=np.float64)
+
+    for i in prange(n_rows):
+        row = values[i]
+        out = result[i]
+
+        # Count valid values and get indices
+        valid_count = 0
+        for j in range(n_cols):
+            if not np.isnan(row[j]):
+                valid_count += 1
+            else:
+                out[j] = np.nan
+
+        if valid_count <= 1:
+            for j in range(n_cols):
+                if not np.isnan(row[j]):
+                    out[j] = 0.0
+            continue
+
+        # Extract valid values and their indices
+        valid_vals = np.empty(valid_count, dtype=np.float64)
+        valid_idx = np.empty(valid_count, dtype=np.int64)
+        k = 0
+        for j in range(n_cols):
+            if not np.isnan(row[j]):
+                valid_vals[k] = row[j]
+                valid_idx[k] = j
+                k += 1
+
+        # Rank using argsort
+        order = np.argsort(valid_vals)
+        ranks = np.empty(valid_count, dtype=np.float64)
+        for k in range(valid_count):
+            ranks[order[k]] = k
+
+        # Normalize to [0, 1] and shift to [1/N, 1-1/N]
+        n = float(valid_count)
+        for k in range(valid_count):
+            r = ranks[k] / (n - 1.0)  # [0, 1]
+            shifted = 1.0 / n + r * (1.0 - 2.0 / n)  # [1/N, 1-1/N]
+
+            # Apply inverse CDF
+            if driver == 0:  # gaussian
+                transformed = _inv_norm_approx(shifted) * sigma
+            elif driver == 1:  # uniform
+                transformed = (shifted - 0.5) * 2.0 * sigma
+            else:  # cauchy
+                transformed = np.tan(np.pi * (shifted - 0.5)) * sigma
+
+            out[valid_idx[k]] = transformed
 
     return result

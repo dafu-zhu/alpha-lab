@@ -112,20 +112,24 @@ def _quantile_transform(values: np.ndarray, driver: str, sigma: float) -> np.nda
 
     valid_vals = values[valid_mask]
 
-    # Step 1: Rank to [0, 1]
-    ranks = stats.rankdata(valid_vals, method="ordinal")
-    ranks = (ranks - 1) / (n_valid - 1)  # [0, 1]
+    # Step 1: Rank to [0, 1] using argsort (faster than scipy.stats.rankdata)
+    order = np.argsort(valid_vals)
+    ranks = np.empty(n_valid, dtype=np.float64)
+    ranks[order] = np.arange(n_valid)
+    ranks = ranks / (n_valid - 1)  # [0, 1]
 
     # Step 2: Shift to [1/N, 1-1/N]
     shifted = 1 / n_valid + ranks * (1 - 2 / n_valid)
 
     # Step 3: Apply inverse CDF
     if driver == "gaussian":
-        transformed = stats.norm.ppf(shifted) * sigma
+        from scipy.special import ndtri
+        transformed = ndtri(shifted) * sigma  # ndtri is faster than norm.ppf
     elif driver == "uniform":
         transformed = (shifted - 0.5) * 2 * sigma  # [-sigma, sigma]
     elif driver == "cauchy":
-        transformed = stats.cauchy.ppf(shifted) * sigma
+        # Cauchy inverse CDF: tan(π * (p - 0.5))
+        transformed = np.tan(np.pi * (shifted - 0.5)) * sigma
     else:
         raise ValueError(f"Unknown driver: {driver}")
 
@@ -412,19 +416,22 @@ def quantile(
     Returns:
         Wide DataFrame with quantile-transformed values
     """
+    from alphalab.api.operators._numba_kernels import quantile_transform_2d
+
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
 
     # Extract values as numpy array (rows × symbols)
     values = x.select(value_cols).to_numpy().astype(np.float64)
 
-    # Apply transform row-by-row in parallel
-    def transform_row(row: np.ndarray) -> np.ndarray:
-        return _quantile_transform(row, driver, sigma)
+    # Map driver to int for numba
+    driver_map = {"gaussian": 0, "uniform": 1, "cauchy": 2}
+    if driver not in driver_map:
+        raise ValueError(f"Unknown driver: {driver}")
+    driver_int = driver_map[driver]
 
-    with ThreadPoolExecutor(max_workers=_RANK_MAX_WORKERS) as executor:
-        results = list(executor.map(transform_row, values))
-    result = np.array(results)
+    # Use numba kernel for fast transformation
+    result = quantile_transform_2d(values, driver_int, sigma)
 
     # Rebuild DataFrame
     return pl.DataFrame({
