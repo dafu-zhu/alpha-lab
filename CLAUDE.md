@@ -4,12 +4,113 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AlphaLab: Local-first alpha research platform inspired by WorldQuant BRAIN. Self-hosted market data infrastructure for US equities using official/authoritative sources. Data stored in flat-file structure on local filesystem.
+AlphaLab: Local-first alpha research platform that replicates WorldQuant BRAIN's capabilities on a local machine. Goals: (1) mine alphas efficiently for BRAIN submission as a WQ consultant, and (2) use the same alphas to construct live portfolio trading strategies independently. Self-hosted market data infrastructure for US equities using official/authoritative sources. Data stored in flat-file structure on local filesystem.
 
 **Data Coverage:**
 - Daily ticks (OHLCV): Alpaca API (2017+)
 - Fundamentals: SEC EDGAR JSON API (2009+)
 - Security master: Local parquet (data/meta/master/security_master.parquet, checked into repo)
+
+## Alpha Research Context
+
+This section contains domain knowledge that cannot be inferred from code — data strategy decisions, BRAIN compatibility requirements, and submission criteria. Reference this when making implementation decisions.
+
+### Design Principles
+
+1. **BRAIN-compatible semantics.** Every operator and field must behave identically to BRAIN so that alphas developed locally can be copy-pasted into BRAIN (after field name translation) and produce matching results.
+2. **Point-in-time correctness.** No lookahead bias. Fundamentals use filing dates, not period-end dates. Restatements are handled.
+3. **Sustainability over perfection.** Free data sources (Alpaca, EDGAR, GDELT) are preferred for ongoing pipelines. Premium data (WRDS/CRSP, IBES, Bloomberg) is pulled aggressively while university access exists, then managed as historical seeds via DVC. Correlation > identity — if a replicated field maintains >0.95 correlation with the BRAIN original, it's acceptable.
+4. **Monorepo, single package.** All modules live in one repo under `src/alphalab/`. No microservices, no Docker until there's a real deployment need.
+5. **Parquet/Arrow native.** All data stored as wide matrices (Date × security_id) in Parquet. No database server.
+6. **Alpha-count-driven field prioritization.** When deciding which BRAIN fields to replicate, use BRAIN's "Alphas" column as a crowdsourced feature importance signal. High alpha count = proven signal value. Fields with <50 alphas are low-priority unless there is a specific hypothesis.
+
+### Target Architecture (Planned Modules)
+
+    src/alphalab/
+    ├── api/              # Client interface (exists)
+    ├── dsl/              # Expression engine (exists)
+    ├── data/             # PIT data pipelines
+    │   ├── price/        # Alpaca OHLCV (exists)
+    │   ├── fundamental/  # SEC EDGAR (exists)
+    │   ├── risk/         # model51: beta, correlation, systematic risk (planned, trivial)
+    │   ├── analyst/      # analyst4: IBES seed + FMP estimates (planned)
+    │   └── news/         # news18: GDELT + Loughran-McDonald sentiment (planned)
+    ├── backtest/         # Simulation engine (planned)
+    └── brain/
+        ├── translator/   # Local field ↔ BRAIN field mapping (planned)
+        └── journal/      # Submission tracking, IS/OS logs (planned)
+
+### Development Priorities (in order)
+
+1. **brain/translator** — Field name mapping so alphas can be developed locally and submitted to BRAIN immediately.
+2. **brain/journal** — Track submissions, IS/OS results, correlations, notes.
+3. **Expand data/ with alternative datasets** — Only as specific alpha hypotheses require.
+4. **backtest/** — Local simulation engine matching BRAIN's backtest logic (PnL, turnover, drawdown, Sharpe, fitness).
+
+### Alternative Data Replication Plan
+
+Datasets split into two categories: locally replicable vs. BRAIN-only.
+
+**Replicate locally (build order):**
+
+| BRAIN Dataset | Description | Replication Strategy | Priority |
+|---|---|---|---|
+| model51 (Systematic Risk) | Rolling beta, correlation, systematic/unsystematic risk vs SPY at 30/60/90/360d windows. Fields have 700-7300+ alphas. | Compute from Alpaca price data (rolling OLS regressions). Trivial. | Highest |
+| news12 (US News Data) | Derived price/volume metrics (ATR, VWAP, market cap, EOD prices, standardized moves). NOT NLP sentiment despite the name. Fields have 1000-6000+ alphas. | Compute from existing Alpaca OHLCV + EDGAR fundamentals. Easy. | High |
+| analyst4 (Analyst Estimates) | Consensus estimates, revision counts, actuals. Signal concentrates in revision momentum fields (anl4_ady_pu: 5328 alphas). | WRDS/IBES (historical seed) + FMP Starter $19/mo (ongoing). Medium. | High |
+| model16 (Fundamental Scores) | Composite quality/momentum/value factor scores. Max 401 alphas per field. | Compute from existing fundamentals. Easy but low value. | Low |
+| news18 (RavenPack Sentiment) | NLP-derived news sentiment by event category. Fields have 400-1300 alphas. | GDELT + Loughran-McDonald word lists (academically validated per Wang, Zhang & Zhu 2018). | Medium |
+
+**BRAIN-only (do NOT replicate locally):**
+
+| BRAIN Dataset | Reason |
+|---|---|
+| socialmedia12 (Social Buzz) | Bigdata.com/RavenPack proprietary ML. No public methodology, no academic blueprint for DIY proxy. Use on BRAIN directly. |
+| socialmedia8 (Twitter Sentiment) | Twitter/X API deteriorating. Proprietary smoothing methodology. Use on BRAIN directly. |
+
+### Historical Data Strategy
+
+Data is managed in two tiers: one-time historical seeds from premium sources, and ongoing sustainable pipelines from free/low-cost sources. Large datasets managed via DVC — GitHub stores code + `.dvc` pointers, actual `.parquet` files live on private cloud remote. Raw paid-source exports are never committed to Git.
+
+**Premium sources (pull aggressively while university access exists):**
+- WRDS/CRSP — Full price/volume history (1986+), delisting returns, share codes. Security master backbone.
+- WRDS/IBES — Analyst consensus estimates, revision counts, individual broker detail. Primary seed for analyst4.
+- WRDS/Compustat — Quarterly fundamentals, cross-checked against SEC EDGAR.
+- Bloomberg — Short interest, credit ratings, fields unavailable on WRDS.
+- Quandl/Nasdaq Data Link — Sharadar fundamentals, institutional holdings, insider transactions.
+
+**Stitching contract:** For any field with a paid historical seed + free ongoing source, document cutover date and validate adjustment methodology alignment (e.g., split/dividend adjustments between CRSP and Alpaca). Use overlap period for correlation validation.
+
+**Ongoing sustainable sources:**
+- Price/volume: Alpaca (free, 2017+)
+- Fundamentals: SEC EDGAR (free, 2009+)
+- Analyst estimates: FMP API Starter ($19/mo) — ~0.90-0.95 correlation with IBES for consensus, ~0.80-0.85 on revision dynamics.
+- Sentiment/news: GDELT — only when a specific hypothesis demands it.
+
+### Field Prioritization Strategy
+
+Use BRAIN's "Alphas" column (count of alphas created using each field) as a crowdsourced feature importance signal. Sort fields by alpha count descending. Fields with <50 alphas are low-priority unless there is a specific hypothesis.
+
+**Self-correlation note:** BRAIN's self-correlation check compares against YOUR OWN submitted alphas, not the global pool. High alpha count on a field means proven signal value, not crowding. Multiple alphas on the same high-count field are fine if differentiated (different decay, neutralization, combination logic).
+
+### WQ BRAIN Submission Criteria
+
+When evaluating alpha quality, use these thresholds:
+- Sharpe > 1.25 (higher is better but watch for overfitting)
+- Turnover: region-dependent, generally 10-70% acceptable
+- Fitness > 1.0
+- Margin (return per dollar traded) > 0.0025
+- Drawdown < 25%
+- Low self-correlation with own previously submitted alphas
+- Passes sub-universe checks (top 3000, top 1000, etc.)
+
+### Implementation Guardrails
+
+- Do NOT suggest Docker, Kubernetes, microservices, or over-engineering unless specifically asked.
+- Do NOT suggest building BRAIN API wrappers — there is no official batch submission API.
+- Prioritize PIT correctness in all data engineering work.
+- Respect existing patterns in the repo (polars, Arrow IPC, security_id-based storage).
+- Be honest about correlation gaps between free and premium data sources.
 
 ## Commands
 
