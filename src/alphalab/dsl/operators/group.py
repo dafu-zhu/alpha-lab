@@ -10,7 +10,7 @@ Uses numba-optimized row-wise operations for performance.
 import numpy as np
 import polars as pl
 
-from alphalab.api.operators._numba_kernels import (
+from alphalab.dsl.operators._numba_kernels import (
     group_backfill_kernel,
     group_mean_rows,
     group_neutralize_rows,

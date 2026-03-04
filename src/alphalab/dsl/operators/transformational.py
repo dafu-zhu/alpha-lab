@@ -38,7 +38,7 @@ def trade_when(
     """
     from concurrent.futures import ThreadPoolExecutor
 
-    from alphalab.api.operators._numba_kernels import trade_when_column
+    from alphalab.dsl.operators._numba_kernels import trade_when_column
 
     date_col = trigger_trade.columns[0]
     value_cols = _get_value_cols(trigger_trade)

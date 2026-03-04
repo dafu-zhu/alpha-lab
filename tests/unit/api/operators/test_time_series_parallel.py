@@ -19,7 +19,7 @@ def is_missing(value) -> bool:
 
 def test_days_from_last_change_correctness():
     """Parallelized version produces same results as original."""
-    from alphalab.api.operators.time_series import days_from_last_change
+    from alphalab.dsl.operators.time_series import days_from_last_change
 
     df = pl.DataFrame({
         "Date": [1, 2, 3, 4, 5, 6, 7],
@@ -37,7 +37,7 @@ def test_days_from_last_change_correctness():
 
 def test_days_from_last_change_single_column():
     """Works with single value column."""
-    from alphalab.api.operators.time_series import days_from_last_change
+    from alphalab.dsl.operators.time_series import days_from_last_change
 
     df = pl.DataFrame({
         "Date": [1, 2, 3, 4],
@@ -50,7 +50,7 @@ def test_days_from_last_change_single_column():
 
 def test_days_from_last_change_with_nulls():
     """Null values are treated as same value (None == None)."""
-    from alphalab.api.operators.time_series import days_from_last_change
+    from alphalab.dsl.operators.time_series import days_from_last_change
 
     df = pl.DataFrame({
         "Date": [1, 2, 3, 4],
@@ -65,7 +65,7 @@ def test_days_from_last_change_with_nulls():
 
 def test_days_from_last_change_with_nans():
     """NaN values are treated as changes (NaN != NaN)."""
-    from alphalab.api.operators.time_series import days_from_last_change
+    from alphalab.dsl.operators.time_series import days_from_last_change
     import math
 
     df = pl.DataFrame({
@@ -80,7 +80,7 @@ def test_days_from_last_change_with_nans():
 
 def test_ts_corr_correctness():
     """Parallelized ts_corr produces same results."""
-    from alphalab.api.operators.time_series import ts_corr
+    from alphalab.dsl.operators.time_series import ts_corr
 
     df_x = pl.DataFrame({
         "Date": list(range(10)),
@@ -103,7 +103,7 @@ def test_ts_corr_correctness():
 
 def test_ts_corr_with_nan():
     """NaN values in window return None."""
-    from alphalab.api.operators.time_series import ts_corr
+    from alphalab.dsl.operators.time_series import ts_corr
 
     df_x = pl.DataFrame({
         "Date": [1, 2, 3, 4, 5],
@@ -122,7 +122,7 @@ def test_ts_corr_with_nan():
 
 def test_ts_covariance_correctness():
     """Parallelized ts_covariance produces same results."""
-    from alphalab.api.operators.time_series import ts_covariance
+    from alphalab.dsl.operators.time_series import ts_covariance
 
     df_x = pl.DataFrame({
         "Date": list(range(5)),
@@ -142,7 +142,7 @@ def test_ts_covariance_correctness():
 
 def test_ts_covariance_with_nan():
     """NaN values in window return None."""
-    from alphalab.api.operators.time_series import ts_covariance
+    from alphalab.dsl.operators.time_series import ts_covariance
 
     df_x = pl.DataFrame({
         "Date": [1, 2, 3, 4, 5],
@@ -161,7 +161,7 @@ def test_ts_covariance_with_nan():
 
 def test_ts_regression_correctness():
     """Parallelized ts_regression produces same results."""
-    from alphalab.api.operators.time_series import ts_regression
+    from alphalab.dsl.operators.time_series import ts_regression
 
     df_y = pl.DataFrame({
         "Date": list(range(5)),
@@ -183,7 +183,7 @@ def test_ts_regression_correctness():
 
 def test_ts_regression_with_nan():
     """NaN values in window return None."""
-    from alphalab.api.operators.time_series import ts_regression
+    from alphalab.dsl.operators.time_series import ts_regression
 
     df_y = pl.DataFrame({
         "Date": [1, 2, 3, 4, 5],
@@ -202,7 +202,7 @@ def test_ts_regression_with_nan():
 
 def test_hump_correctness():
     """Parallelized hump produces same results."""
-    from alphalab.api.operators.time_series import hump
+    from alphalab.dsl.operators.time_series import hump
 
     df = pl.DataFrame({
         "Date": [1, 2, 3],
@@ -219,7 +219,7 @@ def test_hump_correctness():
 
 def test_ts_decay_linear_correctness():
     """Parallelized ts_decay_linear produces correct weighted average."""
-    from alphalab.api.operators.time_series import ts_decay_linear
+    from alphalab.dsl.operators.time_series import ts_decay_linear
 
     # Window of 3 with weights [1, 2, 3], weight_sum = 6
     df = pl.DataFrame({
@@ -251,7 +251,7 @@ def test_ts_decay_linear_correctness():
 
 def test_ts_decay_linear_with_nan():
     """NaN values in window return NaN for dense=False (numba kernel)."""
-    from alphalab.api.operators.time_series import ts_decay_linear
+    from alphalab.dsl.operators.time_series import ts_decay_linear
 
     df = pl.DataFrame({
         "Date": [1, 2, 3, 4, 5, 6],
@@ -272,7 +272,7 @@ def test_ts_decay_linear_with_nan():
 
 def test_ts_decay_linear_multiple_columns():
     """Verify parallel processing works correctly with multiple columns."""
-    from alphalab.api.operators.time_series import ts_decay_linear
+    from alphalab.dsl.operators.time_series import ts_decay_linear
 
     # Create DataFrame with many columns to test parallel processing
     df = pl.DataFrame({
@@ -297,7 +297,7 @@ def test_ts_decay_linear_multiple_columns():
 
 def test_ts_product_correctness():
     """Parallelized ts_product produces correct rolling products."""
-    from alphalab.api.operators.time_series import ts_product
+    from alphalab.dsl.operators.time_series import ts_product
 
     df = pl.DataFrame({
         "Date": list(range(6)),
@@ -330,7 +330,7 @@ def test_ts_product_correctness():
 
 def test_ts_product_with_nan():
     """NaN values in window return NaN."""
-    from alphalab.api.operators.time_series import ts_product
+    from alphalab.dsl.operators.time_series import ts_product
 
     df = pl.DataFrame({
         "Date": [1, 2, 3, 4, 5, 6],
@@ -354,7 +354,7 @@ def test_ts_product_with_nan():
 
 def test_ts_product_with_zero():
     """Zero in window returns zero (not NaN)."""
-    from alphalab.api.operators.time_series import ts_product
+    from alphalab.dsl.operators.time_series import ts_product
 
     df = pl.DataFrame({
         "Date": [1, 2, 3, 4, 5, 6],
@@ -378,7 +378,7 @@ def test_ts_product_with_zero():
 
 def test_ts_product_partial_window():
     """Partial windows (min_samples=1) compute product of available values."""
-    from alphalab.api.operators.time_series import ts_product
+    from alphalab.dsl.operators.time_series import ts_product
 
     df = pl.DataFrame({
         "Date": [1, 2, 3, 4],
@@ -400,7 +400,7 @@ def test_ts_product_partial_window():
 
 def test_ts_product_with_negative():
     """Negative values handled correctly (sign tracking)."""
-    from alphalab.api.operators.time_series import ts_product
+    from alphalab.dsl.operators.time_series import ts_product
 
     df = pl.DataFrame({
         "Date": [1, 2, 3, 4, 5],
@@ -423,7 +423,7 @@ def test_ts_product_with_negative():
 
 def test_ts_product_multiple_columns():
     """Verify parallel processing works correctly with multiple columns."""
-    from alphalab.api.operators.time_series import ts_product
+    from alphalab.dsl.operators.time_series import ts_product
 
     # Create DataFrame with many columns to test parallel processing
     df = pl.DataFrame({
@@ -446,7 +446,7 @@ def test_ts_product_multiple_columns():
 
 def test_ts_rank_correctness():
     """Parallelized ts_rank produces correct rolling ranks."""
-    from alphalab.api.operators.time_series import ts_rank
+    from alphalab.dsl.operators.time_series import ts_rank
 
     df = pl.DataFrame({
         "Date": list(range(6)),
@@ -488,7 +488,7 @@ def test_ts_rank_correctness():
 
 def test_ts_rank_with_nan():
     """NaN in current value returns NaN; NaN in window is skipped."""
-    from alphalab.api.operators.time_series import ts_rank
+    from alphalab.dsl.operators.time_series import ts_rank
 
     df = pl.DataFrame({
         "Date": [1, 2, 3, 4, 5, 6],
@@ -519,7 +519,7 @@ def test_ts_rank_with_nan():
 
 def test_ts_rank_constant_values():
     """Constant values (ties) handled correctly."""
-    from alphalab.api.operators.time_series import ts_rank
+    from alphalab.dsl.operators.time_series import ts_rank
 
     df = pl.DataFrame({
         "Date": list(range(5)),
@@ -553,7 +553,7 @@ def test_ts_rank_constant_values():
 
 def test_ts_rank_with_constant():
     """ts_rank with constant parameter shifts range to [constant, 1+constant]."""
-    from alphalab.api.operators.time_series import ts_rank
+    from alphalab.dsl.operators.time_series import ts_rank
 
     df = pl.DataFrame({
         "Date": list(range(5)),
@@ -572,7 +572,7 @@ def test_ts_rank_with_constant():
 
 def test_ts_rank_multiple_columns():
     """Verify parallel processing works correctly with multiple columns."""
-    from alphalab.api.operators.time_series import ts_rank
+    from alphalab.dsl.operators.time_series import ts_rank
 
     # Create DataFrame with many columns to test parallel processing
     df = pl.DataFrame({
@@ -596,7 +596,7 @@ def test_ts_rank_multiple_columns():
 
 def test_ts_quantile_gaussian_correctness():
     """ts_quantile with gaussian driver produces correct quantile transform."""
-    from alphalab.api.operators.time_series import ts_quantile
+    from alphalab.dsl.operators.time_series import ts_quantile
 
     df = pl.DataFrame({
         "Date": list(range(6)),
@@ -628,7 +628,7 @@ def test_ts_quantile_gaussian_correctness():
 
 def test_ts_quantile_uniform_correctness():
     """ts_quantile with uniform driver produces correct scaled rank."""
-    from alphalab.api.operators.time_series import ts_quantile
+    from alphalab.dsl.operators.time_series import ts_quantile
 
     df = pl.DataFrame({
         "Date": list(range(6)),
@@ -668,7 +668,7 @@ def test_ts_quantile_uniform_correctness():
 
 def test_ts_quantile_with_nan():
     """NaN in current value returns NaN; NaN in window is skipped."""
-    from alphalab.api.operators.time_series import ts_quantile
+    from alphalab.dsl.operators.time_series import ts_quantile
 
     df = pl.DataFrame({
         "Date": [1, 2, 3, 4, 5, 6],
@@ -710,7 +710,7 @@ def test_ts_quantile_with_nan():
 
 def test_ts_quantile_constant_values():
     """Constant values (ties) handled correctly."""
-    from alphalab.api.operators.time_series import ts_quantile
+    from alphalab.dsl.operators.time_series import ts_quantile
 
     df = pl.DataFrame({
         "Date": list(range(5)),
@@ -745,7 +745,7 @@ def test_ts_quantile_constant_values():
 
 def test_ts_quantile_multiple_columns():
     """Verify parallel processing works correctly with multiple columns."""
-    from alphalab.api.operators.time_series import ts_quantile
+    from alphalab.dsl.operators.time_series import ts_quantile
 
     # Create DataFrame with many columns to test parallel processing
     df = pl.DataFrame({
@@ -773,7 +773,7 @@ def test_ts_quantile_multiple_columns():
 
 def test_ts_arg_max_correctness():
     """ts_arg_max produces correct days since max in rolling window."""
-    from alphalab.api.operators.time_series import ts_arg_max
+    from alphalab.dsl.operators.time_series import ts_arg_max
 
     df = pl.DataFrame({
         "Date": list(range(7)),
@@ -818,7 +818,7 @@ def test_ts_arg_max_correctness():
 
 def test_ts_arg_max_with_nan():
     """NaN in current value returns NaN; NaN in window is skipped."""
-    from alphalab.api.operators.time_series import ts_arg_max
+    from alphalab.dsl.operators.time_series import ts_arg_max
 
     df = pl.DataFrame({
         "Date": [1, 2, 3, 4, 5, 6, 7],
@@ -855,7 +855,7 @@ def test_ts_arg_max_with_nan():
 
 def test_ts_arg_max_ties():
     """When multiple values tie for max, prefer the most recent (closest to current)."""
-    from alphalab.api.operators.time_series import ts_arg_max
+    from alphalab.dsl.operators.time_series import ts_arg_max
 
     df = pl.DataFrame({
         "Date": list(range(5)),
@@ -879,7 +879,7 @@ def test_ts_arg_max_ties():
 
 def test_ts_arg_max_multiple_columns():
     """Verify parallel processing works correctly with multiple columns."""
-    from alphalab.api.operators.time_series import ts_arg_max
+    from alphalab.dsl.operators.time_series import ts_arg_max
 
     # Create DataFrame with many columns to test parallel processing
     df = pl.DataFrame({
@@ -905,7 +905,7 @@ def test_ts_arg_max_multiple_columns():
 
 def test_ts_arg_min_correctness():
     """ts_arg_min produces correct days since min in rolling window."""
-    from alphalab.api.operators.time_series import ts_arg_min
+    from alphalab.dsl.operators.time_series import ts_arg_min
 
     df = pl.DataFrame({
         "Date": list(range(7)),
@@ -950,7 +950,7 @@ def test_ts_arg_min_correctness():
 
 def test_ts_arg_min_with_nan():
     """NaN in current value returns NaN; NaN in window is skipped."""
-    from alphalab.api.operators.time_series import ts_arg_min
+    from alphalab.dsl.operators.time_series import ts_arg_min
 
     df = pl.DataFrame({
         "Date": [1, 2, 3, 4, 5, 6, 7],
@@ -987,7 +987,7 @@ def test_ts_arg_min_with_nan():
 
 def test_ts_arg_min_ties():
     """When multiple values tie for min, prefer the most recent (closest to current)."""
-    from alphalab.api.operators.time_series import ts_arg_min
+    from alphalab.dsl.operators.time_series import ts_arg_min
 
     df = pl.DataFrame({
         "Date": list(range(5)),
@@ -1011,7 +1011,7 @@ def test_ts_arg_min_ties():
 
 def test_ts_arg_min_multiple_columns():
     """Verify parallel processing works correctly with multiple columns."""
-    from alphalab.api.operators.time_series import ts_arg_min
+    from alphalab.dsl.operators.time_series import ts_arg_min
 
     # Create DataFrame with many columns to test parallel processing
     # Use monotonically decreasing values so current is always min
@@ -1038,7 +1038,7 @@ def test_ts_arg_min_multiple_columns():
 
 def test_last_diff_value_correctness():
     """last_diff_value finds the last different value in rolling window."""
-    from alphalab.api.operators.time_series import last_diff_value
+    from alphalab.dsl.operators.time_series import last_diff_value
 
     df = pl.DataFrame({
         "Date": list(range(8)),
@@ -1089,7 +1089,7 @@ def test_last_diff_value_correctness():
 
 def test_last_diff_value_with_nan():
     """NaN in current value returns NaN; NaN in window is skipped."""
-    from alphalab.api.operators.time_series import last_diff_value
+    from alphalab.dsl.operators.time_series import last_diff_value
 
     df = pl.DataFrame({
         "Date": [1, 2, 3, 4, 5, 6, 7],
@@ -1126,7 +1126,7 @@ def test_last_diff_value_with_nan():
 
 def test_last_diff_value_all_same():
     """When all values in window are the same, returns NaN."""
-    from alphalab.api.operators.time_series import last_diff_value
+    from alphalab.dsl.operators.time_series import last_diff_value
 
     df = pl.DataFrame({
         "Date": list(range(6)),
@@ -1159,7 +1159,7 @@ def test_last_diff_value_all_same():
 
 def test_last_diff_value_multiple_columns():
     """Verify parallel processing works correctly with multiple columns."""
-    from alphalab.api.operators.time_series import last_diff_value
+    from alphalab.dsl.operators.time_series import last_diff_value
 
     # Create DataFrame with many columns to test parallel processing
     df = pl.DataFrame({

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import polars as pl
 
-from alphalab.alpha.types import AlphaLike, Scalar
-from alphalab.alpha.validation import _validate_alignment
+from alphalab.dsl.types import AlphaLike, Scalar
+from alphalab.dsl.validation import _validate_alignment
 
 
 def _get_value_cols(df: pl.DataFrame) -> list[str]:

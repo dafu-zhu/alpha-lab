@@ -416,7 +416,7 @@ def quantile(
     Returns:
         Wide DataFrame with quantile-transformed values
     """
-    from alphalab.api.operators._numba_kernels import quantile_transform_2d
+    from alphalab.dsl.operators._numba_kernels import quantile_transform_2d
 
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)

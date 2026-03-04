@@ -1,25 +1,18 @@
-"""Alpha expression DSL for composing operators.
+"""Alpha expression DSL — backward compatibility re-exports from alphalab.dsl."""
 
-Note: For user-friendly API, use `alphalab.api.dsl.compute()` instead.
-This module contains internal implementation details.
-"""
-
-from alphalab.alpha.core import Alpha
-from alphalab.alpha.parser import AlphaParseError
-from alphalab.alpha.types import AlphaLike, Scalar
-from alphalab.alpha.validation import (
+from alphalab.dsl.core import Alpha
+from alphalab.dsl.parser import AlphaParseError
+from alphalab.dsl.types import AlphaLike, Scalar
+from alphalab.dsl.validation import (
     AlphaError,
     ColumnMismatchError,
     DateMismatchError,
 )
 
 __all__ = [
-    # Core
     "Alpha",
-    # Types
     "AlphaLike",
     "Scalar",
-    # Exceptions
     "AlphaError",
     "AlphaParseError",
     "ColumnMismatchError",

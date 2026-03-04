@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
-    from alphalab.alpha.core import Alpha
+    from alphalab.dsl.core import Alpha
 
 import polars as pl
 

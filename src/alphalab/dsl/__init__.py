@@ -1,7 +1,7 @@
-"""Standalone DSL for alpha expression evaluation.
+"""Alpha expression DSL — parser, operators, and compute() entry point.
 
 Example:
-    >>> from alphalab.api.dsl import compute
+    >>> from alphalab.dsl import compute
     >>> result = compute("rank(-ts_delta(x, 5))", x=close_df)
 """
 
@@ -9,8 +9,15 @@ from __future__ import annotations
 
 import polars as pl
 
-from alphalab.api import operators
-from alphalab.alpha.parser import _evaluate
+from alphalab.dsl import operators
+from alphalab.dsl.core import Alpha
+from alphalab.dsl.parser import AlphaParseError, _evaluate
+from alphalab.dsl.types import AlphaLike, Scalar
+from alphalab.dsl.validation import (
+    AlphaError,
+    ColumnMismatchError,
+    DateMismatchError,
+)
 
 
 def compute(expr: str, **variables: pl.DataFrame) -> pl.DataFrame:
@@ -40,3 +47,16 @@ def compute(expr: str, **variables: pl.DataFrame) -> pl.DataFrame:
     """
     result = _evaluate(expr, variables, ops=operators)
     return result.data
+
+
+__all__ = [
+    "compute",
+    "Alpha",
+    "AlphaLike",
+    "Scalar",
+    "AlphaError",
+    "AlphaParseError",
+    "ColumnMismatchError",
+    "DateMismatchError",
+    "operators",
+]

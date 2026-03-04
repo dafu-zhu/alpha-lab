@@ -139,7 +139,7 @@ def test_profile_with_client_query(capsys):
     })
 
     # Test using compute() directly (avoids needing full client setup)
-    from alphalab.api.dsl import compute
+    from alphalab.dsl import compute
 
     with profile() as p:
         result = compute("rank(-ts_delta(x, 2))", x=df)

@@ -16,7 +16,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from alphalab.api.operators import (
+from alphalab.dsl.operators import (
     # Arithmetic
     abs as op_abs,  # Avoid shadowing builtin
     add,

@@ -6,7 +6,7 @@ from datetime import date
 import polars as pl
 import pytest
 
-from alphalab.api.operators import (
+from alphalab.dsl.operators import (
     abs as op_abs,
     bucket,
 )
@@ -20,7 +20,7 @@ def is_missing(value) -> bool:
         return math.isnan(value)
     except (TypeError, ValueError):
         return False
-from alphalab.api.operators import (
+from alphalab.dsl.operators import (
     add,
     and_,
     days_from_last_change,
@@ -85,10 +85,10 @@ from alphalab.api.operators import (
     winsorize,
     zscore,
 )
-from alphalab.api.operators import (
+from alphalab.dsl.operators import (
     max as op_max,
 )
-from alphalab.api.operators import (
+from alphalab.dsl.operators import (
     min as op_min,
 )
 
@@ -2012,7 +2012,7 @@ class TestTradeWhen:
 
     def test_basic_trigger_enter(self, dates: list[date]) -> None:
         """Entry signal sets alpha value."""
-        from alphalab.api.operators import trade_when
+        from alphalab.dsl.operators import trade_when
         trigger = pl.DataFrame({"Date": dates, "A": [1.0, 0.0, 0.0, 1.0, 0.0]})
         alpha = pl.DataFrame({"Date": dates, "A": [10.0, 20.0, 30.0, 40.0, 50.0]})
         result = trade_when(trigger, alpha, -1)  # never exit
@@ -2021,7 +2021,7 @@ class TestTradeWhen:
 
     def test_carry_forward(self, dates: list[date]) -> None:
         """Position carries forward when no trigger."""
-        from alphalab.api.operators import trade_when
+        from alphalab.dsl.operators import trade_when
         trigger = pl.DataFrame({"Date": dates, "A": [1.0, 0.0, 0.0, 0.0, 0.0]})
         alpha = pl.DataFrame({"Date": dates, "A": [10.0, 20.0, 30.0, 40.0, 50.0]})
         result = trade_when(trigger, alpha, -1)
@@ -2031,7 +2031,7 @@ class TestTradeWhen:
 
     def test_exit_trigger_clears(self, dates: list[date]) -> None:
         """Exit signal produces NaN."""
-        from alphalab.api.operators import trade_when
+        from alphalab.dsl.operators import trade_when
         import math
         trigger = pl.DataFrame({"Date": dates, "A": [1.0, 0.0, 0.0, 0.0, 0.0]})
         alpha = pl.DataFrame({"Date": dates, "A": [10.0, 20.0, 30.0, 40.0, 50.0]})
@@ -2044,7 +2044,7 @@ class TestTradeWhen:
 
     def test_scalar_exit_never(self, dates: list[date]) -> None:
         """Scalar exit -1 means never exit."""
-        from alphalab.api.operators import trade_when
+        from alphalab.dsl.operators import trade_when
         trigger = pl.DataFrame({"Date": dates, "A": [1.0, 0.0, 0.0, 0.0, 0.0]})
         alpha = pl.DataFrame({"Date": dates, "A": [99.0, 0.0, 0.0, 0.0, 0.0]})
         result = trade_when(trigger, alpha, -1)
@@ -2054,7 +2054,7 @@ class TestTradeWhen:
 
     def test_all_nan_when_exit_always(self, dates: list[date]) -> None:
         """Scalar exit 1 means always exit (all NaN)."""
-        from alphalab.api.operators import trade_when
+        from alphalab.dsl.operators import trade_when
         import math
         trigger = pl.DataFrame({"Date": dates, "A": [1.0, 1.0, 1.0, 1.0, 1.0]})
         alpha = pl.DataFrame({"Date": dates, "A": [10.0, 20.0, 30.0, 40.0, 50.0]})
@@ -2064,7 +2064,7 @@ class TestTradeWhen:
 
     def test_multiple_columns(self, dates: list[date]) -> None:
         """Works with multiple symbol columns."""
-        from alphalab.api.operators import trade_when
+        from alphalab.dsl.operators import trade_when
         trigger = pl.DataFrame({
             "Date": dates,
             "A": [1.0, 0.0, 0.0, 0.0, 0.0],
@@ -2281,7 +2281,7 @@ class TestTsQuantileInvNormCoverage:
 
     def test_ts_quantile_extreme_low_rank(self) -> None:
         """Test ts_quantile with very low rank values (triggers p < p_low branch)."""
-        from alphalab.api.operators import ts_quantile
+        from alphalab.dsl.operators import ts_quantile
         from datetime import timedelta
         # Create 101 rows using multiple months
         base_date = date(2024, 1, 1)
@@ -2296,7 +2296,7 @@ class TestTsQuantileInvNormCoverage:
 
     def test_ts_quantile_extreme_high_rank(self) -> None:
         """Test ts_quantile with very high rank values (triggers p > p_high branch)."""
-        from alphalab.api.operators import ts_quantile
+        from alphalab.dsl.operators import ts_quantile
         from datetime import timedelta
         # Create 101 rows using multiple months
         base_date = date(2024, 1, 1)
@@ -2312,7 +2312,7 @@ class TestTsQuantileInvNormCoverage:
 
     def test_ts_quantile_middle_rank(self) -> None:
         """Test ts_quantile with middle rank (triggers p <= p_high branch)."""
-        from alphalab.api.operators import ts_quantile
+        from alphalab.dsl.operators import ts_quantile
         df = pl.DataFrame({
             "Date": [date(2024, 1, i) for i in range(1, 11)],
             "A": [float(i) for i in range(1, 11)],  # Linear values
@@ -2323,7 +2323,7 @@ class TestTsQuantileInvNormCoverage:
 
     def test_ts_quantile_uniform_all_same(self) -> None:
         """Test ts_quantile uniform driver with all same values returns expected value."""
-        from alphalab.api.operators import ts_quantile
+        from alphalab.dsl.operators import ts_quantile
         df = pl.DataFrame({
             "Date": [date(2024, 1, i) for i in range(1, 6)],
             "A": [5.0, 5.0, 5.0, 5.0, 5.0],
@@ -2334,7 +2334,7 @@ class TestTsQuantileInvNormCoverage:
 
     def test_ts_quantile_null_current(self) -> None:
         """Test ts_quantile with null current value."""
-        from alphalab.api.operators import ts_quantile
+        from alphalab.dsl.operators import ts_quantile
         df = pl.DataFrame({
             "Date": [date(2024, 1, i) for i in range(1, 6)],
             "A": [1.0, 2.0, 3.0, 4.0, None],
@@ -2349,7 +2349,7 @@ class TestTimeSeriesArgMinMaxCoverage:
 
     def test_ts_arg_max_all_null_in_window(self) -> None:
         """Test ts_arg_max when all values in window are null."""
-        from alphalab.api.operators import ts_arg_max
+        from alphalab.dsl.operators import ts_arg_max
         df = pl.DataFrame({
             "Date": [date(2024, 1, i) for i in range(1, 6)],
             "A": [1.0, None, None, None, None],
@@ -2360,7 +2360,7 @@ class TestTimeSeriesArgMinMaxCoverage:
 
     def test_ts_arg_min_all_null_in_window(self) -> None:
         """Test ts_arg_min when all values in window are null."""
-        from alphalab.api.operators import ts_arg_min
+        from alphalab.dsl.operators import ts_arg_min
         df = pl.DataFrame({
             "Date": [date(2024, 1, i) for i in range(1, 6)],
             "A": [1.0, None, None, None, None],
@@ -2371,7 +2371,7 @@ class TestTimeSeriesArgMinMaxCoverage:
 
     def test_ts_arg_max_window_smaller_than_d(self) -> None:
         """Test ts_arg_max at start when window < d."""
-        from alphalab.api.operators import ts_arg_max
+        from alphalab.dsl.operators import ts_arg_max
         df = pl.DataFrame({
             "Date": [date(2024, 1, i) for i in range(1, 6)],
             "A": [5.0, 3.0, 4.0, 2.0, 1.0],
@@ -2382,7 +2382,7 @@ class TestTimeSeriesArgMinMaxCoverage:
 
     def test_ts_arg_min_window_smaller_than_d(self) -> None:
         """Test ts_arg_min at start when window < d."""
-        from alphalab.api.operators import ts_arg_min
+        from alphalab.dsl.operators import ts_arg_min
         df = pl.DataFrame({
             "Date": [date(2024, 1, i) for i in range(1, 6)],
             "A": [5.0, 3.0, 4.0, 2.0, 1.0],
@@ -2397,7 +2397,7 @@ class TestLastDiffValueCoverage:
 
     def test_last_diff_value_single_element(self) -> None:
         """Test last_diff_value with window of 1."""
-        from alphalab.api.operators import last_diff_value
+        from alphalab.dsl.operators import last_diff_value
         df = pl.DataFrame({
             "Date": [date(2024, 1, i) for i in range(1, 6)],
             "A": [1.0, 2.0, 3.0, 4.0, 5.0],
@@ -2408,7 +2408,7 @@ class TestLastDiffValueCoverage:
 
     def test_last_diff_value_with_nulls(self) -> None:
         """Test last_diff_value with null values in sequence."""
-        from alphalab.api.operators import last_diff_value
+        from alphalab.dsl.operators import last_diff_value
         df = pl.DataFrame({
             "Date": [date(2024, 1, i) for i in range(1, 6)],
             "A": [1.0, None, None, None, 1.0],  # Current same as first
@@ -2419,7 +2419,7 @@ class TestLastDiffValueCoverage:
 
     def test_last_diff_value_finds_different(self) -> None:
         """Test last_diff_value finds the last different value."""
-        from alphalab.api.operators import last_diff_value
+        from alphalab.dsl.operators import last_diff_value
         df = pl.DataFrame({
             "Date": [date(2024, 1, i) for i in range(1, 6)],
             "A": [1.0, 2.0, 3.0, 5.0, 5.0],  # Last different is 3.0
@@ -2433,7 +2433,7 @@ class TestQuantileDriversCoverage:
 
     def test_quantile_uniform_small_dataset(self) -> None:
         """Test cross-sectional quantile with uniform driver and small dataset."""
-        from alphalab.api.operators import quantile
+        from alphalab.dsl.operators import quantile
         df = pl.DataFrame({
             "Date": [date(2024, 1, 1)],
             "A": [1.0],
@@ -2447,7 +2447,7 @@ class TestQuantileDriversCoverage:
 
     def test_quantile_cauchy_small_dataset(self) -> None:
         """Test cross-sectional quantile with cauchy driver."""
-        from alphalab.api.operators import quantile
+        from alphalab.dsl.operators import quantile
         df = pl.DataFrame({
             "Date": [date(2024, 1, 1)],
             "A": [1.0],
@@ -2463,7 +2463,7 @@ class TestQuantileDriversCoverage:
     def test_quantile_n_valid_one(self) -> None:
         """Test cross-sectional quantile with single valid value."""
         import math
-        from alphalab.api.operators import quantile
+        from alphalab.dsl.operators import quantile
         df = pl.DataFrame({
             "Date": [date(2024, 1, 1)],
             "A": [1.0],
@@ -2483,7 +2483,7 @@ class TestTimeSeriesModuleLevelHelpers:
 
     def test_arg_max_fn_basic(self) -> None:
         """Test _arg_max_fn with normal values."""
-        from alphalab.api.operators.time_series import _arg_max_fn
+        from alphalab.dsl.operators.time_series import _arg_max_fn
         s = pl.Series([1.0, 5.0, 3.0, 2.0, 4.0])
         # Max is at index 1 (value 5.0), days since = (5-1) - 1 = 3
         result = _arg_max_fn(s, 5)
@@ -2491,7 +2491,7 @@ class TestTimeSeriesModuleLevelHelpers:
 
     def test_arg_max_fn_max_at_end(self) -> None:
         """Test _arg_max_fn when max is at most recent position."""
-        from alphalab.api.operators.time_series import _arg_max_fn
+        from alphalab.dsl.operators.time_series import _arg_max_fn
         s = pl.Series([1.0, 2.0, 3.0, 4.0, 5.0])
         # Max is at index 4, days since = (5-1) - 4 = 0
         result = _arg_max_fn(s, 5)
@@ -2499,14 +2499,14 @@ class TestTimeSeriesModuleLevelHelpers:
 
     def test_arg_max_fn_window_too_small(self) -> None:
         """Test _arg_max_fn when series length < d."""
-        from alphalab.api.operators.time_series import _arg_max_fn
+        from alphalab.dsl.operators.time_series import _arg_max_fn
         s = pl.Series([1.0, 2.0])
         result = _arg_max_fn(s, 5)
         assert result is None
 
     def test_arg_min_fn_basic(self) -> None:
         """Test _arg_min_fn with normal values."""
-        from alphalab.api.operators.time_series import _arg_min_fn
+        from alphalab.dsl.operators.time_series import _arg_min_fn
         s = pl.Series([5.0, 1.0, 3.0, 2.0, 4.0])
         # Min is at index 1 (value 1.0), days since = (5-1) - 1 = 3
         result = _arg_min_fn(s, 5)
@@ -2514,7 +2514,7 @@ class TestTimeSeriesModuleLevelHelpers:
 
     def test_arg_min_fn_min_at_end(self) -> None:
         """Test _arg_min_fn when min is at most recent position."""
-        from alphalab.api.operators.time_series import _arg_min_fn
+        from alphalab.dsl.operators.time_series import _arg_min_fn
         s = pl.Series([5.0, 4.0, 3.0, 2.0, 1.0])
         # Min is at index 4, days since = (5-1) - 4 = 0
         result = _arg_min_fn(s, 5)
@@ -2522,14 +2522,14 @@ class TestTimeSeriesModuleLevelHelpers:
 
     def test_arg_min_fn_window_too_small(self) -> None:
         """Test _arg_min_fn when series length < d."""
-        from alphalab.api.operators.time_series import _arg_min_fn
+        from alphalab.dsl.operators.time_series import _arg_min_fn
         s = pl.Series([1.0, 2.0])
         result = _arg_min_fn(s, 5)
         assert result is None
 
     def test_find_last_diff_basic(self) -> None:
         """Test _find_last_diff finds the previous different value."""
-        from alphalab.api.operators.time_series import _find_last_diff
+        from alphalab.dsl.operators.time_series import _find_last_diff
         s = pl.Series([1.0, 2.0, 3.0, 3.0, 3.0])
         # Current is 3.0, last different is 2.0 at index 1
         result = _find_last_diff(s)
@@ -2537,21 +2537,21 @@ class TestTimeSeriesModuleLevelHelpers:
 
     def test_find_last_diff_all_same(self) -> None:
         """Test _find_last_diff when all values are the same."""
-        from alphalab.api.operators.time_series import _find_last_diff
+        from alphalab.dsl.operators.time_series import _find_last_diff
         s = pl.Series([5.0, 5.0, 5.0, 5.0])
         result = _find_last_diff(s)
         assert result is None
 
     def test_find_last_diff_single_element(self) -> None:
         """Test _find_last_diff with single element."""
-        from alphalab.api.operators.time_series import _find_last_diff
+        from alphalab.dsl.operators.time_series import _find_last_diff
         s = pl.Series([5.0])
         result = _find_last_diff(s)
         assert result is None
 
     def test_find_last_diff_with_none(self) -> None:
         """Test _find_last_diff skips None values."""
-        from alphalab.api.operators.time_series import _find_last_diff
+        from alphalab.dsl.operators.time_series import _find_last_diff
         s = pl.Series([1.0, None, 3.0, 3.0])
         # Current is 3.0, last different is 1.0 (skipping None)
         result = _find_last_diff(s)
@@ -2559,40 +2559,40 @@ class TestTimeSeriesModuleLevelHelpers:
 
     def test_inv_norm_middle(self) -> None:
         """Test _inv_norm for middle probability values."""
-        from alphalab.api.operators.time_series import _inv_norm
+        from alphalab.dsl.operators.time_series import _inv_norm
         # p=0.5 should give approximately 0
         result = _inv_norm(0.5)
         assert abs(result) < 0.001
 
     def test_inv_norm_low_tail(self) -> None:
         """Test _inv_norm for low probability (p < 0.02425)."""
-        from alphalab.api.operators.time_series import _inv_norm
+        from alphalab.dsl.operators.time_series import _inv_norm
         result = _inv_norm(0.01)
         # Should be a large negative value
         assert result < -2.0
 
     def test_inv_norm_high_tail(self) -> None:
         """Test _inv_norm for high probability (p > 0.97575)."""
-        from alphalab.api.operators.time_series import _inv_norm
+        from alphalab.dsl.operators.time_series import _inv_norm
         result = _inv_norm(0.99)
         # Should be a large positive value
         assert result > 2.0
 
     def test_inv_norm_boundary_zero(self) -> None:
         """Test _inv_norm at p=0."""
-        from alphalab.api.operators.time_series import _inv_norm
+        from alphalab.dsl.operators.time_series import _inv_norm
         result = _inv_norm(0)
         assert result == float("-inf")
 
     def test_inv_norm_boundary_one(self) -> None:
         """Test _inv_norm at p=1."""
-        from alphalab.api.operators.time_series import _inv_norm
+        from alphalab.dsl.operators.time_series import _inv_norm
         result = _inv_norm(1)
         assert result == float("inf")
 
     def test_ts_quantile_transform_gaussian(self) -> None:
         """Test _ts_quantile_transform with gaussian driver."""
-        from alphalab.api.operators.time_series import _ts_quantile_transform
+        from alphalab.dsl.operators.time_series import _ts_quantile_transform
         s = pl.Series([1.0, 2.0, 3.0, 4.0, 5.0])
         result = _ts_quantile_transform(s, "gaussian")
         # High value (5.0) should give positive result
@@ -2601,7 +2601,7 @@ class TestTimeSeriesModuleLevelHelpers:
 
     def test_ts_quantile_transform_uniform(self) -> None:
         """Test _ts_quantile_transform with uniform driver."""
-        from alphalab.api.operators.time_series import _ts_quantile_transform
+        from alphalab.dsl.operators.time_series import _ts_quantile_transform
         s = pl.Series([1.0, 2.0, 3.0, 4.0, 5.0])
         result = _ts_quantile_transform(s, "uniform")
         # Uniform driver should produce values in [-1, 1]
@@ -2610,14 +2610,14 @@ class TestTimeSeriesModuleLevelHelpers:
 
     def test_ts_quantile_transform_null_current(self) -> None:
         """Test _ts_quantile_transform when current value is None."""
-        from alphalab.api.operators.time_series import _ts_quantile_transform
+        from alphalab.dsl.operators.time_series import _ts_quantile_transform
         s = pl.Series([1.0, 2.0, 3.0, None])
         result = _ts_quantile_transform(s, "gaussian")
         assert result is None
 
     def test_ts_quantile_transform_single_value(self) -> None:
         """Test _ts_quantile_transform with single valid value."""
-        from alphalab.api.operators.time_series import _ts_quantile_transform
+        from alphalab.dsl.operators.time_series import _ts_quantile_transform
         s = pl.Series([None, None, 5.0])
         result = _ts_quantile_transform(s, "gaussian")
         # Single value should return 0.0
@@ -2630,7 +2630,7 @@ class TestCrossSectionalModuleLevelHelpers:
     def test_bucket_rank_basic(self) -> None:
         """Test _bucket_rank with normal values."""
         import numpy as np
-        from alphalab.api.operators.cross_sectional import _bucket_rank
+        from alphalab.dsl.operators.cross_sectional import _bucket_rank
         values = np.array([1.0, 5.0, 3.0, 2.0, 4.0])
         result = _bucket_rank(values, rate=2)
         # All values should be in [0, 1]
@@ -2639,7 +2639,7 @@ class TestCrossSectionalModuleLevelHelpers:
     def test_bucket_rank_with_nan(self) -> None:
         """Test _bucket_rank preserves NaN positions."""
         import numpy as np
-        from alphalab.api.operators.cross_sectional import _bucket_rank
+        from alphalab.dsl.operators.cross_sectional import _bucket_rank
         values = np.array([1.0, np.nan, 3.0, 2.0, np.nan])
         result = _bucket_rank(values, rate=2)
         # NaN positions should remain NaN
@@ -2653,7 +2653,7 @@ class TestCrossSectionalModuleLevelHelpers:
     def test_bucket_rank_single_valid(self) -> None:
         """Test _bucket_rank with single valid value."""
         import numpy as np
-        from alphalab.api.operators.cross_sectional import _bucket_rank
+        from alphalab.dsl.operators.cross_sectional import _bucket_rank
         values = np.array([np.nan, 5.0, np.nan])
         result = _bucket_rank(values, rate=2)
         # Single valid value gets rank 0
@@ -2664,7 +2664,7 @@ class TestCrossSectionalModuleLevelHelpers:
     def test_bucket_rank_all_nan(self) -> None:
         """Test _bucket_rank with all NaN."""
         import numpy as np
-        from alphalab.api.operators.cross_sectional import _bucket_rank
+        from alphalab.dsl.operators.cross_sectional import _bucket_rank
         values = np.array([np.nan, np.nan, np.nan])
         result = _bucket_rank(values, rate=2)
         assert all(np.isnan(r) for r in result)
@@ -2672,7 +2672,7 @@ class TestCrossSectionalModuleLevelHelpers:
     def test_quantile_transform_gaussian(self) -> None:
         """Test _quantile_transform with gaussian driver."""
         import numpy as np
-        from alphalab.api.operators.cross_sectional import _quantile_transform
+        from alphalab.dsl.operators.cross_sectional import _quantile_transform
         values = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         result = _quantile_transform(values, driver="gaussian", sigma=1.0)
         # Highest value should have highest (positive) score
@@ -2683,7 +2683,7 @@ class TestCrossSectionalModuleLevelHelpers:
     def test_quantile_transform_uniform(self) -> None:
         """Test _quantile_transform with uniform driver."""
         import numpy as np
-        from alphalab.api.operators.cross_sectional import _quantile_transform
+        from alphalab.dsl.operators.cross_sectional import _quantile_transform
         values = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         result = _quantile_transform(values, driver="uniform", sigma=1.0)
         # All values should be in [-sigma, sigma]
@@ -2692,7 +2692,7 @@ class TestCrossSectionalModuleLevelHelpers:
     def test_quantile_transform_cauchy(self) -> None:
         """Test _quantile_transform with cauchy driver."""
         import numpy as np
-        from alphalab.api.operators.cross_sectional import _quantile_transform
+        from alphalab.dsl.operators.cross_sectional import _quantile_transform
         values = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         result = _quantile_transform(values, driver="cauchy", sigma=1.0)
         # Cauchy distribution has heavier tails
@@ -2701,7 +2701,7 @@ class TestCrossSectionalModuleLevelHelpers:
     def test_quantile_transform_with_nan(self) -> None:
         """Test _quantile_transform preserves NaN positions."""
         import numpy as np
-        from alphalab.api.operators.cross_sectional import _quantile_transform
+        from alphalab.dsl.operators.cross_sectional import _quantile_transform
         values = np.array([1.0, np.nan, 3.0, np.nan, 5.0])
         result = _quantile_transform(values, driver="gaussian", sigma=1.0)
         # NaN positions should remain NaN
@@ -2715,7 +2715,7 @@ class TestCrossSectionalModuleLevelHelpers:
     def test_quantile_transform_single_valid(self) -> None:
         """Test _quantile_transform with single valid value."""
         import numpy as np
-        from alphalab.api.operators.cross_sectional import _quantile_transform
+        from alphalab.dsl.operators.cross_sectional import _quantile_transform
         values = np.array([np.nan, 5.0, np.nan])
         result = _quantile_transform(values, driver="gaussian", sigma=1.0)
         # Single valid value should return 0
@@ -2724,7 +2724,7 @@ class TestCrossSectionalModuleLevelHelpers:
     def test_quantile_transform_unknown_driver(self) -> None:
         """Test _quantile_transform raises on unknown driver."""
         import numpy as np
-        from alphalab.api.operators.cross_sectional import _quantile_transform
+        from alphalab.dsl.operators.cross_sectional import _quantile_transform
         values = np.array([1.0, 2.0, 3.0])
         with pytest.raises(ValueError, match="Unknown driver"):
             _quantile_transform(values, driver="unknown", sigma=1.0)

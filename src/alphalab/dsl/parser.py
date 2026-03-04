@@ -19,8 +19,8 @@ from typing import Any
 
 import polars as pl
 
-from alphalab.alpha.core import Alpha, _get_value_cols
-from alphalab.alpha.types import AlphaLike
+from alphalab.dsl.core import Alpha, _get_value_cols
+from alphalab.dsl.types import AlphaLike
 
 
 class AlphaParseError(Exception):

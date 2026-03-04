@@ -8,7 +8,7 @@ All operators work on wide DataFrames where:
 from alphalab.api.profiler import profiled
 
 # Import raw operators with underscore prefix
-from alphalab.api.operators.arithmetic import (
+from alphalab.dsl.operators.arithmetic import (
     abs as _abs,
     add as _add,
     densify as _densify,
@@ -25,7 +25,7 @@ from alphalab.api.operators.arithmetic import (
     sqrt as _sqrt,
     subtract as _subtract,
 )
-from alphalab.api.operators.cross_sectional import (
+from alphalab.dsl.operators.cross_sectional import (
     bucket as _bucket,
     normalize as _normalize,
     quantile as _quantile,
@@ -34,7 +34,7 @@ from alphalab.api.operators.cross_sectional import (
     winsorize as _winsorize,
     zscore as _zscore,
 )
-from alphalab.api.operators.group import (
+from alphalab.dsl.operators.group import (
     group_backfill as _group_backfill,
     group_mean as _group_mean,
     group_neutralize as _group_neutralize,
@@ -42,7 +42,7 @@ from alphalab.api.operators.group import (
     group_scale as _group_scale,
     group_zscore as _group_zscore,
 )
-from alphalab.api.operators.logical import (
+from alphalab.dsl.operators.logical import (
     and_ as _and_,
     eq as _eq,
     ge as _ge,
@@ -55,7 +55,7 @@ from alphalab.api.operators.logical import (
     not_ as _not_,
     or_ as _or_,
 )
-from alphalab.api.operators.time_series import (
+from alphalab.dsl.operators.time_series import (
     days_from_last_change as _days_from_last_change,
     hump as _hump,
     kth_element as _kth_element,
@@ -83,8 +83,8 @@ from alphalab.api.operators.time_series import (
     ts_sum as _ts_sum,
     ts_zscore as _ts_zscore,
 )
-from alphalab.api.operators.transformational import trade_when as _trade_when
-from alphalab.api.operators.vector import vec_avg as _vec_avg, vec_sum as _vec_sum
+from alphalab.dsl.operators.transformational import trade_when as _trade_when
+from alphalab.dsl.operators.vector import vec_avg as _vec_avg, vec_sum as _vec_sum
 
 # Wrap all operators with profiler
 # Arithmetic

@@ -337,7 +337,7 @@ def ts_product(x: pl.DataFrame, d: int) -> pl.DataFrame:
     import numpy as np
     from concurrent.futures import ThreadPoolExecutor
 
-    from alphalab.api.operators._numba_kernels import rolling_product_online
+    from alphalab.dsl.operators._numba_kernels import rolling_product_online
 
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
@@ -439,7 +439,7 @@ def ts_arg_max(x: pl.DataFrame, d: int) -> pl.DataFrame:
     import numpy as np
     from concurrent.futures import ThreadPoolExecutor
 
-    from alphalab.api.operators._numba_kernels import rolling_arg_max
+    from alphalab.dsl.operators._numba_kernels import rolling_arg_max
 
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
@@ -470,7 +470,7 @@ def ts_arg_min(x: pl.DataFrame, d: int) -> pl.DataFrame:
     import numpy as np
     from concurrent.futures import ThreadPoolExecutor
 
-    from alphalab.api.operators._numba_kernels import rolling_arg_min
+    from alphalab.dsl.operators._numba_kernels import rolling_arg_min
 
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
@@ -525,7 +525,7 @@ def last_diff_value(x: pl.DataFrame, d: int) -> pl.DataFrame:
     import numpy as np
     from concurrent.futures import ThreadPoolExecutor
 
-    from alphalab.api.operators._numba_kernels import rolling_last_diff
+    from alphalab.dsl.operators._numba_kernels import rolling_last_diff
 
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
@@ -549,7 +549,7 @@ def days_from_last_change(x: pl.DataFrame) -> pl.DataFrame:
     import numpy as np
     from concurrent.futures import ThreadPoolExecutor
 
-    from alphalab.api.operators._numba_kernels import days_since_change_with_null
+    from alphalab.dsl.operators._numba_kernels import days_since_change_with_null
 
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
@@ -582,7 +582,7 @@ def hump(x: pl.DataFrame, hump_factor: float = 0.01) -> pl.DataFrame:
     import numpy as np
     from concurrent.futures import ThreadPoolExecutor
 
-    from alphalab.api.operators._numba_kernels import hump_column
+    from alphalab.dsl.operators._numba_kernels import hump_column
 
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
@@ -611,7 +611,7 @@ def ts_decay_linear(x: pl.DataFrame, d: int, dense: bool = False) -> pl.DataFram
     """
     import numpy as np
     from concurrent.futures import ThreadPoolExecutor
-    from alphalab.api.operators._numba_kernels import rolling_decay_linear_online
+    from alphalab.dsl.operators._numba_kernels import rolling_decay_linear_online
 
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
@@ -665,7 +665,7 @@ def ts_rank(x: pl.DataFrame, d: int, constant: float = 0) -> pl.DataFrame:
     import numpy as np
     from concurrent.futures import ThreadPoolExecutor
 
-    from alphalab.api.operators._numba_kernels import rolling_rank
+    from alphalab.dsl.operators._numba_kernels import rolling_rank
 
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
@@ -696,7 +696,7 @@ def ts_corr(x: pl.DataFrame, y: pl.DataFrame, d: int) -> pl.DataFrame:
     """
     import numpy as np
     from concurrent.futures import ThreadPoolExecutor
-    from alphalab.api.operators._numba_kernels import rolling_corr_online
+    from alphalab.dsl.operators._numba_kernels import rolling_corr_online
 
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
@@ -720,7 +720,7 @@ def ts_covariance(x: pl.DataFrame, y: pl.DataFrame, d: int) -> pl.DataFrame:
     """
     import numpy as np
     from concurrent.futures import ThreadPoolExecutor
-    from alphalab.api.operators._numba_kernels import rolling_cov_online
+    from alphalab.dsl.operators._numba_kernels import rolling_cov_online
 
     date_col = x.columns[0]
     value_cols = _get_value_cols(x)
@@ -752,7 +752,7 @@ def ts_quantile(x: pl.DataFrame, d: int, driver: str = "gaussian") -> pl.DataFra
     import numpy as np
     from concurrent.futures import ThreadPoolExecutor
 
-    from alphalab.api.operators._numba_kernels import (
+    from alphalab.dsl.operators._numba_kernels import (
         rolling_quantile_gaussian,
         rolling_quantile_uniform,
     )
@@ -910,7 +910,7 @@ def ts_regression(
     import numpy as np
     from concurrent.futures import ThreadPoolExecutor
 
-    from alphalab.api.operators._numba_kernels import (
+    from alphalab.dsl.operators._numba_kernels import (
         rolling_regression_online,
         rolling_regression_online_with_lag,
     )
