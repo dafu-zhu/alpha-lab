@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import polars as pl
 
-from alphalab.management.models import CheckResult, Correlation, Version
+from alphalab.brain.journal.models import CheckResult, Correlation, Version
 
 CORR_THRESHOLD = 0.7
 IMPROVEMENT_THRESHOLD = 10.0  # percent

@@ -5,8 +5,8 @@ import json
 import sqlite3
 from pathlib import Path
 
-from alphalab.management.db import init_db
-from alphalab.management.models import Alpha, Correlation, Version
+from alphalab.brain.journal.db import init_db
+from alphalab.brain.journal.models import Alpha, Correlation, Version
 
 
 class AlphaRepository:

@@ -5,8 +5,8 @@ import pytest
 
 def test_check_single_alpha_low_corr_passes():
     """corr < 0.7 passes regardless of sharpe improvement."""
-    from alphalab.management.correlation import check_correlation
-    from alphalab.management.models import Version
+    from alphalab.brain.journal.correlation import check_correlation
+    from alphalab.brain.journal.models import Version
 
     new_pnl = pl.Series([0.01, -0.02, 0.03, 0.01, -0.01])
     new_sharpe = 1.0
@@ -36,8 +36,8 @@ def test_check_single_alpha_low_corr_passes():
 
 def test_check_high_corr_low_improvement_fails():
     """corr >= 0.7 AND improvement < 10% fails."""
-    from alphalab.management.correlation import check_correlation
-    from alphalab.management.models import Version
+    from alphalab.brain.journal.correlation import check_correlation
+    from alphalab.brain.journal.models import Version
 
     # Same data = corr = 1.0
     pnl_data = [
@@ -68,8 +68,8 @@ def test_check_high_corr_low_improvement_fails():
 
 def test_check_zero_sharpe_positive_new_sharpe():
     """Zero existing sharpe with positive new sharpe gives infinite improvement."""
-    from alphalab.management.correlation import check_correlation
-    from alphalab.management.models import Version
+    from alphalab.brain.journal.correlation import check_correlation
+    from alphalab.brain.journal.models import Version
 
     pnl_data = [
         {"date": "2024-01-01", "ret": 0.01},
@@ -100,8 +100,8 @@ def test_check_zero_sharpe_positive_new_sharpe():
 
 def test_check_zero_sharpe_zero_new_sharpe():
     """Zero existing sharpe with zero new sharpe gives zero improvement."""
-    from alphalab.management.correlation import check_correlation
-    from alphalab.management.models import Version
+    from alphalab.brain.journal.correlation import check_correlation
+    from alphalab.brain.journal.models import Version
 
     pnl_data = [
         {"date": "2024-01-01", "ret": 0.01},
@@ -132,8 +132,8 @@ def test_check_zero_sharpe_zero_new_sharpe():
 
 def test_check_high_corr_high_improvement_passes():
     """corr >= 0.7 AND improvement >= 10% passes."""
-    from alphalab.management.correlation import check_correlation
-    from alphalab.management.models import Version
+    from alphalab.brain.journal.correlation import check_correlation
+    from alphalab.brain.journal.models import Version
 
     pnl_data = [
         {"date": "2024-01-01", "ret": 0.01},
@@ -161,7 +161,7 @@ def test_check_high_corr_high_improvement_passes():
 
 def test_check_no_existing_alphas_passes():
     """No submitted alphas = auto-pass."""
-    from alphalab.management.correlation import check_correlation
+    from alphalab.brain.journal.correlation import check_correlation
 
     new_pnl = pl.Series([0.01, -0.02, 0.03])
     result = check_correlation(new_pnl, 1.5, [])
@@ -172,8 +172,8 @@ def test_check_no_existing_alphas_passes():
 
 def test_check_multiple_alphas_one_blocks():
     """Multiple existing alphas, one blocks."""
-    from alphalab.management.correlation import check_correlation
-    from alphalab.management.models import Version
+    from alphalab.brain.journal.correlation import check_correlation
+    from alphalab.brain.journal.models import Version
 
     pnl_data = [
         {"date": "2024-01-01", "ret": 0.01},

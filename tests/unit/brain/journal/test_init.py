@@ -3,7 +3,7 @@
 
 def test_public_exports():
     """Management module exports key classes."""
-    from alphalab.management import (
+    from alphalab.brain.journal import (
         Alpha,
         Version,
         Correlation,

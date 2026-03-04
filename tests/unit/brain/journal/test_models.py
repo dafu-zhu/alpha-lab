@@ -4,7 +4,7 @@ from datetime import datetime
 
 def test_alpha_model_creation():
     """Alpha model stores required fields."""
-    from alphalab.management.models import Alpha
+    from alphalab.brain.journal.models import Alpha
 
     alpha = Alpha(id="momentum_01", name="Momentum Alpha", status="draft")
 
@@ -15,7 +15,7 @@ def test_alpha_model_creation():
 
 def test_version_model_creation():
     """Version model stores expression and metrics."""
-    from alphalab.management.models import Version
+    from alphalab.brain.journal.models import Version
 
     version = Version(
         id="momentum_01-v1",
@@ -32,7 +32,7 @@ def test_version_model_creation():
 
 def test_correlation_model_creation():
     """Correlation model stores check results."""
-    from alphalab.management.models import Correlation
+    from alphalab.brain.journal.models import Correlation
 
     corr = Correlation(
         new_alpha_id="momentum_01-v1",
@@ -50,7 +50,7 @@ def test_correlation_model_creation():
 
 def test_check_result_model():
     """CheckResult aggregates correlation checks."""
-    from alphalab.management.models import Correlation, CheckResult
+    from alphalab.brain.journal.models import Correlation, CheckResult
 
     results = [
         Correlation("a-v1", "b-v1", 0.45, 1.6, 1.4, 14.3, True),

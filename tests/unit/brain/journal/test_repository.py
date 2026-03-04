@@ -6,7 +6,7 @@ import pytest
 @pytest.fixture
 def repo(tmp_path):
     """Create repository with temp database."""
-    from alphalab.management.repository import AlphaRepository
+    from alphalab.brain.journal.repository import AlphaRepository
 
     db_path = tmp_path / "alphas.db"
     return AlphaRepository(db_path)
@@ -14,7 +14,7 @@ def repo(tmp_path):
 
 def test_create_alpha(repo):
     """create_alpha inserts new alpha."""
-    from alphalab.management.models import Alpha
+    from alphalab.brain.journal.models import Alpha
 
     alpha = Alpha(id="test_01", name="Test Alpha")
     repo.create_alpha(alpha)
@@ -27,7 +27,7 @@ def test_create_alpha(repo):
 
 def test_create_version(repo):
     """create_version inserts new version."""
-    from alphalab.management.models import Alpha, Version
+    from alphalab.brain.journal.models import Alpha, Version
 
     repo.create_alpha(Alpha(id="test_01", name="Test"))
 
@@ -49,7 +49,7 @@ def test_create_version(repo):
 
 def test_get_submitted_versions(repo):
     """get_submitted returns only submitted alphas."""
-    from alphalab.management.models import Alpha, Version
+    from alphalab.brain.journal.models import Alpha, Version
 
     repo.create_alpha(Alpha(id="a", name="A", status="submitted"))
     repo.create_alpha(Alpha(id="b", name="B", status="draft"))
@@ -65,7 +65,7 @@ def test_get_submitted_versions(repo):
 
 def test_submit_alpha(repo):
     """submit_alpha changes status and inserts correlations."""
-    from alphalab.management.models import Alpha, Version, Correlation
+    from alphalab.brain.journal.models import Alpha, Version, Correlation
 
     repo.create_alpha(Alpha(id="a", name="A"))
     repo.create_version(Version("a-v1", "a", 1, "x", sharpe=1.0, pnl_data=[]))
@@ -84,7 +84,7 @@ def test_submit_alpha(repo):
 
 def test_delete_alpha_cascades(repo):
     """delete_alpha removes alpha, versions, and correlations."""
-    from alphalab.management.models import Alpha, Version, Correlation
+    from alphalab.brain.journal.models import Alpha, Version, Correlation
 
     repo.create_alpha(Alpha(id="a", name="A", status="submitted"))
     repo.create_version(Version("a-v1", "a", 1, "x", sharpe=1.0, pnl_data=[]))

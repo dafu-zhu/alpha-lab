@@ -6,7 +6,7 @@ import pytest
 
 def test_init_db_creates_tables(tmp_path):
     """init_db creates alphas, versions, correlations tables."""
-    from alphalab.management.db import init_db
+    from alphalab.brain.journal.db import init_db
 
     db_path = tmp_path / "alphas.db"
     conn = init_db(db_path)
@@ -24,7 +24,7 @@ def test_init_db_creates_tables(tmp_path):
 
 def test_init_db_idempotent(tmp_path):
     """init_db can be called multiple times safely."""
-    from alphalab.management.db import init_db
+    from alphalab.brain.journal.db import init_db
 
     db_path = tmp_path / "alphas.db"
     conn1 = init_db(db_path)

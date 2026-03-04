@@ -6,7 +6,7 @@ import polars as pl
 @pytest.fixture
 def service(tmp_path):
     """Create service with temp database."""
-    from alphalab.management.service import AlphaService
+    from alphalab.brain.journal.service import AlphaService
 
     db_path = tmp_path / "alphas.db"
     return AlphaService(db_path)

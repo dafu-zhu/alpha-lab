@@ -5,9 +5,9 @@ from pathlib import Path
 
 import polars as pl
 
-from alphalab.management.correlation import check_correlation
-from alphalab.management.models import Alpha, CheckResult, Correlation, Version
-from alphalab.management.repository import AlphaRepository
+from alphalab.brain.journal.correlation import check_correlation
+from alphalab.brain.journal.models import Alpha, CheckResult, Correlation, Version
+from alphalab.brain.journal.repository import AlphaRepository
 
 
 class AlphaService:
