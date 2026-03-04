@@ -14,7 +14,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from alphalab.api import operators as ops
+from alphalab.dsl import operators as ops
 
 
 # =============================================================================
@@ -573,7 +573,7 @@ class TestOperatorCoverage:
 
     def test_all_operators_covered(self) -> None:
         """Verify we test all 68 operators in __all__."""
-        from alphalab.api.operators import __all__ as all_operators
+        from alphalab.dsl.operators import __all__ as all_operators
 
         # Count expected: 68 operators
         assert len(all_operators) == 68, f"Expected 68 operators, got {len(all_operators)}"

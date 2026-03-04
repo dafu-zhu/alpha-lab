@@ -13,7 +13,7 @@ import pytest
 from scipy import stats
 from scipy.stats import mstats
 
-from alphalab.api.operators import (
+from alphalab.dsl.operators import (
     quantile,
     rank,
     ts_corr,

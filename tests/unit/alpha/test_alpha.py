@@ -6,7 +6,7 @@ from datetime import date
 import polars as pl
 import pytest
 
-import alphalab.api.operators as ops
+import alphalab.dsl.operators as ops
 
 
 def is_missing(value) -> bool:
@@ -17,13 +17,13 @@ def is_missing(value) -> bool:
         return math.isnan(value)
     except (TypeError, ValueError):
         return False
-from alphalab.alpha import (
+from alphalab.dsl import (
     Alpha,
     AlphaParseError,
     ColumnMismatchError,
     DateMismatchError,
 )
-from alphalab.alpha.parser import alpha_eval
+from alphalab.dsl.parser import alpha_eval
 
 
 @pytest.fixture
@@ -574,19 +574,19 @@ class TestAlphaQuery:
 
     def test_single_statement(self, wide_df: pl.DataFrame) -> None:
         """Single expression works in alpha_query."""
-        from alphalab.alpha.parser import alpha_query
+        from alphalab.dsl.parser import alpha_query
         result = alpha_query("close + 1", {"close": wide_df}, ops=ops)
         assert result.data["AAPL"][0] == 101.0
 
     def test_variable_assignment(self, wide_df: pl.DataFrame) -> None:
         """Variable assignment and reuse."""
-        from alphalab.alpha.parser import alpha_query
+        from alphalab.dsl.parser import alpha_query
         result = alpha_query("x = close + 1; x + 1", {"close": wide_df}, ops=ops)
         assert result.data["AAPL"][0] == 102.0
 
     def test_multi_assignment(self, wide_df: pl.DataFrame) -> None:
         """Multiple assignments chained."""
-        from alphalab.alpha.parser import alpha_query
+        from alphalab.dsl.parser import alpha_query
         result = alpha_query(
             "a = close + 1; b = a + 1; b + 1",
             {"close": wide_df},
@@ -596,7 +596,7 @@ class TestAlphaQuery:
 
     def test_semicolons_with_ops(self, wide_df: pl.DataFrame) -> None:
         """Operators work inside multi-statement query."""
-        from alphalab.alpha.parser import alpha_query
+        from alphalab.dsl.parser import alpha_query
         result = alpha_query(
             "delta = ts_delta(close, 1); rank(delta)",
             {"close": wide_df},
@@ -607,7 +607,7 @@ class TestAlphaQuery:
 
     def test_last_expression_is_result(self, wide_df: pl.DataFrame) -> None:
         """The last expression's value is the return value."""
-        from alphalab.alpha.parser import alpha_query
+        from alphalab.dsl.parser import alpha_query
         result = alpha_query(
             "x = close + 100; close",
             {"close": wide_df},
@@ -618,7 +618,7 @@ class TestAlphaQuery:
 
     def test_syntax_error_raises(self) -> None:
         """Invalid syntax raises AlphaParseError."""
-        from alphalab.alpha.parser import alpha_query
+        from alphalab.dsl.parser import alpha_query
         with pytest.raises(AlphaParseError):
             alpha_query("x = ", {}, ops=ops)
 

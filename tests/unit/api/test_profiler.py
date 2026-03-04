@@ -107,7 +107,7 @@ def test_profiled_decorator_noop_when_inactive():
 
 def test_operators_are_profiled():
     """All operators in alphalab.api.operators are wrapped with @profiled."""
-    from alphalab.api import operators
+    from alphalab.dsl import operators
     from alphalab.api.profiler import profile
     import polars as pl
 
@@ -139,7 +139,7 @@ def test_profile_with_client_query(capsys):
     })
 
     # Test using compute() directly (avoids needing full client setup)
-    from alphalab.api.dsl import compute
+    from alphalab.dsl import compute
 
     with profile() as p:
         result = compute("rank(-ts_delta(x, 2))", x=df)

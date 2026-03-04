@@ -14,7 +14,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from alphalab.api.operators import (
+from alphalab.dsl.operators import (
     rank,
     ts_corr,
     ts_covariance,

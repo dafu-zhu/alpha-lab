@@ -5,8 +5,8 @@ from datetime import date
 import polars as pl
 import pytest
 
-from alphalab.alpha.parser import AlphaParseError
-from alphalab.api.dsl import compute
+from alphalab.dsl.parser import AlphaParseError
+from alphalab.dsl import compute
 
 
 class TestDslCompute:

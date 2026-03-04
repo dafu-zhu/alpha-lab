@@ -32,14 +32,14 @@ def _get_local_storage_path() -> Path:
 
 def _build_master(logger) -> None:
     """Build security_master + calendar_master under LOCAL_STORAGE_PATH."""
-    from alphalab.master.security_master import SecurityMaster
+    from alphalab.data.master.security_master import SecurityMaster
 
     storage = _get_local_storage_path()
     master_dir = storage / "data" / "meta" / "master"
     master_dir.mkdir(parents=True, exist_ok=True)
 
     # --- Security Master ---
-    source = Path(__file__).resolve().parent / "data" / "security_master.parquet"
+    source = Path(__file__).resolve().parent / "data" / "_seed" / "security_master.parquet"
     working = master_dir / "security_master.parquet"
 
     if not working.exists():
@@ -109,7 +109,7 @@ def _build_calendar_master(output_path: Path, logger) -> None:
 
 def _download(args, logger) -> None:
     """Run data download pipeline."""
-    from alphalab.storage.app import UploadApp
+    from alphalab.data.pipeline.app import UploadApp
 
     app = UploadApp(start_year=args.start)
     try:

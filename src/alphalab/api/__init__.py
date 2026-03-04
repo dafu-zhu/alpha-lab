@@ -1,6 +1,5 @@
 """AlphaLab API — data access client and operators for quant research."""
 
-from alphalab.api import dsl
 from alphalab.api.client import AlphaLabClient
 from alphalab.api.exceptions import (
     ConfigurationError,
@@ -20,6 +19,5 @@ __all__ = [
     "DataNotFoundError",
     "StorageError",
     "ConfigurationError",
-    "dsl",
     "profile",
 ]

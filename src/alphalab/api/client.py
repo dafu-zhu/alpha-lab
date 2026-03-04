@@ -84,7 +84,7 @@ class AlphaLabClient:
         Returns:
             Wide DataFrame with Date + symbol columns
         """
-        from alphalab.features.registry import VALID_FIELD_NAMES
+        from alphalab.data.features.registry import VALID_FIELD_NAMES
 
         if field not in VALID_FIELD_NAMES:
             raise ValidationError(
@@ -141,8 +141,8 @@ class AlphaLabClient:
 
     def _extract_field_refs(self, expr: str) -> set[str]:
         """Parse expression AST to find field names that need auto-loading."""
-        from alphalab.features.registry import VALID_FIELD_NAMES
-        import alphalab.api.operators as operators
+        from alphalab.data.features.registry import VALID_FIELD_NAMES
+        import alphalab.dsl.operators as operators
 
         tree = ast.parse(expr, mode="exec")
         names: set[str] = set()
@@ -182,7 +182,7 @@ class AlphaLabClient:
         Returns:
             Wide DataFrame with Date + symbol columns
         """
-        from alphalab.api.dsl import compute
+        from alphalab.dsl import compute
 
         if isinstance(start, str):
             start = date.fromisoformat(start)
