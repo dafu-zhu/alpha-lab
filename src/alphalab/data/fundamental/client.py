@@ -1,13 +1,11 @@
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-import time
 from alphalab.models import FndDataPoint, DataSource
 import datetime as dt
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Dict
 from pathlib import Path
 from collections import defaultdict
-import polars as pl
 import json
 import yaml
 import os

@@ -9,7 +9,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import polars as pl
-from scipy import stats
 
 
 def _get_value_cols(df: pl.DataFrame) -> list[str]:

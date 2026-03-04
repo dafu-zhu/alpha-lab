@@ -39,7 +39,7 @@ def _build_master(logger) -> None:
     master_dir.mkdir(parents=True, exist_ok=True)
 
     # --- Security Master ---
-    source = Path(__file__).resolve().parent / "data" / "security_master.parquet"
+    source = Path(__file__).resolve().parent / "data" / "_seed" / "security_master.parquet"
     working = master_dir / "security_master.parquet"
 
     if not working.exists():

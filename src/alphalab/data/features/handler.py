@@ -7,8 +7,6 @@ import time
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
-from tqdm import tqdm
-
 if TYPE_CHECKING:
     from alphalab.data.features.builder import FeatureBuilder
     from alphalab.data.master.security_master import SecurityMaster

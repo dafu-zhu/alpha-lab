@@ -8,7 +8,6 @@ This module handles fetching market data from various sources:
 """
 
 import datetime as dt
-import time
 import logging
 import threading
 from collections import OrderedDict
@@ -21,7 +20,6 @@ from alphalab.models import DataCollector
 from alphalab.data.fundamental.client import Fundamental
 from alphalab.data.universe.current import fetch_all_stocks
 from alphalab.utils.logger import setup_logger
-from alphalab.utils.mapping import align_calendar
 
 
 class TicksDataCollector(DataCollector):

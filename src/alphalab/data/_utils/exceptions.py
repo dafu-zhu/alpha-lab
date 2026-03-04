@@ -25,22 +25,3 @@ class NoSuchKeyError(Exception):
             }
         }
         super().__init__(f"NoSuchKey: {bucket}/{key}")
-
-
-class NoSuchBucketError(Exception):
-    """
-    Raised when a requested bucket (base directory) does not exist.
-
-    Compatible with boto3's ClientError interface.
-    """
-
-    def __init__(self, bucket: str):
-        self.bucket = bucket
-        self.response = {
-            'Error': {
-                'Code': 'NoSuchBucket',
-                'Message': f'The specified bucket does not exist: {bucket}',
-                'BucketName': bucket
-            }
-        }
-        super().__init__(f"NoSuchBucket: {bucket}")
