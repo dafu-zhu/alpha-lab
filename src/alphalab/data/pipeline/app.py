@@ -106,7 +106,7 @@ class UploadApp:
             return
 
         # Source parquet bundled with the package
-        source = Path(__file__).resolve().parent.parent / "data" / "security_master.parquet"
+        source = Path(__file__).resolve().parent.parent / "_seed" / "security_master.parquet"
 
         if source.exists():
             working.parent.mkdir(parents=True, exist_ok=True)

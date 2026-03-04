@@ -6,7 +6,7 @@ from datetime import date
 import polars as pl
 import pytest
 
-import alphalab.api.operators as ops
+import alphalab.dsl.operators as ops
 
 
 def is_missing(value) -> bool:

@@ -10,7 +10,7 @@ import time
 import polars as pl
 import pytest
 
-from alphalab.api import operators as ops
+from alphalab.dsl import operators as ops
 from tests.performance.conftest import PERFORMANCE_THRESHOLDS_MS
 
 

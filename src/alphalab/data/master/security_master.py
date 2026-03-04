@@ -19,7 +19,7 @@ from alphalab.utils.logger import setup_logger
 load_dotenv()
 
 # Source parquet bundled with the package
-_SOURCE_MASTER_PATH = Path(__file__).resolve().parent.parent / "data" / "security_master.parquet"
+_SOURCE_MASTER_PATH = Path(__file__).resolve().parent.parent / "_seed" / "security_master.parquet"
 
 # Default local path for security master parquet
 # Prefer working copy under LOCAL_STORAGE_PATH, fall back to bundled source

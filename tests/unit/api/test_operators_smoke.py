@@ -14,7 +14,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from alphalab.api import operators as ops
+from alphalab.dsl import operators as ops
 
 
 # =============================================================================

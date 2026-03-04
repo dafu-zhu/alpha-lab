@@ -107,7 +107,7 @@ def test_profiled_decorator_noop_when_inactive():
 
 def test_operators_are_profiled():
     """All operators in alphalab.api.operators are wrapped with @profiled."""
-    from alphalab.api import operators
+    from alphalab.dsl import operators
     from alphalab.api.profiler import profile
     import polars as pl
 

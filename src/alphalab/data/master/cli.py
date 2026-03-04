@@ -11,7 +11,7 @@ from alphalab.utils.logger import setup_logger
 load_dotenv()
 
 # Source parquet bundled with the package
-SOURCE_PATH = Path(__file__).resolve().parent.parent / "data" / "security_master.parquet"
+SOURCE_PATH = Path(__file__).resolve().parent.parent / "_seed" / "security_master.parquet"
 
 
 def _get_working_path() -> Path:
